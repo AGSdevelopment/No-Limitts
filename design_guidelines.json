@@ -1,0 +1,159 @@
+{
+  "app_name": "Hub",
+  "personality": "1 iOS-Native Clean",
+  "personality_one_liner": "A professional, highly legible, and reassuring internal workspace that feels native, snappy, and content-first.",
+  "color": {
+    "surface": "#FFFFFF",
+    "onSurface": "#11181C",
+    "surfaceSecondary": "#F2F2F7",
+    "onSurfaceSecondary": "#3A3A3C",
+    "surfaceTertiary": "#E5E5EA",
+    "onSurfaceTertiary": "#1C1C1E",
+    "surfaceInverse": "#11181C",
+    "onSurfaceInverse": "#FFFFFF",
+    "brand": "#4F7959",
+    "onBrand": "#FFFFFF",
+    "brandPrimary": "#4F7959",
+    "onBrandPrimary": "#FFFFFF",
+    "brandSecondary": "#E1EFE4",
+    "onBrandSecondary": "#2E4D36",
+    "brandTertiary": "#F1F7F3",
+    "onBrandTertiary": "#4F7959",
+    "success": "#34C759",
+    "onSuccess": "#FFFFFF",
+    "warning": "#FF9F0A",
+    "onWarning": "#FFFFFF",
+    "error": "#FF3B30",
+    "onError": "#FFFFFF",
+    "info": "#8E8E93",
+    "onInfo": "#FFFFFF",
+    "border": "#E5E5EA",
+    "borderStrong": "#C7C7CC",
+    "divider": "#E5E5EA",
+    "muted": "#8E8E93"
+  },
+  "typography": {
+    "displayFontFamily": "Geist",
+    "textFontFamily": "Geist",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24
+    }
+  },
+  "spacing": {
+    "rule": "Generous vertical rhythm. Use md/lg padding around content to frame it, avoiding dense dashboard-style crowding.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 6,
+    "md": 12,
+    "lg": 20,
+    "pill": 999
+  },
+  "shadow_tier": 1,
+  "navigation": "bottom_tabs",
+  "icon_set": "Ionicons",
+  "glassmorphism": {
+    "enabled": true,
+    "do's": [
+      "Bottom tab bar background",
+      "Sticky headers over scrollable feeds",
+      "Floating Action Button (FAB) for document upload"
+    ],
+    "dont's": [
+      "Card backgrounds",
+      "List rows",
+      "Form inputs"
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Home",
+      "purpose": "A highly glanceable dashboard serving critical alerts (expiring certs), quick actions, and top company updates.",
+      "states": {
+        "loading": "Skeleton cards matching the widgets",
+        "empty": "No current updates or pending tasks.",
+        "error": "Could not load dashboard data. [Retry Button]"
+      },
+      "layout": "Data-driven modular widgets. Top: 'Good Morning' header. Below header: Horizontal scrollable quick actions (Upload, Tasks). Next: Prominent warning card if a certificate is expiring < 30 days. Rest of page: Vertical feed of Company Updates & Events using card layouts."
+    },
+    {
+      "name": "Chat",
+      "purpose": "A unified communication hub dividing team channels and direct messages.",
+      "states": {
+        "loading": "Spinner centered",
+        "empty": "No messages yet. Start a conversation.",
+        "error": "Failed to load chats. [Retry Button]"
+      },
+      "layout": "Top segmented control to switch between 'Channels' and 'Direct Messages'. List view with avatar/initials on left, title/name, preview text, and timestamp on right. Unread indicators use brandPrimary dots. Bottom fixed composer inside actual chat thread screens."
+    },
+    {
+      "name": "Certificates",
+      "purpose": "A clear, status-driven repository for compliance documents and training certificates.",
+      "states": {
+        "loading": "List skeletons",
+        "empty": "Illustration + 'No certificates uploaded yet.' + Upload CTA",
+        "error": "Could not fetch certificates. [Retry Button]"
+      },
+      "layout": "Vertical list or grid. Expiring/Expired items always surfaced at the top. Each card shows document title, small file icon, and a bold color-coded status badge (Green for Valid, Yellow for Expiring, Red for Expired). Persistent FAB (glassmorphism) in bottom right for uploading new files."
+    },
+    {
+      "name": "Library",
+      "purpose": "A structural directory for long-lived company resources (Policies, Procedures, Tasks list).",
+      "states": {
+        "loading": "Spinner centered",
+        "empty": "Library is empty.",
+        "error": "Could not load library. [Retry Button]"
+      },
+      "layout": "Clean, list-based iOS setting-style rows grouping 'Policies', 'Company Directory', 'All Tasks'. Use brandTertiary tinted icon containers for each row to add polish."
+    }
+  ],
+  "images": {
+    "home_hero_bg": {
+      "url": "https://images.unsplash.com/photo-1573879034406-75858991ba97?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MTJ8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBvZmZpY2UlMjB0ZWFtJTIwY29sbGFib3JhdGlvbiUyMGJyaWdodHxlbnwwfHx8fDE3OTMwNTQ5OTR8MA&ixlib=rb-4.1.0&q=85",
+      "alt": "Modern office team collaborating"
+    },
+    "empty_state_abstract": {
+      "url": "https://images.unsplash.com/photo-1762869572743-95f59d354798?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzh8MHwxfHNlYXJjaHwxfHxhYnN0cmFjdCUyMGdyZWVuJTIwcGxhbnQlMjBjYWxtJTIwbWluaW1hbHxlbnwwfHx8fDE3OTMwNTQ5OTR8MA&ixlib=rb-4.1.0&q=85",
+      "alt": "Abstract calming minimal background for empty states"
+    }
+  },
+  "haptics": {
+    "tab_press": "selection",
+    "button_press": "light",
+    "upload_success": "notification_success",
+    "error_alert": "notification_error",
+    "swipe_action": "medium"
+  },
+  "instructions_to_main_agent": [
+    "Strictly follow the iOS-Native Clean personality. Ensure generous padding and avoid dense dashboard elements.",
+    "Implement a Light Theme ONLY as requested by the user.",
+    "Never use blue, indigo, or purple. Stick to the Sage Green (brandPrimary #4F7959) for trust and productivity. Adhere to the zero-tolerance rule for banned colors.",
+    "For the 'Certificates' screen, surface items dynamically based on status (Expired/Expiring at the top). Use the explicit warning (#FF9F0A) and error (#FF3B30) tokens for badges.",
+    "Implement glassmorphism on the bottom tab bar and header navigation to maintain a premium native feel.",
+    "Ensure the 'Upload' FAB in the Certificates tab is persistent, floating, and utilizes a glass or branded background.",
+    "Make sure all tappable areas (especially chat list rows and library items) are at least 44x44pt.",
+    "Always apply Loading, Empty, and Error states natively to each screen, full-flexed."
+  ]
+}

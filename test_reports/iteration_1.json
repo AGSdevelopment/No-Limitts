@@ -1,0 +1,55 @@
+{
+  "summary": "First full test of StaffHub. Backend: 15 pytest cases covering auth/me, dashboard, users, role changes (admin-only, can't demote self), seeded channels, channel messages, unread counts and /read, DMs (idempotent, DM notification, privacy for a 3rd user), channel creation, certificate upload validation, valid/expiring/expired status, sort order, scope=all admin-only, file download owner/admin-only, soft delete, expiring notification and email (backend logs show HTTP 202), updates/policies/events/tasks admin-only with notification fan-out, policy acknowledge, RSVP toggle, task PATCH by assignee, notifications read-one/read-all. All 15 pass. test_tasks failed once in 4 runs under xdist and passed on retry. Frontend (390x844 web preview): login screen, token bypass, Home dashboard, all 4 tabs, sending in #general, new DM, certificates list with scope toggle, upload form validation, real file upload through the file chooser, delete via confirm sheet, opening a cert file, Library rows (admin and employee), all 5 compose flows as admin, policy acknowledge, event RSVP (admin and employee), task toggle, notifications (tap navigates, read-all), team role toggle, sign out. All of these work. No red screens or page errors. Only minor UX/design issues found. No deprecated Expo packages (no expo-av, expo-barcode-scanner or expo-background-fetch).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/certificates", "issue": "The response returns a stale notified_stage='valid' even when check_certificate has just set it to 'expiring'/'expired' in the DB. notified_stage is an internal field and is exposed in all cert responses."},
+      {"endpoint": "DELETE /api/updates/{id}", "issue": "Returns {ok:true} for a nonexistent id. Should return 404."},
+      {"endpoint": "GET /api/conversations", "issue": "Runs one count_documents query per conversation (N+1) to get unread counts. Will be slow with many DMs."},
+      {"endpoint": "POST /api/policies + GET /api/dashboard", "issue": "The admin's own new policy counts as 'pending' for that admin, who has to acknowledge their own policy."},
+      {"endpoint": "GET /api/files/{cert_id}?token=", "issue": "The long-lived session token is put in the URL query string, where it can leak into browser history and proxy logs. Consider a short-lived signed download token."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Upload certificate", "issue": "A validation error (e.g. 'Expiry date must be in YYYY-MM-DD format.') stays visible after the user fixes the field, e.g. by tapping a +1 year chip. It only clears on resubmit.", "testID": "upload-error", "priority": "low"},
+      {"component": "Compose screen", "issue": "An employee who deep-links to /compose?type=update sees the full form. The backend correctly rejects the submit with 'Admins only', but the screen has no client-side role guard.", "testID": "compose-update-screen", "priority": "low"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Events/Tasks/Policies/Updates header (web)", "issues": ["headerRight add button (events-new-button etc.) is 28x32 and flush against the right screen edge (right=390, no margin). Below 44pt and visually clipped. Add marginRight/padding and hitSlop or a 44x44 container."]},
+      {"screen": "Chat thread", "issues": ["chat-send-button is 40x40 (below 44pt)."]},
+      {"screen": "Certificates / Team", "issues": ["Scope chips (cert-scope-mine/all) and team-role-toggle are 36px tall (below 44pt)."]},
+      {"screen": "Team directory", "issues": ["Make admin / Make employee toggles the role instantly with no confirmation sheet (a sheet exists elsewhere for deletes)."]},
+      {"screen": "Stack screens on web", "issues": ["When opened by deep link or page refresh (e.g. /events, /tasks) there is no back arrow, so on web the user can only leave via the browser back button."]}
+    ],
+    "react_native_issues": [
+      {"component": "Chat thread KeyboardAvoidingView", "issue": "keyboardVerticalOffset={0} under a native stack header may leave the input partly covered on iOS. Verify on a device; may need the header height as offset. Reference: /app/frontend/app/chat/[id].tsx:55"},
+      {"component": "Chat polling", "issue": "Polls the full message list (up to 200 messages) every 3s and ignores the backend's 'after' param. Wasteful on mobile data and battery. Reference: /app/frontend/app/chat/[id].tsx:25"}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_staffhub_api.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "Optional: add a margin and a 44x44 hit area to the headerRight add buttons (events/tasks/policies/updates), and bump chat-send-button to 44x44",
+    "Optional: clear the upload/compose error state when the user edits a field or taps a quick chip",
+    "Optional: guard compose.tsx client-side (redirect or empty state for non-admins)",
+    "Optional: add a confirmation before changing a team member's role",
+    "Optional: return 404 from DELETE /api/updates/{id} for unknown ids, and return the updated notified_stage (or drop the field) in cert responses",
+    "Optional: auto-acknowledge a policy for its author, or exclude the author from pending_policies",
+    "Optional: use the 'after' param for incremental chat polling"
+  ],
+  "critical_code_review_comments": [
+    "server.py is 684 lines, close to the 700-line limit. Consider splitting routers (chat, certificates, content) before adding features.",
+    "Session token in the download URL query string (src/api.ts:57). Prefer a short-lived signed URL.",
+    "list_conversations makes N+1 count queries.",
+    "Email sending is wrapped and never raises, so certificate upload cannot fail on email errors. Good."
+  ],
+  "updated_files": ["/app/backend/tests/test_staffhub_api.py (new)"],
+  "success_rate": {"backend": "100% (15/15; test_tasks flaky 1/4 runs under xdist)", "frontend": "100% of tested flows functional"},
+  "seed_data_creation": "Test suite upserts a 3rd user user_TEST_third01 with session token test_session_third_TEST (kept for DM privacy tests). All TEST_/UI_TEST content created during testing has been cleaned up. IMPORTANT: the UI sign-out test deleted the seeded test_session_employee session (logout deletes the session). I re-seeded it in user_sessions with a 30-day expiry.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "flaky_tests": ["TestContent::test_tasks: failed once in 4 runs under xdist (-n 2), passed in isolation and on rerun. Root cause not determined."],
+  "context_for_next_testing_agent": "Run pytest from /app/backend (pytest.ini forces -n 2 --dist loadscope; use -n 0 for serial runs). Web bypass: wait for login-screen, run localStorage.setItem('auth_token', JSON.stringify('test_session_admin')), then reload or goto. Setting it before the page loads results in the login screen. The Sign out flow deletes the seeded session in the DB; re-seed test_session_employee/admin afterwards. Each uploaded expiring/expired cert sends one real email. The DocumentPicker on web works with page.expect_file_chooser.",
+  "test_credentials": "Present in /app/memory/test_credentials.md and working."
+}
