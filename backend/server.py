@@ -591,6 +591,24 @@ async def create_policy(body: PolicyIn, admin=Depends(admin_user)):
     return {**doc, "acknowledged": True, "ack_count": 1}
 
 
+@api.get("/policies/{policy_id}/file")
+async def policy_file(policy_id: str, request: Request, token: Optional[str] = None):
+    user = await user_from_token(bearer(request) or token)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    p = await db.policies.find_one({"policy_id": policy_id}, P)
+    if not p or not p.get("drive_file"):
+        raise HTTPException(404, "File not found")
+    svc = await drive_svc_or_409()
+    try:
+        name, mime, data = await run_in_threadpool(gs.drive_download, svc, p["drive_file"]["id"])
+    except Exception as e:
+        logger.error(f"Policy file download failed: {e}")
+        raise HTTPException(502, "Could not open this file")
+    safe = re.sub(r'[^A-Za-z0-9 ._()-]', "_", name)
+    return Response(content=data, media_type=mime, headers={"Content-Disposition": f'inline; filename="{safe}"'})
+
+
 @api.post("/policies/{policy_id}/acknowledge")
 async def acknowledge_policy(policy_id: str, user=Depends(current_user)):
     res = await db.policies.update_one({"policy_id": policy_id}, {"$addToSet": {"acknowledged_by": user["user_id"]}})
@@ -1014,9 +1032,93 @@ def drive_item(f: dict) -> dict:
 
 # ---- Drive index for the AI assistant
 drive_index_lock = asyncio.Lock()
+POLICY_FOLDER_ID = "1jfsRbzHfkZs976wP_-lJCjP5iJ9I3-1U"
+DEFAULT_SPACES = {"therapist": "1AkYaS-Rc10d0XiBfVKKU9rdhGMBvBfPP", "participant": "1_Bu1oeJN9syuP8pI9EjBLH5we_WgZa7d"}
+
+
+def clean_pdf_text(text: str) -> str:
+    """Drop page footers like 'P a g e 1 | 4' / 'Page 2 of 5' and collapse blank runs."""
+    text = re.sub(r"(?im)^\s*(p\s*a\s*g\s*e\s*\d+\s*(\|\s*\d+)?|page\s+\d+\s+of\s+\d+)\s*$", "", text)
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
+async def import_policies_from_drive(svc, folder_id: str, by_name: str = "StaffHub") -> int:
+    """Create a policy for every readable document in the folder (skips ones already imported)."""
+    files = await run_in_threadpool(gs.drive_walk, svc, folder_id)
+    added = []
+    for f in files:
+        if not gs.readable(f["mimeType"]) and "word" not in f["mimeType"]:
+            continue
+        if f["name"].lower().startswith("all published"):  # compilations of the individual documents
+            continue
+        if await db.policies.find_one({"drive_file.id": f["id"]}):
+            continue
+        try:
+            text = await run_in_threadpool(gs.drive_text, svc, f, 60000) if gs.readable(f["mimeType"]) else ""
+        except Exception as e:
+            logger.warning(f"Policy text failed for {f['name']}: {e}")
+            text = ""
+        text = clean_pdf_text(text)
+        title = re.sub(r"\.(pdf|docx?|txt|md)$", "", f["name"], flags=re.I).replace("_", " ")
+        title = re.sub(r"\s*-?\s*\bPDF\b", "", title).strip(" -")
+        low = title.lower()
+        cat = "Procedure" if any(k in low for k in ("procedure", "process", "sop", "guide", "faq", "tips",
+                                                     "register", "calendar", "101")) and "policy" not in low \
+            else "Policy"
+        meta = await run_in_threadpool(gs.drive_get, svc, f["id"])
+        doc = {"policy_id": new_id("pol"), "title": title, "category": cat,
+               "content": text or "Open the attached document to read this policy.", "author_name": by_name,
+               "acknowledged_by": [], "source": "drive_import",
+               "drive_file": {"id": f["id"], "name": f["name"], "link": meta.get("webViewLink"),
+                              "mime_type": f["mimeType"]}, "created_at": now_iso()}
+        await db.policies.insert_one(doc)
+        added.append(title)
+    if added:
+        await notify(await all_user_ids(), "policy", f"{len(added)} policies & procedures added",
+                     "Please review and acknowledge them in Policies & procedures.", "/policies")
+    return len(added)
+
+
+async def ensure_drive_setup():
+    """One-time (per database, once Drive is connected): default resource folders + policy import."""
+    conn = await drive_conn()
+    if not conn or await db.meta.find_one({"key": "drive_setup_v1"}):
+        return
+    svc = await run_in_threadpool(gs.drive_service, conn["refresh_token"])
+    for space, fid in DEFAULT_SPACES.items():
+        if not ((conn.get("spaces") or {}).get(space) or {}).get("id"):
+            meta = await run_in_threadpool(gs.drive_get, svc, fid)
+            await db.integrations.update_one({"key": DRIVE_KEY}, {"$set": {f"spaces.{space}": {
+                "id": fid, "name": meta["name"]}}})
+    count = await import_policies_from_drive(svc, POLICY_FOLDER_ID)
+    await db.meta.insert_one({"key": "drive_setup_v1", "policies_imported": count, "created_at": now_iso()})
+    logger.info(f"Drive setup done: {count} policies imported")
+
+
+class PolicyImportIn(BaseModel):
+    link: str
+
+
+@api.post("/policies/import-drive")
+async def import_policies(body: PolicyImportIn, admin=Depends(admin_user)):
+    fid = gs.folder_id_from_link(body.link)
+    if not fid:
+        raise HTTPException(400, "Paste a Google Drive folder link")
+    svc = await drive_svc_or_409()
+    try:
+        count = await import_policies_from_drive(svc, fid, admin["name"])
+    except Exception as e:
+        logger.error(f"Policy import failed: {e}")
+        raise HTTPException(502, "Couldn't read that Drive folder")
+    return {"imported": count}
 
 
 async def index_drive():
+    try:
+        await ensure_drive_setup()
+    except Exception as e:
+        logger.error(f"Drive setup failed: {e}")
     if drive_index_lock.locked():
         return
     async with drive_index_lock:
@@ -1667,6 +1769,78 @@ async def add_cpd(body: CpdIn, user=Depends(current_user)):
     return doc
 
 
+def build_cpd_report(user: dict, year: int, logs: list, evidence: dict) -> bytes:
+    """Summary table + every attached certificate (PDF pages / images) appended as evidence."""
+    import pymupdf
+    doc = pymupdf.open()
+    total = round(sum(lg["hours"] for lg in logs), 2)
+    rows = "".join(
+        f"<tr><td>{escape(dmy(lg['date']))}</td><td>{escape(lg['title'])}"
+        f"{'<br/><i>' + escape(lg['provider']) + '</i>' if lg.get('provider') else ''}</td>"
+        f"<td>{escape(lg.get('category') or '')}</td><td style='text-align:right'>{lg['hours']}</td>"
+        f"<td>{'Attached' if lg['log_id'] in evidence else '-'}</td></tr>" for lg in logs)
+    html = (f"<h2 style='color:#205890'>CPD Report {year}</h2>"
+            f"<p><b>{escape(user['name'])}</b><br/>{escape(user.get('email', ''))}</p>"
+            f"<p>Total CPD hours: <b>{total}</b> across {len(logs)} activit{'y' if len(logs) == 1 else 'ies'}.<br/>"
+            f"Generated {dmy(date.today().isoformat())} by StaffHub (Aspire &amp; Grow).</p>"
+            "<table style='width:100%;border-collapse:collapse;font-size:10px' border='1' cellpadding='4'>"
+            "<tr style='background:#E3F1FE'><th>Date</th><th>Activity</th><th>Type</th><th>Hours</th><th>Evidence</th></tr>"
+            f"{rows or '<tr><td colspan=5>No CPD logged this year.</td></tr>'}</table>")
+    rect = pymupdf.paper_rect("a4") + (40, 40, -40, -40)
+    story = pymupdf.Story(html=html)
+    writer_buf = __import__("io").BytesIO()
+    writer = pymupdf.DocumentWriter(writer_buf)
+    more = True
+    while more:
+        dev = writer.begin_page(pymupdf.paper_rect("a4"))
+        more, _ = story.place(rect)
+        story.draw(dev)
+        writer.end_page()
+    writer.close()
+    doc.insert_pdf(pymupdf.open("pdf", writer_buf.getvalue()))
+    for lg in logs:
+        ev = evidence.get(lg["log_id"])
+        if not ev:
+            continue
+        data, ctype = ev
+        try:
+            if "pdf" in ctype:
+                doc.insert_pdf(pymupdf.open("pdf", data))
+            else:
+                page = doc.new_page(width=595, height=842)
+                page.insert_text((40, 50), f"Evidence: {lg['title']} ({dmy(lg['date'])}, {lg['hours']} h)",
+                                 fontsize=11)
+                page.insert_image(pymupdf.Rect(40, 70, 555, 800), stream=data, keep_proportion=True)
+        except Exception as e:
+            logger.warning(f"CPD report evidence skipped for {lg['log_id']}: {e}")
+    out = doc.tobytes()
+    doc.close()
+    return out
+
+
+@api.get("/cpd/report")
+async def cpd_report(request: Request, year: int = 0, token: Optional[str] = None):
+    user = await user_from_token(bearer(request) or token)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    year = year or date.today().year
+    logs = await db.cpd_logs.find({"user_id": user["user_id"], "date": {"$gte": f"{year}-01-01",
+                                                                       "$lte": f"{year}-12-31"}}, P
+                                  ).sort("date", 1).to_list(500)
+    evidence = {}
+    for lg in logs:
+        if lg.get("storage_path"):
+            try:
+                data, ctype = await run_in_threadpool(get_object, lg["storage_path"])
+                evidence[lg["log_id"]] = (data, lg.get("content_type") or ctype)
+            except Exception as e:
+                logger.warning(f"CPD evidence fetch failed: {e}")
+    pdf = await run_in_threadpool(build_cpd_report, user, year, logs, evidence)
+    name = re.sub(r"[^A-Za-z0-9]+", "_", user["name"]).strip("_")
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'inline; filename="CPD_Report_{year}_{name}.pdf"'})
+
+
 @api.patch("/cpd/{log_id}")
 async def update_cpd(log_id: str, body: CpdIn, user=Depends(current_user)):
     if not body.title.strip():
@@ -2040,6 +2214,30 @@ async def send_digest(only_user: Optional[dict] = None) -> dict:
     return {"sent": sent, "channels": len(sections)}
 
 
+async def task_reminder_loop():
+    """Hourly: one day before a shared task is due, remind each assignee who hasn't ticked it off."""
+    while True:
+        try:
+            tomorrow = (datetime.now(DIGEST_TZ).date() + timedelta(days=1)).isoformat()
+            async for t in db.tasks.find({"group_id": {"$ne": None}, "status": "open", "due_date": tomorrow,
+                                          "reminder_sent": {"$ne": True}}, P):
+                await db.tasks.update_one({"task_id": t["task_id"]}, {"$set": {"reminder_sent": True}})
+                others = ", ".join(c["name"] for c in t.get("collaborators") or [])
+                body = f"{t['title']} is due tomorrow ({dmy(t['due_date'])})" + (f" · with {others}" if others else "")
+                await notify([t["assignee_id"]], "task", "Task due tomorrow", body, "/tasks")
+                owner = await db.users.find_one({"user_id": t["assignee_id"]}, P)
+                if owner and owner.get("email") and not owner["email"].endswith("@example.com"):
+                    await send_email(to=owner["email"], subject=f"Reminder: {t['title']} is due tomorrow", html=(
+                        "<div style='font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px'>"
+                        f"<h2 style='color:#205890'>Task due tomorrow</h2><p>Hi {escape(owner['name'].split(' ')[0])},</p>"
+                        f"<p><b>{escape(t['title'])}</b> is due on {dmy(t['due_date'])} and isn't ticked off yet."
+                        f"{' You are working on it with ' + escape(others) + '.' if others else ''}</p>"
+                        "<p>Open StaffHub → My tasks to mark it done.</p></div>"))
+        except Exception as e:
+            logger.error(f"Task reminder loop error: {e}")
+        await asyncio.sleep(3600)
+
+
 async def digest_loop():
     while True:
         try:
@@ -2200,6 +2398,7 @@ async def startup():
     asyncio.create_task(drive_index_loop())
     asyncio.create_task(digest_loop())
     asyncio.create_task(socials_loop())
+    asyncio.create_task(task_reminder_loop())
 
 
 @app.on_event("shutdown")

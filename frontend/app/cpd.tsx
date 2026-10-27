@@ -127,6 +127,15 @@ export default function Cpd() {
               <View style={styles.total} testID="cpd-year-total">
                 <Text style={styles.totalNum}>{logs.data?.year_hours ?? 0}</Text>
                 <Text style={styles.totalLabel}>CPD hours logged in {logs.data?.year}</Text>
+                <Pressable
+                  testID="cpd-report-button"
+                  onPress={() => openLink(`${API_URL}/cpd/report?year=${logs.data?.year}&token=${encodeURIComponent(getApiToken() ?? "")}`)}
+                  style={({ pressed }) => [styles.reportBtn, pressed && { opacity: 0.85 }]}
+                  accessibilityLabel="Download CPD report"
+                >
+                  <Ionicons name="download-outline" size={18} color={colors.brandPrimary} />
+                  <Text style={styles.reportText}>Download {logs.data?.year} report (PDF)</Text>
+                </Pressable>
               </View>
             ) : (
               <Text style={styles.teamHead}>Hours logged in {logs.data?.year}</Text>
@@ -223,11 +232,13 @@ function AddSheet({ kind, visible, onClose, editing }: { kind: "log" | "resource
       const res = await uploadForm(`${API_URL}/cpd/extract`, { headers: authHeaders(), files: { file: f } });
       const b = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(typeof b.detail === "string" ? b.detail : "Couldn't read the certificate");
-      if (b.title) setTitle(b.title);
-      if (b.provider) setProvider(b.provider);
-      if (b.date) setDate(isoToDmy(b.date));
-      if (b.hours) setHours(String(b.hours));
-      if (b.category) {
+      // when editing, only fill gaps so the user's own changes aren't overwritten
+      const fill = (cur: string, v: string, set: (x: string) => void) => v && (!editing || !cur) && set(v);
+      fill(title, b.title, setTitle);
+      fill(provider, b.provider, setProvider);
+      if (b.date && !editing) setDate(isoToDmy(b.date));
+      fill(hours, b.hours ? String(b.hours) : "", setHours);
+      if (b.category && (!editing || !category)) {
         setCategory(b.category);
         setShareSection(b.category === "Course" ? "Courses" : b.category === "Webinar" ? "Webinars" : b.category === "Case Study" ? "Case Studies" : "Resource Links");
       }
@@ -387,6 +398,8 @@ const useStyles = makeStyles((c) => ({
   total: { backgroundColor: c.brandPrimary, borderRadius: 16, padding: 20, marginBottom: 6, gap: 4 },
   totalNum: { fontSize: 40, fontWeight: "800", color: c.onBrandPrimary },
   totalLabel: { fontSize: 15, color: c.onBrandPrimary, opacity: 0.9 },
+  reportBtn: { flexDirection: "row", alignItems: "center", gap: 8, alignSelf: "flex-start", backgroundColor: c.surface, borderRadius: 12, paddingHorizontal: 14, minHeight: 44, marginTop: 10 },
+  reportText: { fontSize: 14, fontWeight: "700", color: c.brandPrimary },
   teamHead: { fontSize: 13, fontWeight: "600", color: c.muted, textTransform: "uppercase", marginLeft: 4, marginBottom: 4 },
   hours: { fontSize: 16, fontWeight: "700", color: c.brandPrimary },
   hoursBox: { width: 52, height: 52, borderRadius: 12, backgroundColor: c.brandTertiary, alignItems: "center", justifyContent: "center" },

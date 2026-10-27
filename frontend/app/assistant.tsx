@@ -114,7 +114,7 @@ export default function Assistant() {
                   )}
                   <View style={[styles.bubble, mine ? styles.mine : styles.theirs]}>
                     <Text style={[styles.msgText, { color: mine ? colors.onBrandPrimary : colors.onSurface }]}>
-                      {item.text.replace(/\*\*/g, "") || "Thinking…"}
+                      {item.text.replace(/\*\*/g, "").replace(/^#{1,6}\s*/gm, "").replace(/^\s*[*-]\s+/gm, "• ") || "Thinking…"}
                     </Text>
                   </View>
                 </View>

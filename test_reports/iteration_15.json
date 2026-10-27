@@ -1,0 +1,36 @@
+{
+  "summary": "Frontend testing at 375x667 with the employee and admin bypass tokens. All 6 requested areas pass. (1) Library Resources order is correct for both roles. (2) Policies list shows 30 items: 29 imported plus 1 sample. Filters: Policy shows 13, Procedure shows 17, with no wrong labels. SMS Policy and Access to Office detail pages show the extracted text and the policy-drive-file card. Tapping the card opens /api/policies/<id>/file?token=..., which returns 200 application/pdf. Employee acknowledge works on 'Office Top Tips'. (3) CPD: attaching /tmp/cpd.png auto-filled the form via Claude in about 3s. Saved a TEST entry (2.5h). cpd-report-button opens /api/cpd/report?year=2026, which returns 200 application/pdf (2.2MB, 2 pages, summary table plus the evidence image). Editing by tapping the card (2.5 to 4) and with the pencil (4 to 3.25) updates the total, and the change persists after reload. Deleted the entry; total is back to 0. (4) Company Drive: Therapist and Participants both load with crumbs 'Therapist Resources' and 'Participants Resources' and show 'This folder is empty'. (5) Ask AI answered 'What is our SMS policy?' with details from the SMS Policy and cited 'Source: SMS Policy 13042026'. (6) Regression: Home, Tasks, Certificates and Library load for both roles with no page errors.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Policy detail drive file card", "issue": "The subtitle says 'Open in Google Drive', but tapping opens the proxied PDF from /api/policies/<id>/file, not Drive. Suggest 'Open document (PDF)'.", "testID": "policy-drive-file", "priority": "low"},
+      {"component": "Assistant answer bubble", "issue": "Markdown shows as raw text ('*Source: ...*', '- ' bullets). Consider a markdown renderer or plain-text formatting.", "testID": "assistant-msg-assistant", "priority": "low"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Policy detail", "issues": ["The extracted PDF text includes artefacts like 'P a g e 1 | 4', blank 'Director Signed:/Name:' lines and many empty lines. Consider cleaning the text on import, or show a short summary and rely on the PDF card."]},
+      {"screen": "Home", "issues": ["Grammar: '1 certificate need attention' should be '1 certificate needs attention'."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Optional: change the policy drive card subtitle from 'Open in Google Drive' to 'Open document' (it opens the proxied PDF).",
+    "Optional: clean imported policy text (remove 'P a g e N | M' artefacts and runs of blank lines).",
+    "Optional: render markdown in assistant replies.",
+    "Optional: fix pluralisation on the Home certificate alert ('needs').",
+    "Optional: in Edit CPD, picking a replacement certificate runs Claude extraction again and silently overwrites title/hours/date the user may have already edited. Consider only filling empty fields while editing.",
+    "FYI: the import has 29 Drive policies (not 27), including the aggregate docs 'All Published Policies (Centro)' and 'All Published Procedures (Centro)', plus 2 Motor Vehicle policy versions. Check this is intended."
+  ],
+  "critical_code_review_comments": [
+    "cpd.tsx is 419 lines; AddSheet could move to its own file.",
+    "policy/[id].tsx loads the whole /policies list to find one policy. Fine for 30 items; a GET /policies/{id} would scale better."
+  ],
+  "updated_files": ["/app/test_reports/iteration_15.json"],
+  "success_rate": {"backend": "N/A (frontend only; spot curls of policy file, CPD report and drive spaces all 200)", "frontend": "100%"},
+  "seed_data_creation": "One TEST CPD entry (TEST_CPD report entry, with certificate) was created and deleted via the UI; employee CPD is back to 0 logs. Employee user_testemp001 acknowledged policy pol_596253dee1ba (Office Top Tips). No notifications, events or updates were created.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Web bypass: localStorage auth_token = JSON.stringify('test_session_employee'|'test_session_admin'). window.open calls (openLink) can be captured with add_init_script overriding window.open to push URLs into an array. CPD header '+' and modal buttons need JS element.click(). DocumentPicker on web: use page.expect_file_chooser around a JS click on cpd-attach-button. The Playwright browser sometimes crashes on launch (SIGSEGV); just retry. The employee has already acknowledged Referral Process and Office Top Tips.",
+  "rca_of_issue": ""
+}

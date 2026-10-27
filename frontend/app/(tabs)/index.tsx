@@ -71,7 +71,7 @@ export default function Home() {
                 <View style={styles.alertHead}>
                   <Ionicons name="warning" size={22} color={d.cert_alerts.some((c: any) => c.status === "expired") ? colors.errorText : colors.warningText} />
                   <Text style={styles.alertTitle}>
-                    {d.cert_alerts.length} certificate{d.cert_alerts.length > 1 ? "s" : ""} need attention
+                    {d.cert_alerts.length} certificate{d.cert_alerts.length > 1 ? "s need" : " needs"} attention
                   </Text>
                 </View>
                 {d.cert_alerts.slice(0, 3).map((c: any) => (

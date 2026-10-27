@@ -80,6 +80,12 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 
 - CPD entries editable: tap entry or pencil → Edit CPD sheet prefilled (PATCH /api/cpd/{id}, owner only); can replace certificate; AI-filled fields editable before save
 
+- CPD Report PDF: GET /api/cpd/report?year=&token= (summary table + evidence pages via pymupdf); button on My CPD total card
+- Task reminders: hourly loop, shared (group) open tasks due tomorrow (Perth) → in-app + email once (reminder_sent)
+
+- Drive setup: ensure_drive_setup() (runs in index_drive, once per DB when Drive connected, meta drive_setup_v1) sets Therapist (1AkYaS…) / Participants (1_Bu1oe…) folders and imports policies from folder 1jfsRbz… (27 PDFs; skips "All Published" compilations); POST /api/policies/import-drive {link}; GET /api/policies/{id}/file proxies the Drive file
+- Library: Ask AI placed below Policies & procedures
+
 ## Backlog
 - P0: Add Google Drive OAuth credentials and connect
 - P1: Phone push notifications (Firebase file + build)

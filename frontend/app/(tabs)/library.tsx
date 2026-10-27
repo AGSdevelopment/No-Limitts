@@ -30,9 +30,9 @@ export default function Library() {
     { icon: "school-outline", label: "CPD", to: "/cpd", id: "cpd" },
     { icon: "calendar-outline", label: "Events", to: "/events", id: "events" },
     { icon: "shield-checkmark-outline", label: "Policies & procedures", to: "/policies", id: "policies", count: dash.data?.pending_policies },
+    { icon: "sparkles-outline", label: "Ask AI about policies", to: "/assistant", id: "assistant" },
     { icon: "people-outline", label: "Team directory", to: "/team", id: "team" },
     { icon: "folder-open-outline", label: "Company Drive", to: "/drive", id: "drive" },
-    { icon: "sparkles-outline", label: "Ask AI about policies", to: "/assistant", id: "assistant" },
   ];
   const admin: Row[] = [
     { icon: "create-outline", label: "Post company update", to: "/compose?type=update", id: "post-update" },

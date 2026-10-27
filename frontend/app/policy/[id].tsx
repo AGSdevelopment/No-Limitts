@@ -4,7 +4,7 @@ import { useLocalSearchParams } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { api, openLink } from "@/src/api";
+import { API_URL, api, getApiToken, openLink } from "@/src/api";
 import { useToast } from "@/src/components/toast";
 import { Button, ErrorState, Ionicons, Loading, Pill, formatDate } from "@/src/components/ui";
 import { makeStyles, useTheme } from "@/src/theme";
@@ -47,11 +47,11 @@ export default function PolicyDetail() {
         </Text>
         <Text style={styles.body} testID="policy-content">{p.content}</Text>
         {p.drive_file && (
-          <Pressable testID="policy-drive-file" onPress={() => openLink(p.drive_file.link)} style={styles.driveCard}>
+          <Pressable testID="policy-drive-file" onPress={() => openLink(`${API_URL}/policies/${p.policy_id}/file?token=${encodeURIComponent(getApiToken() ?? "")}`)} style={styles.driveCard}>
             <Ionicons name="logo-google" size={20} color={colors.brandPrimary} />
             <View style={{ flex: 1 }}>
               <Text style={styles.driveName} numberOfLines={1}>{p.drive_file.name}</Text>
-              <Text style={styles.driveSub}>Open in Google Drive</Text>
+              <Text style={styles.driveSub}>Open document</Text>
             </View>
             <Ionicons name="open-outline" size={18} color={colors.muted} />
           </Pressable>
