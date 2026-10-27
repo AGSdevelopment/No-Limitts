@@ -706,6 +706,25 @@ async def list_tasks(scope: str = "mine", user=Depends(current_user)):
         q = {"assignee_id": user["user_id"]}
     docs = await db.tasks.find(q, P).to_list(3000)
     docs.sort(key=lambda t: (t["status"] == "done", t.get("due_date") or "9999"))
+    if scope == "all" and user["role"] == "admin":
+        # one row per shared task, with each assignee's progress
+        groups, out = {}, []
+        for t in docs:
+            gid = t.get("group_id")
+            if not gid:
+                out.append(t)
+                continue
+            if gid not in groups:
+                groups[gid] = {**t, "progress": []}
+                out.append(groups[gid])
+            groups[gid]["progress"].append({"task_id": t["task_id"], "name": t["assignee_name"], "status": t["status"],
+                                            "completed_at": t.get("completed_at")})
+        for g in groups.values():
+            g["progress"].sort(key=lambda p: (p["status"] != "done", p["name"]))
+            g["done_count"] = sum(p["status"] == "done" for p in g["progress"])
+            g["status"] = "done" if g["done_count"] == len(g["progress"]) else "open"
+        out.sort(key=lambda t: (t["status"] == "done", t.get("due_date") or "9999"))
+        return out
     return docs
 
 
@@ -764,6 +783,13 @@ async def create_task(body: TaskIn, user=Depends(current_user)):
     return docs[0] if len(docs) == 1 else {"created": len(docs), "group_id": group_id}
 
 
+@api.delete("/tasks/group/{group_id}")
+async def delete_task_group(group_id: str, admin=Depends(admin_user)):
+    if not (await db.tasks.delete_many({"group_id": group_id})).deleted_count:
+        raise HTTPException(404, "Task not found")
+    return {"ok": True}
+
+
 @api.delete("/tasks/{task_id}")
 async def delete_task(task_id: str, user=Depends(current_user)):
     t = await db.tasks.find_one({"task_id": task_id}, P)
@@ -783,7 +809,8 @@ async def update_task(task_id: str, body: TaskPatch, user=Depends(current_user))
         q["assignee_id"] = user["user_id"]
     else:
         q["$or"] = [{"private": {"$ne": True}}, {"assignee_id": user["user_id"]}]
-    res = await db.tasks.update_one(q, {"$set": {"status": body.status}})
+    res = await db.tasks.update_one(q, {"$set": {"status": body.status,
+                                                 "completed_at": now_iso() if body.status == "done" else None}})
     if not res.matched_count:
         raise HTTPException(404, "Task not found")
     return await db.tasks.find_one({"task_id": task_id}, P)
@@ -1793,10 +1820,8 @@ async def cpd_resource_file(resource_id: str, request: Request, token: Optional[
 
 
 @api.delete("/cpd/resources/{resource_id}")
-async def delete_cpd_resource(resource_id: str, user=Depends(current_user)):
+async def delete_cpd_resource(resource_id: str, admin=Depends(admin_user)):
     q = {"resource_id": resource_id}
-    if user["role"] != "admin":
-        q["created_by_id"] = user["user_id"]
     if not (await db.cpd_resources.delete_one(q)).deleted_count:
         raise HTTPException(404, "Resource not found")
     await db.cpd_logs.update_many({"shared_resource_id": resource_id}, {"$unset": {"shared_resource_id": ""}})

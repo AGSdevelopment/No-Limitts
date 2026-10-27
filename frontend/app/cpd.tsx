@@ -90,7 +90,7 @@ export default function Cpd() {
                   <Text style={styles.sectionEmpty}>Nothing here yet.</Text>
                 ) : (
                   items.map((item) => {
-                    const canDelete = isAdmin || item.created_by_id === user?.user_id;
+                    const canDelete = isAdmin;
                     const fileUrl = `${API_URL}/cpd/resources/${item.resource_id}/file?token=${encodeURIComponent(getApiToken() ?? "")}`;
                     return (
                       <Pressable key={item.resource_id} testID={`cpd-resource-${item.resource_id}`} onPress={() => (item.url ? openLink(item.url) : item.has_file ? openLink(fileUrl) : undefined)} style={styles.card}>

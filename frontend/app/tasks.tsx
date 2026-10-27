@@ -27,7 +27,7 @@ export default function Tasks() {
 
   const remove = async () => {
     try {
-      await api(`/tasks/${del.task_id}`, { method: "DELETE" });
+      await api(del.progress ? `/tasks/group/${del.group_id}` : `/tasks/${del.task_id}`, { method: "DELETE" });
       qc.invalidateQueries({ queryKey: ["tasks"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
       toast("Task deleted", "info");
@@ -82,9 +82,10 @@ export default function Tasks() {
           renderItem={({ item }) => {
             const done = item.status === "done";
             const overdue = !done && item.due_date && item.due_date < today;
-            const canToggle = isAdmin || item.assignee_id === user?.user_id;
+            const isGroup = Array.isArray(item.progress);
+            const canToggle = !isGroup && (isAdmin || item.assignee_id === user?.user_id);
             const canDelete = item.created_by_id === user?.user_id || (isAdmin && !item.private);
-            const who = item.private ? "Only you" : scope === "all" ? item.assignee_name : `From ${item.created_by}`;
+            const who = item.private ? "Only you" : isGroup ? (item.for_everyone ? "Everyone" : `${item.progress.length} people`) : scope === "all" ? item.assignee_name : `From ${item.created_by}`;
             return (
               <Pressable
                 testID={`task-${item.task_id}`}
@@ -101,7 +102,8 @@ export default function Tasks() {
                 <View style={{ flex: 1, gap: 2 }}>
                   <Text style={[styles.title, done && styles.doneText]}>{item.title}</Text>
                   {!!item.description && <Text style={styles.desc} numberOfLines={2}>{item.description}</Text>}
-                  {item.collaborators?.length > 0 && (
+                  {isGroup && <GroupProgress item={item} />}
+                  {item.collaborators?.length > 0 && !isGroup && (
                     <View style={styles.subRow} testID={`task-collaborators-${item.task_id}`}>
                       <Ionicons name="people" size={13} color={colors.brandPrimary} />
                       <Text style={styles.collab} numberOfLines={2}>
@@ -143,10 +145,38 @@ export default function Tasks() {
           }}
         />
       )}
-      <ConfirmSheet visible={!!del} title="Delete task?" message={del?.private ? "This removes your private task." : "This removes the task for its assignee."} confirmLabel="Delete" onConfirm={remove} onClose={() => setDel(null)} />
+      <ConfirmSheet visible={!!del} title="Delete task?" message={del?.private ? "This removes your private task." : del?.progress ? `This removes the task for all ${del.progress.length} assignees.` : "This removes the task for its assignee."} confirmLabel="Delete" onConfirm={remove} onClose={() => setDel(null)} />
     </View>
   );
 }
+
+function GroupProgress({ item }: { item: any }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  const [open, setOpen] = useState(false);
+  const total = item.progress.length;
+  const pct = total ? item.done_count / total : 0;
+  return (
+    <View style={styles.progress} testID={`task-progress-${item.group_id}`}>
+      <Pressable onPress={() => setOpen((o) => !o)} hitSlop={6} style={styles.progressHead} testID={`task-progress-toggle-${item.group_id}`}>
+        <View style={styles.bar}>
+          <View style={[styles.barFill, { width: `${Math.round(pct * 100)}%` }]} />
+        </View>
+        <Text style={styles.progressText}>{item.done_count} of {total} done</Text>
+        <Ionicons name={open ? "chevron-up" : "chevron-down"} size={16} color={colors.muted} />
+      </Pressable>
+      {open &&
+        item.progress.map((p: any) => (
+          <View key={p.task_id} style={styles.personRow} testID={`task-progress-person-${p.task_id}`}>
+            <Ionicons name={p.status === "done" ? "checkmark-circle" : "ellipse-outline"} size={18} color={p.status === "done" ? colors.success : colors.muted} />
+            <Text style={[styles.personName, p.status === "done" && { color: colors.onSurface }]} numberOfLines={1}>{p.name}</Text>
+            <Text style={styles.sub}>{p.status === "done" ? (p.completed_at ? `Done ${formatDate(p.completed_at)}` : "Done") : "Not done yet"}</Text>
+          </View>
+        ))}
+    </View>
+  );
+}
+
 
 const useStyles = makeStyles((c) => ({
   root: { flex: 1, backgroundColor: c.surfaceSecondary },
@@ -161,5 +191,12 @@ const useStyles = makeStyles((c) => ({
   attach: { flexDirection: "row", alignItems: "center", gap: 4, minHeight: 32, alignSelf: "flex-start" },
   attachText: { fontSize: 14, fontWeight: "600", color: c.brandPrimary, flexShrink: 1 },
   collab: { fontSize: 13, color: c.brandPrimary, fontWeight: "600", flexShrink: 1 },
+  progress: { marginTop: 6, gap: 6 },
+  progressHead: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 32 },
+  bar: { flex: 1, height: 8, borderRadius: 4, backgroundColor: c.surfaceTertiary, overflow: "hidden" },
+  barFill: { height: 8, borderRadius: 4, backgroundColor: c.success },
+  progressText: { fontSize: 13, fontWeight: "600", color: c.onSurface },
+  personRow: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 28 },
+  personName: { flex: 1, fontSize: 14, color: c.onSurfaceSecondary },
   delBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center", marginTop: -10, marginRight: -8 },
 }));

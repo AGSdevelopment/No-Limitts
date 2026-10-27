@@ -73,6 +73,11 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Certificate "count towards CPD" logs with today's date so it adds to this year's total
 - Tasks: admin multi-select people (assignee_ids) → each copy has collaborators[]; shown "Working on this with …" + notification "with …"
 
+## Round 8 (2026-06)
+- Task progress: admin "All assigned" groups shared tasks (group_id) into one row with progress bar "x of n done" + per-person status/completed_at; DELETE /api/tasks/group/{group_id}; PATCH sets completed_at
+- CPD library resources: delete is admin-only
+- Pending from user: Therapist/Participants Drive folder links (skipped), LinkedIn keys (skipped)
+
 ## Backlog
 - P0: Add Google Drive OAuth credentials and connect
 - P1: Phone push notifications (Firebase file + build)
