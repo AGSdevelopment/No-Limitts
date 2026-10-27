@@ -2,6 +2,7 @@ from fastapi import FastAPI, APIRouter, Request, HTTPException, Depends, UploadF
 from fastapi.responses import Response, StreamingResponse, HTMLResponse
 from fastapi.concurrency import run_in_threadpool
 import json
+import re
 import secrets
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -382,10 +383,10 @@ class ChannelIn(BaseModel):
 
 @api.post("/channels")
 async def create_channel(body: ChannelIn, admin=Depends(admin_user)):
-    name = body.name.strip().lower().replace(" ", "-").lstrip("#")
+    name = body.name.strip().lstrip("#").strip().replace(" ", "-")
     if not name:
         raise HTTPException(400, "Name is required")
-    if await db.conversations.find_one({"type": "channel", "name": name}):
+    if await db.conversations.find_one({"type": "channel", "name": {"$regex": f"^{re.escape(name)}$", "$options": "i"}}):
         raise HTTPException(400, "Channel already exists")
     conv = {"conversation_id": new_id("conv"), "type": "channel", "name": name, "description": body.description,
             "member_ids": [], "last_message": "", "last_at": "", "created_at": now_iso()}
@@ -937,8 +938,9 @@ app.add_middleware(CORSMiddleware, allow_credentials=True, allow_origins=["*"], 
 async def seed():
     for name, desc in (("general", "Company-wide chat for everyone"),
                        ("announcements", "Important news and notices")):
-        if not await db.conversations.find_one({"type": "channel", "name": name}):
+        if not await db.conversations.find_one({"type": "channel", "$or": [{"seed_key": name}, {"name": name}]}):
             await db.conversations.insert_one({"conversation_id": new_id("conv"), "type": "channel", "name": name,
+                                               "seed_key": name,
                                                "description": desc, "member_ids": [], "last_message": "",
                                                "last_at": "", "created_at": now_iso()})
     if await db.updates.count_documents({}) == 0:
