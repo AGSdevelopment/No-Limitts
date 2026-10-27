@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
+import { ChatSummarySheet } from "@/src/components/chat-summary";
 import { useToast } from "@/src/components/toast";
 import { Avatar, EmptyState, ErrorState, Ionicons, Loading, tap } from "@/src/components/ui";
 import { makeStyles, useTheme } from "@/src/theme";
@@ -22,6 +23,7 @@ export default function ChatThread() {
   const qc = useQueryClient();
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  const [showSummary, setShowSummary] = useState(false);
   const listRef = useRef<FlatList>(null);
   const q = useQuery<any[]>({ queryKey: ["messages", id], queryFn: () => api(`/conversations/${id}/messages`), refetchInterval: 3000 });
   const msgs = q.data ?? [];
@@ -52,7 +54,18 @@ export default function ChatThread() {
 
   return (
     <View style={styles.root} testID="chat-thread-screen">
-      <Stack.Screen options={{ title: name ?? "Chat" }} />
+      <Stack.Screen
+        options={{
+          title: name ?? "Chat",
+          headerRight: () => (
+            <Pressable testID="chat-summarise-button" onPress={() => setShowSummary(true)} hitSlop={10} style={styles.headerBtn}>
+              <Ionicons name="sparkles" size={18} color={colors.brandPrimary} />
+              <Text style={styles.headerBtnText}>Summarise</Text>
+            </Pressable>
+          ),
+        }}
+      />
+      <ChatSummarySheet convId={id} visible={showSummary} onClose={() => setShowSummary(false)} />
       <KeyboardAvoidingView behavior="translate-with-padding" style={{ flex: 1 }} automaticOffset>
         {q.isLoading ? (
           <Loading />
@@ -116,6 +129,8 @@ export default function ChatThread() {
 
 const useStyles = makeStyles((c) => ({
   root: { flex: 1, backgroundColor: c.surface },
+  headerBtn: { flexDirection: "row", alignItems: "center", gap: 4, minHeight: 44, paddingHorizontal: 8 },
+  headerBtnText: { color: c.brandPrimary, fontWeight: "600", fontSize: 15 },
   msgRow: { flexDirection: "row", alignItems: "flex-end", gap: 8 },
   sender: { fontSize: 12, fontWeight: "600", color: c.muted, marginBottom: 4, marginLeft: 4 },
   bubble: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18 },

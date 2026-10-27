@@ -8,9 +8,6 @@ import { useAuth } from "@/src/auth";
 import { Button, Ionicons } from "@/src/components/ui";
 import { makeStyles, useTheme } from "@/src/theme";
 
-const HERO =
-  "https://images.unsplash.com/photo-1573879034406-75858991ba97?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200";
-
 const FEATURES: { icon: any; text: string }[] = [
   { icon: "chatbubbles-outline", text: "Team channels and direct messages" },
   { icon: "ribbon-outline", text: "Certificates with expiry reminders" },
@@ -26,8 +23,14 @@ export default function Login() {
   return (
     <View style={styles.root} testID="login-screen">
       <View style={styles.heroWrap}>
-        <Image source={{ uri: HERO }} style={styles.hero} contentFit="cover" />
-        <LinearGradient colors={["rgba(32,88,144,0.15)", "rgba(32,88,144,0.8)"]} style={styles.heroOverlay} />
+        <Image
+          source={require("@/assets/images/welcome-team.jpg")}
+          style={styles.hero}
+          contentFit="cover"
+          contentPosition={{ left: "50%", top: "70%" }}
+          testID="login-hero-image"
+        />
+        <LinearGradient colors={["rgba(32,88,144,0)", "rgba(32,88,144,0.35)"]} style={styles.heroOverlay} />
       </View>
       <Animated.View entering={FadeInDown.duration(500)} style={[styles.panel, { paddingBottom: insets.bottom + 24 }]}>
         <Image source={require("@/assets/images/brand-logo.png")} style={styles.logo} contentFit="contain" testID="login-brand-logo" />

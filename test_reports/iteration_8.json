@@ -1,0 +1,38 @@
+{
+  "summary": "Frontend tests (mobile 375x667) for the Claude chat summary and Google Drive shared-folder features. All requested flows PASS. 1) /drive shows the drive-not-setup empty state when no folder is set (admin and employee). 2) Admin: Library > Integrations > drive-shared-folder box. Pasting the folder link and tapping Save shows the toast 'Company folder set to “01032024”', and drive-shared-folder-name shows the folder. 3) Library > library-row-drive opens /drive with 18 PDF files (size and date shown) and the breadcrumb '01032024'. Searching 'Armi' returns 1 result, a search with no matches shows drive-empty, and search clear restores all 18. Tapping a file opens a new tab; the file endpoint returns 200 application/pdf inline, and 401 without a token. 4) Employee can open Company Drive and sees 18 files. Employee cannot reach integrations (integrations-admin-only). 5) Chat summary on #Allied Health (admin) and #Celebrate the Wins (employee): the loading state shows, then chat-summary-text has an accurate Claude summary. Closing works via both chat-summary-close and the backdrop. #announcements (0 messages) shows chat-summary-error 'There aren't enough messages to summarise yet' with a working retry. 6) Regression: Ask AI streams an answer; chat send works in the admin-employee DM. An invalid folder link returns 400 'Paste a Google Drive folder link'. CLEANUP DONE: the shared folder was cleared from the UI with drive-shared-folder-clear, and GET /api/drive/shared now returns 409 for both roles. Google Drive is still connected and Google Chat links were not changed. No deprecated Expo packages were found (expo-av, expo-barcode-scanner and expo-background-fetch are not used).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/conversations/{id}/summary", "issue": "Message lines are built from raw UTC created_at[:16] (server.py:1259), so Claude's summary quotes UTC times (e.g. '03:19') that don't match the local times in the chat bubbles. Australian staff will see times about 10-11h off. Either convert to the company timezone or tell the model not to mention clock times."},
+      {"endpoint": "GET /api/drive/shared/file/{id}?token=", "issue": "The long-lived session bearer token is sent in the URL query string (src/api.ts:67). It can leak into browser history, proxy/server access logs, and copied or forwarded links. Use a short-lived, single-file signed token instead."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Integrations > Company Drive folder", "issue": "The 'Change folder' button runs DELETE right away with no confirmation. All staff lose Company Drive until a new folder is saved. Errors are also swallowed (.catch(() => {})) with no toast. Reference: app/integrations.tsx:46-50,164", "testID": "drive-shared-folder-clear", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Chat summary sheet", "issues": ["Modal uses animationType='slide', so the dim backdrop slides up with the sheet instead of fading in. Use a fade backdrop with a slide-up sheet.", "The 'Try again' button is shown for the 400 'not enough messages' error, where retrying always fails the same way. Show it only for 5xx/network errors."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [".screenshots/ (browser automation screenshots 01-11)"],
+  "action_items": [
+    "LOW: Add a confirm step to 'Change folder' (or keep the current folder until a new one is saved), and show a toast if DELETE fails (integrations.tsx clearFolder).",
+    "LOW: Replace ?token=<session> in openDriveFile with a short-lived signed file token.",
+    "LOW: Convert message timestamps to the company local timezone before sending them to Claude for summaries (server.py:1259).",
+    "LOW: Hide chat-summary-retry for the 400 'not enough messages' response."
+  ],
+  "critical_code_review_comments": [
+    "drive.tsx: subfolder navigation and breadcrumb tapping (drive-crumb-N) were not exercised because the test folder 01032024 only contains PDFs. The logic looks correct (path slice).",
+    "chat-summary.tsx: the summary is re-requested every time the sheet opens (no caching). That's acceptable, but each open is a paid Claude call."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend only; spot curl checks passed)", "frontend": "100% of requested flows"},
+  "seed_data_creation": "Sent one DM message 'TEST_regression ping' from employee to admin (dm_user_testadmin01_user_testemp001) for the chat-send regression. Two Ask AI questions were asked as employee. The shared Drive folder was set and then CLEARED.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Base URL is in frontend/.env EXPO_PUBLIC_BACKEND_URL. Login bypass: localStorage auth_token = JSON.stringify('test_session_admin'|'test_session_employee'). Channels: conv_ab9e05c17d16 (#Allied Health, 3 msgs), conv_52f5f60ecb0b (#Celebrate the Wins, 2 msgs), conv_31a0e1c5a96a (#announcements, 0 msgs). Do not post in channels (they mirror to real Google Chat). The shared folder must be cleared after testing (it contains real timesheets). Headless PDF popups never fire 'load', so check the window.open URL or curl the file endpoint instead.",
+  "rca_of_issue": ""
+}

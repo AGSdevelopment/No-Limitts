@@ -24,6 +24,10 @@ async def stream_answer(system: str, prompt: str):
             break
 
 
+async def answer(system: str, prompt: str) -> str:
+    return (await new_chat(system).send_message(UserMessage(text=prompt))) or ""
+
+
 def file_to_image_b64(data: bytes, content_type: str) -> str:
     if "pdf" in content_type:
         doc = pymupdf.open(stream=data, filetype="pdf")

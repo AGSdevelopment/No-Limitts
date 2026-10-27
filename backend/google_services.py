@@ -144,7 +144,77 @@ def drive_list(svc, q: str = "") -> list:
 
 
 def drive_get(svc, file_id: str) -> dict:
-    return svc.files().get(fileId=file_id, fields="id,name,mimeType,webViewLink", supportsAllDrives=True).execute()
+    return svc.files().get(fileId=file_id, fields="id,name,mimeType,webViewLink,parents",
+                           supportsAllDrives=True).execute()
+
+
+FOLDER_MIME = "application/vnd.google-apps.folder"
+EXPORT_MIME = {"application/vnd.google-apps.document": "application/pdf",
+               "application/vnd.google-apps.spreadsheet": "application/pdf",
+               "application/vnd.google-apps.presentation": "application/pdf",
+               "application/vnd.google-apps.drawing": "application/pdf"}
+
+
+def folder_id_from_link(link: str) -> str:
+    link = link.strip()
+    m = re.search(r"/folders/([A-Za-z0-9_-]+)", link) or re.search(r"[?&]id=([A-Za-z0-9_-]+)", link)
+    if m:
+        return m.group(1)
+    return link if re.fullmatch(r"[A-Za-z0-9_-]{10,}", link) else ""
+
+
+def drive_children(svc, folder_id: str, q: str = "") -> list:
+    safe = q.replace("\\", "").replace("'", "\\'")
+    query = f"'{folder_id}' in parents and trashed = false"
+    if safe:
+        query += f" and name contains '{safe}'"
+    out, token = [], None
+    while True:
+        res = svc.files().list(q=query, pageSize=200, pageToken=token, orderBy="folder,name",
+                               fields="nextPageToken,files(id,name,mimeType,modifiedTime,size)",
+                               supportsAllDrives=True, includeItemsFromAllDrives=True).execute()
+        out += res.get("files", [])
+        token = res.get("nextPageToken")
+        if not token or len(out) >= 1000:
+            return out
+
+
+def drive_search_under(svc, root_id: str, q: str) -> list:
+    """Search by name anywhere below root (walks subfolders, capped)."""
+    found, queue, seen = [], [root_id], 0
+    while queue and seen < 60:
+        fid = queue.pop(0)
+        seen += 1
+        for f in drive_children(svc, fid):
+            if f["mimeType"] == FOLDER_MIME:
+                queue.append(f["id"])
+            if q.lower() in f["name"].lower():
+                found.append(f)
+        if len(found) >= 100:
+            break
+    return found
+
+
+def drive_is_under(svc, file_id: str, root_id: str) -> bool:
+    current = file_id
+    for _ in range(15):
+        if current == root_id:
+            return True
+        parents = drive_get(svc, current).get("parents") or []
+        if not parents:
+            return False
+        current = parents[0]
+    return False
+
+
+def drive_download(svc, file_id: str):
+    meta = drive_get(svc, file_id)
+    mime = meta["mimeType"]
+    if mime in EXPORT_MIME:
+        data = svc.files().export(fileId=file_id, mimeType=EXPORT_MIME[mime]).execute()
+        return meta["name"] + ".pdf", EXPORT_MIME[mime], data
+    data = svc.files().get_media(fileId=file_id, supportsAllDrives=True).execute()
+    return meta["name"], mime, data
 
 
 # ------------------------------------------------------------- Google Chat

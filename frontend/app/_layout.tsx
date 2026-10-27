@@ -50,6 +50,7 @@ function RootStack() {
         <Stack.Screen name="team" options={{ ...header, title: "Team directory" }} />
         <Stack.Screen name="assistant" options={{ ...header, title: "Ask AI" }} />
         <Stack.Screen name="forms" options={{ ...header, title: "Forms" }} />
+        <Stack.Screen name="drive" options={{ ...header, title: "Company Drive" }} />
         <Stack.Screen name="integrations" options={{ ...header, title: "Integrations" }} />
       </Stack.Protected>
       <Stack.Protected guard={!user}>

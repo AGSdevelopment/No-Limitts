@@ -27,6 +27,25 @@ export default function Integrations() {
   const [hook, setHook] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirmDrive, setConfirmDrive] = useState(false);
+  const [folderLink, setFolderLink] = useState("");
+  const [changingFolder, setChangingFolder] = useState(false);
+
+  const saveFolder = async () => {
+    setBusy(true);
+    try {
+      const r = await api("/integrations/google-drive/shared-folder", { method: "PUT", body: { link: folderLink } });
+      setFolderLink("");
+      setChangingFolder(false);
+      drive.refetch();
+      qc.invalidateQueries({ queryKey: ["drive-shared"] });
+      toast(`Company folder set to “${r.shared_folder_name}”`, "success");
+    } catch (e: any) {
+      toast(e.message, "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const clearFolder = () => setChangingFolder(true);
 
   useFocusEffect(
     useCallback(() => {
@@ -122,7 +141,7 @@ export default function Integrations() {
           <IconBox name="logo-google" />
           <View style={{ flex: 1 }}>
             <Text style={styles.title}>Google Drive</Text>
-            <Text style={styles.sub}>Copy certificates to Drive and attach Drive files to policies</Text>
+            <Text style={styles.sub}>Company folder for staff, certificate copies and policy attachments</Text>
           </View>
           {d.connected && <Pill label="Connected" />}
         </View>
@@ -135,6 +154,33 @@ export default function Integrations() {
             <Text style={styles.note} testID="drive-connected-email">
               Linked to {d.email}. New certificates are copied to the “{d.folder_name}” folder.
             </Text>
+            <View style={styles.twoWayBox} testID="drive-shared-folder">
+              <Text style={styles.twoWayTitle}>Company Drive folder</Text>
+              {d.shared_folder_id && !changingFolder ? (
+                <>
+                  <Text style={styles.note} testID="drive-shared-folder-name">Everyone can browse “{d.shared_folder_name}” from Library → Company Drive.</Text>
+                  <Button label="Change folder" variant="ghost" onPress={clearFolder} testID="drive-shared-folder-clear" />
+                </>
+              ) : (
+                <>
+                  <Text style={styles.note}>Paste the link of a Drive folder that all staff should be able to browse.</Text>
+                  <TextInput
+                    testID="drive-shared-folder-input"
+                    value={folderLink}
+                    onChangeText={setFolderLink}
+                    placeholder="https://drive.google.com/drive/folders/…"
+                    placeholderTextColor={colors.muted}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    style={[styles.input, { backgroundColor: colors.surface }]}
+                  />
+                  <Button label="Save folder" loading={busy} disabled={!folderLink.trim()} onPress={saveFolder} testID="drive-shared-folder-save" />
+                  {changingFolder && (
+                    <Button label="Cancel" variant="ghost" onPress={() => { setChangingFolder(false); setFolderLink(""); }} testID="drive-shared-folder-cancel" />
+                  )}
+                </>
+              )}
+            </View>
             <Button label="Disconnect" variant="secondary" onPress={() => setConfirmDrive(true)} testID="drive-disconnect-button" />
           </>
         ) : (
@@ -246,7 +292,7 @@ export default function Integrations() {
           <IconBox name="sparkles" />
           <View style={{ flex: 1 }}>
             <Text style={styles.title}>Claude AI</Text>
-            <Text style={styles.sub}>Policy Q&A assistant and certificate auto-fill — active</Text>
+            <Text style={styles.sub}>Policy Q&A, chat summaries and certificate auto-fill — active</Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color={colors.muted} />
         </View>

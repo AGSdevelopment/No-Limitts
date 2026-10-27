@@ -35,6 +35,10 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Two-way Google Chat: backend polls Chat API (chat.messages.readonly, user OAuth) every 10s for channels with two-way on; skips BOT (webhook) messages to avoid echo; dedupe by gchat_name
 - Google OAuth env now GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET (shared by Drive + Chat). Chat redirect: PUBLIC_BACKEND_URL/api/integrations/google-chat/callback
 
+## Drive folder + Chat summaries (2026-06)
+- Company Drive: admin pastes a Drive folder link in Integrations; all staff browse it (subfolders, search) from Library → Company Drive; files streamed via backend (Google Docs exported as PDF), access restricted to items under the chosen folder
+- Claude chat summaries: "Summarise" button in every chat thread → bottom sheet summary of last 200 messages
+
 ## Backlog
 - P0: Add Google Drive OAuth credentials and connect
 - P1: Phone push notifications (Firebase file + build)

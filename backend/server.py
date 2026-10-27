@@ -730,6 +730,8 @@ async def drive_status(user=Depends(current_user)):
     conn = await drive_conn()
     return {"configured": bool(gs.drive_client_config()), "connected": bool(conn),
             "email": (conn or {}).get("email", ""), "folder_name": gs.DRIVE_FOLDER_NAME,
+            "shared_folder_id": (conn or {}).get("shared_folder_id"),
+            "shared_folder_name": (conn or {}).get("shared_folder_name"),
             "redirect_uri": gs.drive_redirect_uri() if user["role"] == "admin" else None}
 
 
@@ -793,6 +795,90 @@ async def drive_files(q: str = "", admin=Depends(admin_user)):
     except Exception as e:
         logger.error(f"Drive list failed: {e}")
         raise HTTPException(502, "Could not list Google Drive files")
+
+
+class SharedFolderIn(BaseModel):
+    link: str
+
+
+@api.put("/integrations/google-drive/shared-folder")
+async def set_shared_folder(body: SharedFolderIn, admin=Depends(admin_user)):
+    fid = gs.folder_id_from_link(body.link)
+    if not fid:
+        raise HTTPException(400, "Paste a Google Drive folder link")
+    svc = await drive_svc_or_409()
+    try:
+        meta = await run_in_threadpool(gs.drive_get, svc, fid)
+    except Exception as e:
+        logger.error(f"Drive folder lookup failed: {e}")
+        raise HTTPException(400, "Couldn't open that folder with the connected Google account")
+    if meta["mimeType"] != gs.FOLDER_MIME:
+        raise HTTPException(400, "That link is a file, not a folder")
+    await db.integrations.update_one({"key": DRIVE_KEY}, {"$set": {"shared_folder_id": fid,
+                                                                  "shared_folder_name": meta["name"]}})
+    return {"shared_folder_id": fid, "shared_folder_name": meta["name"]}
+
+
+@api.delete("/integrations/google-drive/shared-folder")
+async def clear_shared_folder(admin=Depends(admin_user)):
+    await db.integrations.update_one({"key": DRIVE_KEY}, {"$unset": {"shared_folder_id": "",
+                                                                    "shared_folder_name": ""}})
+    return {"ok": True}
+
+
+async def shared_root():
+    conn = await drive_conn()
+    if not conn or not conn.get("shared_folder_id"):
+        raise HTTPException(409, "No company folder has been set up yet")
+    return conn["shared_folder_id"], conn.get("shared_folder_name", "Company Drive")
+
+
+def drive_item(f: dict) -> dict:
+    return {"id": f["id"], "name": f["name"], "mime_type": f["mimeType"],
+            "is_folder": f["mimeType"] == gs.FOLDER_MIME, "modified": f.get("modifiedTime", ""),
+            "size": int(f["size"]) if f.get("size") else None}
+
+
+@api.get("/drive/shared")
+async def shared_files(folder: str = "", q: str = "", user=Depends(current_user)):
+    root_id, root_name = await shared_root()
+    folder_id = folder or root_id
+    svc = await drive_svc_or_409()
+    try:
+        if folder_id != root_id and not await run_in_threadpool(gs.drive_is_under, svc, folder_id, root_id):
+            raise HTTPException(404, "Folder not found")
+        q = q.strip()[:100]
+        if q:
+            items = await run_in_threadpool(gs.drive_search_under, svc, folder_id, q)
+        else:
+            items = await run_in_threadpool(gs.drive_children, svc, folder_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Shared drive list failed: {e}")
+        raise HTTPException(502, "Could not load the company Drive folder")
+    return {"root_id": root_id, "root_name": root_name, "folder_id": folder_id,
+            "items": [drive_item(f) for f in items]}
+
+
+@api.get("/drive/shared/file/{file_id}")
+async def shared_file(file_id: str, request: Request, token: Optional[str] = None):
+    user = await user_from_token(bearer(request) or token)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    root_id, _ = await shared_root()
+    svc = await drive_svc_or_409()
+    try:
+        if not await run_in_threadpool(gs.drive_is_under, svc, file_id, root_id):
+            raise HTTPException(404, "File not found")
+        name, mime, data = await run_in_threadpool(gs.drive_download, svc, file_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Shared drive download failed: {e}")
+        raise HTTPException(502, "Could not open this file")
+    safe = re.sub(r'[^A-Za-z0-9 ._()-]', "_", name)
+    return Response(content=data, media_type=mime, headers={"Content-Disposition": f'inline; filename="{safe}"'})
 
 
 # ---------------------------------------------------------------- Google Chat integration
@@ -1153,6 +1239,37 @@ async def ai_ask(body: AskIn, user=Depends(current_user)):
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+SUMMARY_SYSTEM = ("You summarise workplace team chats for busy employees. Write a short summary in plain text "
+                  "(no markdown symbols): start with 1-2 sentences on the main topics, then up to 6 bullet points "
+                  "using '• ' covering key updates, decisions, and any action items with who owns them. "
+                  "Be factual; never invent details. Do not mention clock times; refer to days only if useful.")
+
+
+@api.post("/conversations/{conv_id}/summary")
+async def summarise_conversation(conv_id: str, user=Depends(current_user)):
+    conv = await conv_for_user(conv_id, user)
+    msgs = await db.messages.find({"conversation_id": conv_id}, P).sort("created_at", -1).to_list(200)
+    if len(msgs) < 2:
+        raise HTTPException(400, "There aren't enough messages to summarise yet")
+    msgs.reverse()
+    lines, total = [], 0
+    for m in reversed(msgs):
+        line = f"[{m['created_at'][:10]}] {m.get('sender_name', 'Someone')}: {m['text']}"
+        total += len(line)
+        if total > 40000:
+            break
+        lines.append(line)
+    lines.reverse()
+    title = f"#{conv['name']}" if conv["type"] == "channel" else "a direct message"
+    try:
+        summary = await ai_service.answer(SUMMARY_SYSTEM, f"Summarise this chat from {title}:\n\n" + "\n".join(lines))
+    except Exception as e:
+        logger.error(f"Chat summary failed: {e}")
+        raise HTTPException(502, "Couldn't summarise right now. Please try again.")
+    return {"summary": summary.replace("**", "").strip(), "message_count": len(lines),
+            "from": msgs[-len(lines)]["created_at"], "to": msgs[-1]["created_at"]}
 
 
 @api.post("/ai/extract-certificate")
