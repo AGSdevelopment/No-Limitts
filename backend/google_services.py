@@ -1,6 +1,7 @@
 """Google Drive (OAuth, company account) + Google Chat incoming webhooks."""
 import os
 import io
+import re
 import asyncio
 import random
 import logging
@@ -29,8 +30,8 @@ def decrypt(v: str) -> str:
 
 # ------------------------------------------------------------- Google Drive
 def drive_client_config():
-    cid = os.environ.get("GOOGLE_DRIVE_CLIENT_ID")
-    secret = os.environ.get("GOOGLE_DRIVE_CLIENT_SECRET")
+    cid = os.environ.get("GOOGLE_OAUTH_CLIENT_ID")
+    secret = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET")
     if not cid or not secret:
         return None
     return {"web": {"client_id": cid, "client_secret": secret,
@@ -38,37 +39,76 @@ def drive_client_config():
                     "token_uri": "https://oauth2.googleapis.com/token"}}
 
 
+def redirect_uri(kind: str):
+    return os.environ["PUBLIC_BACKEND_URL"].rstrip("/") + f"/api/integrations/{kind}/callback"
+
+
 def drive_redirect_uri():
-    return os.environ["PUBLIC_BACKEND_URL"].rstrip("/") + "/api/integrations/google-drive/callback"
+    return redirect_uri("google-drive")
 
 
-def drive_flow(state=None):
-    cfg = drive_client_config()
-    flow = Flow.from_client_config(cfg, scopes=DRIVE_SCOPES, state=state)
-    flow.redirect_uri = drive_redirect_uri()
+def oauth_flow(kind: str, scopes, state=None):
+    flow = Flow.from_client_config(drive_client_config(), scopes=scopes, state=state)
+    flow.redirect_uri = redirect_uri(kind)
     return flow
 
 
-def drive_auth_url(state: str):
-    flow = drive_flow(state)
+def oauth_auth_url(kind: str, scopes, state: str):
+    flow = oauth_flow(kind, scopes, state)
     url, _ = flow.authorization_url(access_type="offline", include_granted_scopes="true", prompt="consent")
     return url, flow.code_verifier
 
 
-def drive_exchange(state: str, code: str, code_verifier):
-    flow = drive_flow(state)
+def oauth_exchange(kind: str, scopes, state: str, code: str, code_verifier):
+    flow = oauth_flow(kind, scopes, state)
     if code_verifier:
         flow.code_verifier = code_verifier
     flow.fetch_token(code=code)
     return flow.credentials.refresh_token
 
 
-def drive_service(refresh_token_enc: str):
+def drive_auth_url(state: str):
+    return oauth_auth_url("google-drive", DRIVE_SCOPES, state)
+
+
+def drive_exchange(state: str, code: str, code_verifier):
+    return oauth_exchange("google-drive", DRIVE_SCOPES, state, code, code_verifier)
+
+
+def google_creds(refresh_token_enc: str, scopes):
     cfg = drive_client_config()["web"]
     creds = Credentials(token=None, refresh_token=decrypt(refresh_token_enc), token_uri=cfg["token_uri"],
-                        client_id=cfg["client_id"], client_secret=cfg["client_secret"], scopes=DRIVE_SCOPES)
+                        client_id=cfg["client_id"], client_secret=cfg["client_secret"], scopes=scopes)
     creds.refresh(GRequest())
-    return build("drive", "v3", credentials=creds, cache_discovery=False)
+    return creds
+
+
+def drive_service(refresh_token_enc: str):
+    return build("drive", "v3", credentials=google_creds(refresh_token_enc, DRIVE_SCOPES), cache_discovery=False)
+
+
+# ------------------------------------------------------------- Google Chat (two-way read via Chat API)
+CHAT_SCOPES = ["https://www.googleapis.com/auth/chat.messages.readonly"]
+
+
+def chat_service(refresh_token_enc: str):
+    return build("chat", "v1", credentials=google_creds(refresh_token_enc, CHAT_SCOPES), cache_discovery=False)
+
+
+def space_from_webhook(url: str):
+    m = re.search(r"/v1/(spaces/[^/]+)/messages", url)
+    return m.group(1) if m else None
+
+
+def chat_new_messages(svc, space: str, after_iso: str) -> list:
+    out, token = [], None
+    while True:
+        res = svc.spaces().messages().list(parent=space, pageSize=100, pageToken=token,
+                                           filter=f'createTime > "{after_iso}"', orderBy="createTime asc").execute()
+        out += res.get("messages", [])
+        token = res.get("nextPageToken")
+        if not token or len(out) >= 500:
+            return out
 
 
 def drive_account_email(svc) -> str:

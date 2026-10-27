@@ -30,6 +30,11 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Claude (claude-sonnet-5-5, Emergent key): streaming policy Q&A assistant; certificate auto-fill from image/PDF
 - Tested: iteration 2 — 30/30 backend, frontend flows pass
 
+## Chat updates (2026-06)
+- #general renamed to "Allied Health" (linked to Google Chat space spaces/AAAALAwOw8Y); new channel "Celebrate the Wins"
+- Two-way Google Chat: backend polls Chat API (chat.messages.readonly, user OAuth) every 10s for channels with two-way on; skips BOT (webhook) messages to avoid echo; dedupe by gchat_name
+- Google OAuth env now GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET (shared by Drive + Chat). Chat redirect: PUBLIC_BACKEND_URL/api/integrations/google-chat/callback
+
 ## Backlog
 - P0: Add Google Drive OAuth credentials and connect
 - P1: Phone push notifications (Firebase file + build)

@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { Pressable, RefreshControl, Text, TextInput, View } from "react-native";
+import { Pressable, RefreshControl, Switch, Text, TextInput, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
@@ -20,6 +20,7 @@ export default function Integrations() {
   const toast = useToast();
   const qc = useQueryClient();
   const drive = useQuery<any>({ queryKey: ["drive-status"], queryFn: () => api("/integrations/google-drive/status") });
+  const gc = useQuery<any>({ queryKey: ["gchat-status"], queryFn: () => api("/integrations/google-chat/status"), enabled: user?.role === "admin" });
   const convs = useQuery<any[]>({ queryKey: ["conversations"], queryFn: () => api("/conversations") });
   const channels = (convs.data ?? []).filter((c) => c.type === "channel");
   const [editing, setEditing] = useState<string | null>(null);
@@ -30,6 +31,7 @@ export default function Integrations() {
   useFocusEffect(
     useCallback(() => {
       drive.refetch();
+      gc.refetch();
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []),
   );
@@ -71,6 +73,32 @@ export default function Integrations() {
     await api(`/channels/${convId}/google-chat`, { method: "DELETE" }).catch(() => {});
     qc.invalidateQueries({ queryKey: ["conversations"] });
     toast("Google Chat unlinked", "info");
+  };
+  const connectChat = async () => {
+    setBusy(true);
+    try {
+      const r = await api("/integrations/google-chat/start", { method: "POST" });
+      await openLink(r.authorization_url);
+      gc.refetch();
+    } catch (e: any) {
+      toast(e.message, "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const disconnectChat = async () => {
+    await api("/integrations/google-chat", { method: "DELETE" }).catch(() => {});
+    gc.refetch();
+    qc.invalidateQueries({ queryKey: ["conversations"] });
+  };
+  const setTwoWay = async (convId: string, enabled: boolean) => {
+    try {
+      await api(`/channels/${convId}/google-chat/two-way`, { method: "PUT", body: { enabled } });
+      qc.invalidateQueries({ queryKey: ["conversations"] });
+      toast(enabled ? "Two-way sync on" : "Two-way sync off", enabled ? "success" : "info");
+    } catch (e: any) {
+      toast(e.message, "error");
+    }
   };
 
   if (drive.isLoading) return <Loading />;
@@ -129,6 +157,23 @@ export default function Integrations() {
         <Text style={styles.note}>
           In Google Chat on a computer: open the space → Apps & integrations → Add webhooks → copy the link and paste it below.
         </Text>
+        <View style={styles.twoWayBox} testID="gchat-reader-status">
+          <Text style={styles.twoWayTitle}>Two-way sync</Text>
+          {!gc.data?.configured ? (
+            <Text style={styles.note}>Waiting for Google sign-in credentials before replies can sync back.</Text>
+          ) : gc.data?.connected ? (
+            <>
+              <Text style={styles.note}>Google account connected. Turn on two-way for each channel below.</Text>
+              {!!gc.data?.last_error && <Text style={styles.err}>{gc.data.last_error}</Text>}
+              <Button label="Disconnect Google account" variant="ghost" onPress={disconnectChat} testID="gchat-reader-disconnect" />
+            </>
+          ) : (
+            <>
+              <Text style={styles.note}>Sign in with a Google Workspace account that is a member of the spaces.</Text>
+              <Button label="Connect Google account" icon="link-outline" loading={busy} onPress={connectChat} testID="gchat-reader-connect" />
+            </>
+          )}
+        </View>
         {channels.map((c) => (
           <View key={c.conversation_id} style={styles.channel} testID={`gchat-channel-${c.name}`}>
             <View style={styles.channelRow}>
@@ -148,6 +193,17 @@ export default function Integrations() {
                 </Pressable>
               )}
             </View>
+            {c.google_chat && (
+              <View style={styles.channelRow}>
+                <Text style={styles.twoWayLabel}>Two-way (Google Chat replies show here)</Text>
+                <Switch
+                  testID={`gchat-two-way-${c.name}`}
+                  value={!!c.google_chat_two_way}
+                  onValueChange={(v) => setTwoWay(c.conversation_id, v)}
+                  trackColor={{ true: colors.brandPrimary, false: colors.surfaceTertiary }}
+                />
+              </View>
+            )}
             {editing === c.conversation_id && (
               <View style={{ gap: 8, marginTop: 8 }}>
                 <TextInput
@@ -212,4 +268,8 @@ const useStyles = makeStyles((c) => ({
   link: { color: c.brandPrimary, fontWeight: "600", fontSize: 15 },
   linkDanger: { color: c.errorText, fontWeight: "600", fontSize: 15 },
   input: { minHeight: 48, borderRadius: 12, backgroundColor: c.surfaceSecondary, paddingHorizontal: 14, fontSize: 15, color: c.onSurface },
+  twoWayBox: { backgroundColor: c.brandTertiary, borderRadius: 12, padding: 12, gap: 8 },
+  twoWayTitle: { fontSize: 15, fontWeight: "700", color: c.onSurface },
+  twoWayLabel: { flex: 1, fontSize: 14, color: c.onSurfaceSecondary },
+  err: { fontSize: 13, color: c.errorText },
 }));

@@ -371,6 +371,9 @@ async def list_conversations(user=Depends(current_user)):
             c["other_user_id"] = other_id
         c["unread"] = unread
         c["google_chat"] = bool(c.pop("gchat_webhook", None))
+        c["google_chat_two_way"] = bool(c.pop("gchat_two_way", False))
+        c.pop("gchat_space", None)
+        c.pop("gchat_cursor", None)
         out.append(c)
     out.sort(key=lambda c: c.get("last_at") or c.get("created_at"), reverse=True)
     return out
@@ -782,7 +785,8 @@ async def set_gchat(conv_id: str, body: WebhookIn, admin=Depends(admin_user)):
     if not gs.valid_gchat_url(url):
         raise HTTPException(400, "That doesn't look like a Google Chat webhook link")
     res = await db.conversations.update_one({"conversation_id": conv_id, "type": "channel"},
-                                            {"$set": {"gchat_webhook": gs.encrypt(url)}})
+                                            {"$set": {"gchat_webhook": gs.encrypt(url),
+                                                      "gchat_space": gs.space_from_webhook(url)}})
     if not res.matched_count:
         raise HTTPException(404, "Channel not found")
     conv = await db.conversations.find_one({"conversation_id": conv_id}, P)
@@ -794,10 +798,136 @@ async def set_gchat(conv_id: str, body: WebhookIn, admin=Depends(admin_user)):
 @api.delete("/channels/{conv_id}/google-chat")
 async def remove_gchat(conv_id: str, admin=Depends(admin_user)):
     res = await db.conversations.update_one({"conversation_id": conv_id, "type": "channel"},
-                                            {"$unset": {"gchat_webhook": ""}})
+                                            {"$unset": {"gchat_webhook": "", "gchat_space": "", "gchat_two_way": "",
+                                                        "gchat_cursor": ""}})
     if not res.matched_count:
         raise HTTPException(404, "Channel not found")
     return {"ok": True}
+
+
+# ---------------------------------------------------------------- Google Chat two-way (read via Chat API)
+GCHAT_KEY = "google_chat_reader"
+
+
+@api.get("/integrations/google-chat/status")
+async def gchat_status(admin=Depends(admin_user)):
+    conn = await db.integrations.find_one({"key": GCHAT_KEY}, P)
+    return {"configured": bool(gs.drive_client_config()), "connected": bool(conn),
+            "last_error": (conn or {}).get("last_error", ""), "redirect_uri": gs.redirect_uri("google-chat")}
+
+
+@api.post("/integrations/google-chat/start")
+async def gchat_start(admin=Depends(admin_user)):
+    if not gs.drive_client_config():
+        raise HTTPException(409, "Google sign-in credentials are not set up yet")
+    state = secrets.token_urlsafe(32)
+    url, verifier = gs.oauth_auth_url("google-chat", gs.CHAT_SCOPES, state)
+    await db.oauth_states.insert_one({"state": state, "user_id": admin["user_id"], "code_verifier": verifier,
+                                      "kind": "google-chat", "created_at": now()})
+    return {"authorization_url": url}
+
+
+@api.get("/integrations/google-chat/callback")
+async def gchat_callback(state: str = "", code: str = "", error: str = ""):
+    st = await db.oauth_states.find_one_and_delete({"state": state, "kind": "google-chat"})
+    if error or not st or not code:
+        return result_page("Google Chat not connected", "The request was cancelled or expired.")
+    try:
+        refresh = await run_in_threadpool(gs.oauth_exchange, "google-chat", gs.CHAT_SCOPES, state, code,
+                                          st.get("code_verifier"))
+        old = await db.integrations.find_one({"key": GCHAT_KEY}, P)
+        enc = gs.encrypt(refresh) if refresh else (old or {}).get("refresh_token")
+        if not enc:
+            return result_page("Google Chat not connected", "Google did not grant offline access. Try again.")
+        await run_in_threadpool(gs.chat_service, enc)
+    except Exception as e:
+        logger.error(f"Google Chat OAuth failed: {e}")
+        return result_page("Google Chat not connected", "Something went wrong while connecting.")
+    await db.integrations.update_one({"key": GCHAT_KEY}, {"$set": {
+        "key": GCHAT_KEY, "refresh_token": enc, "last_error": "", "connected_by": st["user_id"],
+        "updated_at": now_iso()}}, upsert=True)
+    return result_page("Google Chat connected", "Replies from your Google Chat spaces can now flow into StaffHub.")
+
+
+@api.delete("/integrations/google-chat")
+async def gchat_disconnect(admin=Depends(admin_user)):
+    await db.integrations.delete_one({"key": GCHAT_KEY})
+    await db.conversations.update_many({}, {"$set": {"gchat_two_way": False}})
+    return {"ok": True}
+
+
+class TwoWayIn(BaseModel):
+    enabled: bool
+
+
+@api.put("/channels/{conv_id}/google-chat/two-way")
+async def set_two_way(conv_id: str, body: TwoWayIn, admin=Depends(admin_user)):
+    conv = await db.conversations.find_one({"conversation_id": conv_id, "type": "channel"}, P)
+    if not conv:
+        raise HTTPException(404, "Channel not found")
+    if body.enabled:
+        if not conv.get("gchat_webhook") or not conv.get("gchat_space"):
+            raise HTTPException(400, "Link this channel to a Google Chat space first")
+        if not await db.integrations.find_one({"key": GCHAT_KEY}):
+            raise HTTPException(409, "Connect a Google account for two-way sync first")
+    update = {"gchat_two_way": body.enabled}
+    if body.enabled and not conv.get("gchat_two_way"):
+        update["gchat_cursor"] = now().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    await db.conversations.update_one({"conversation_id": conv_id}, {"$set": update})
+    return {"ok": True, "two_way": body.enabled}
+
+
+async def pull_gchat_once():
+    conn = await db.integrations.find_one({"key": GCHAT_KEY}, P)
+    if not conn or not gs.drive_client_config():
+        return
+    convs = await db.conversations.find({"type": "channel", "gchat_two_way": True,
+                                         "gchat_space": {"$ne": None}}, P).to_list(50)
+    if not convs:
+        return
+    try:
+        svc = await run_in_threadpool(gs.chat_service, conn["refresh_token"])
+    except Exception as e:
+        logger.error(f"Google Chat auth failed: {e}")
+        await db.integrations.update_one({"key": GCHAT_KEY}, {"$set": {"last_error": "Google sign-in expired. "
+                                                                                    "Please reconnect."}})
+        return
+    for conv in convs:
+        try:
+            items = await run_in_threadpool(gs.chat_new_messages, svc, conv["gchat_space"], conv["gchat_cursor"])
+        except Exception as e:
+            logger.error(f"Google Chat read failed for {conv['conversation_id']}: {e}")
+            await db.integrations.update_one({"key": GCHAT_KEY}, {"$set": {
+                "last_error": "Couldn't read the Google Chat space. Make sure the connected account is a member."}})
+            continue
+        cursor = conv["gchat_cursor"]
+        for m in items:
+            cursor = max(cursor, m.get("createTime", cursor))
+            sender = m.get("sender") or {}
+            text = (m.get("text") or m.get("argumentText") or "").strip()
+            if sender.get("type") == "BOT" or not text:
+                continue  # skip our own webhook posts (bot) and non-text messages
+            if await db.messages.find_one({"gchat_name": m["name"]}):
+                continue
+            doc = {"message_id": new_id("msg"), "conversation_id": conv["conversation_id"],
+                   "sender_id": f"gchat:{sender.get('name', '')}",
+                   "sender_name": sender.get("displayName") or "Google Chat member", "sender_picture": None,
+                   "text": text[:4000], "source": "google_chat", "gchat_name": m["name"], "created_at": now_iso()}
+            await db.messages.insert_one(doc)
+            await db.conversations.update_one({"conversation_id": conv["conversation_id"]}, {"$set": {
+                "last_message": f"{doc['sender_name'].split(' ')[0]}: {text[:80]}", "last_at": doc["created_at"]}})
+        await db.conversations.update_one({"conversation_id": conv["conversation_id"]},
+                                          {"$set": {"gchat_cursor": cursor}})
+    await db.integrations.update_one({"key": GCHAT_KEY}, {"$set": {"last_error": ""}})
+
+
+async def gchat_loop():
+    while True:
+        try:
+            await pull_gchat_once()
+        except Exception as e:
+            logger.error(f"Google Chat sync loop error: {e}")
+        await asyncio.sleep(10)
 
 
 # ---------------------------------------------------------------- Jotform forms
@@ -966,12 +1096,14 @@ async def startup():
     await db.user_sessions.create_index("expires_at", expireAfterSeconds=0)
     await db.messages.create_index([("conversation_id", 1), ("created_at", -1)])
     await db.notifications.create_index([("user_id", 1), ("created_at", -1)])
+    await db.messages.create_index("gchat_name", sparse=True)
     await seed()
     try:
         await run_in_threadpool(init_storage)
     except Exception as e:
         logger.error(f"Storage init failed: {e}")
     asyncio.create_task(expiry_loop())
+    asyncio.create_task(gchat_loop())
 
 
 @app.on_event("shutdown")
