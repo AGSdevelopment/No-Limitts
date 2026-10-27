@@ -11,10 +11,12 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.emergent.staffhub.obhj8k",
       "infoPlist": {
-        "NSPhotoLibraryUsageDescription": "Attach certificate photos from your gallery"
+        "NSPhotoLibraryUsageDescription": "Attach certificate photos from your gallery",
+        "NSCameraUsageDescription": "Photograph certificates to fill in details automatically"
       }
     },
     "android": {
+      "permissions": ["android.permission.CAMERA"],
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#FFFFFF"
@@ -47,7 +49,7 @@
         "expo-image-picker",
         {
           "photosPermission": "Attach certificate photos from your gallery",
-          "cameraPermission": false
+          "cameraPermission": "Photograph certificates to fill in details automatically"
         }
       ],
       "expo-document-picker"

@@ -47,7 +47,9 @@ export default function Compose() {
   const [assignee, setAssignee] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const users = useQuery<any[]>({ queryKey: ["users"], queryFn: () => api("/users"), enabled: kind === "task" });
+  const isAdmin = user?.role === "admin";
+  const titleFor = kind === "task" && !isAdmin ? "New private task" : TITLES[kind];
+  const users = useQuery<any[]>({ queryKey: ["users"], queryFn: () => api("/users"), enabled: kind === "task" && isAdmin });
   const driveStatus = useQuery<any>({ queryKey: ["drive-status"], queryFn: () => api("/integrations/google-drive/status"), enabled: kind === "policy" });
   const [driveSearch, setDriveSearch] = useState("");
   const [driveFile, setDriveFile] = useState<any>(null);
@@ -57,7 +59,7 @@ export default function Compose() {
     enabled: kind === "policy" && !!driveStatus.data?.connected && !driveFile,
   });
 
-  if (user?.role !== "admin") {
+  if (user?.role !== "admin" && kind !== "task") {
     return <EmptyState icon="lock-closed-outline" title="Admins only" subtitle="Only admins and managers can post here." testID="compose-admin-only" />;
   }
 
@@ -79,10 +81,10 @@ export default function Compose() {
       path = "/events";
       payload = { title, description: body, date, time, location };
     } else if (kind === "task") {
-      if (!assignee) return setError("Choose who this task is for.");
+      if (isAdmin && !assignee) return setError("Choose who this task is for.");
       if (date && !DATE_RE.test(date)) return setError("Due date must be YYYY-MM-DD.");
       path = "/tasks";
-      payload = { title, description: body, due_date: date, assignee_id: assignee };
+      payload = { title, description: body, due_date: date, assignee_id: isAdmin ? assignee : "" };
     } else {
       path = "/channels";
       payload = { name: title, description: body };
@@ -91,7 +93,7 @@ export default function Compose() {
     try {
       await api(path, { method: "POST", body: payload });
       qc.invalidateQueries();
-      toast(`${TITLES[kind].split(" ")[1][0].toUpperCase()}${TITLES[kind].split(" ")[1].slice(1)} saved`);
+      toast(`${titleFor.split(" ").slice(-1)[0][0].toUpperCase()}${titleFor.split(" ").slice(-1)[0].slice(1)} saved`);
       router.back();
     } catch (e: any) {
       setError(e.message);
@@ -108,7 +110,7 @@ export default function Compose() {
       bottomOffset={24}
       testID={`compose-${kind}-screen`}
     >
-      <Stack.Screen options={{ title: TITLES[kind] }} />
+      <Stack.Screen options={{ title: titleFor }} />
       {kind === "policy" && (
         <View style={styles.chips}>
           {(["Policy", "Procedure"] as const).map((c) => (
@@ -124,11 +126,27 @@ export default function Compose() {
         autoCapitalize={kind === "channel" ? "none" : "sentences"}
         testID="compose-title-input"
       />
-      {kind === "task" && (
+      {kind === "task" && isAdmin && (
         <View style={{ marginBottom: 16 }}>
           <Text style={styles.label}>Assign to</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-            {(users.data ?? []).map((u) => (
+            {[
+              { key: "all", label: "Everyone", icon: "people" as const },
+              { key: user!.user_id, label: "Just me", icon: "lock-closed" as const },
+            ].map((o) => (
+              <Pressable
+                key={o.key}
+                testID={`compose-assignee-${o.key === "all" ? "all" : "me"}`}
+                onPress={() => setAssignee(o.key)}
+                style={[styles.person, assignee === o.key && { borderColor: colors.brandPrimary, backgroundColor: colors.brandTertiary }]}
+              >
+                <View style={styles.optIcon}>
+                  <Ionicons name={o.icon} size={18} color={colors.brandPrimary} />
+                </View>
+                <Text style={styles.personName} numberOfLines={1}>{o.label}</Text>
+              </Pressable>
+            ))}
+            {(users.data ?? []).filter((u) => u.user_id !== user?.user_id).map((u) => (
               <Pressable
                 key={u.user_id}
                 testID={`compose-assignee-${u.user_id}`}
@@ -212,9 +230,11 @@ export default function Compose() {
           <Switch testID="compose-pinned-switch" value={pinned} onValueChange={setPinned} trackColor={{ true: colors.brandPrimary, false: colors.surfaceTertiary }} />
         </View>
       )}
+      {kind === "task" && !isAdmin && <Text style={styles.hint}>Only you can see this task.</Text>}
+      {kind === "task" && isAdmin && assignee === "all" && <Text style={styles.hint}>Every staff member gets their own copy to tick off.</Text>}
       {kind !== "channel" && kind !== "task" && <Text style={styles.hint}>Everyone will get a notification.</Text>}
       {error && <Text style={styles.error} testID="compose-error">{error}</Text>}
-      <Button label={TITLES[kind]} loading={saving} onPress={submit} testID="compose-submit-button" />
+      <Button label={kind === "task" && !isAdmin ? "Save task" : TITLES[kind]} loading={saving} onPress={submit} testID="compose-submit-button" />
     </KeyboardAwareScrollView>
   );
 }
@@ -225,6 +245,7 @@ const useStyles = makeStyles((c) => ({
   label: { fontSize: 13, fontWeight: "600", color: c.onSurfaceSecondary, marginBottom: 8 },
   person: { width: 76, alignItems: "center", gap: 4, padding: 8, borderRadius: 12, borderWidth: 1.5, borderColor: c.border, flexShrink: 0 },
   personName: { fontSize: 12, color: c.onSurface, fontWeight: "500" },
+  optIcon: { width: 36, height: 36, borderRadius: 18, backgroundColor: c.brandTertiary, alignItems: "center", justifyContent: "center" },
   switchRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16, minHeight: 44 },
   switchLabel: { fontSize: 16, color: c.onSurface },
   hint: { fontSize: 13, color: c.muted, marginBottom: 12 },

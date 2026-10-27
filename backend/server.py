@@ -17,6 +17,7 @@ from typing import Optional, List
 import uuid
 import httpx
 from datetime import datetime, timezone, timedelta, date
+from zoneinfo import ZoneInfo
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -25,6 +26,8 @@ from storage import init_storage, put_object, get_object, APP_NAME  # noqa: E402
 from email_service import send_email, EMAIL_FROM_NAME  # noqa: E402
 import google_services as gs  # noqa: E402
 import ai_service  # noqa: E402
+import social_service as ss  # noqa: E402
+import time  # noqa: E402
 
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
@@ -151,9 +154,12 @@ async def logout(request: Request):
 
 
 # ---------------------------------------------------------------- users
+HIDDEN_TEST_USERS = ["user_testadmin01", "user_testemp001"]
+
+
 @api.get("/users")
 async def list_users(user=Depends(current_user)):
-    return await db.users.find({}, P).sort("name", 1).to_list(1000)
+    return await db.users.find({"hidden": {"$ne": True}}, P).sort("name", 1).to_list(1000)
 
 
 class RoleIn(BaseModel):
@@ -620,7 +626,7 @@ class TaskIn(BaseModel):
     title: str
     description: str = ""
     due_date: str = ""
-    assignee_id: str
+    assignee_id: str = ""  # user id, "all" (admins: everyone), or empty / own id for a private task
 
 
 class TaskPatch(BaseModel):
@@ -629,19 +635,17 @@ class TaskPatch(BaseModel):
 
 @api.get("/tasks")
 async def list_tasks(scope: str = "mine", user=Depends(current_user)):
-    q = {}
-    if scope != "all" or user["role"] != "admin":
-        q["assignee_id"] = user["user_id"]
-    docs = await db.tasks.find(q, P).to_list(1000)
+    if scope == "all" and user["role"] == "admin":
+        q = {"$or": [{"private": {"$ne": True}}, {"assignee_id": user["user_id"]}]}
+    else:
+        q = {"assignee_id": user["user_id"]}
+    docs = await db.tasks.find(q, P).to_list(3000)
     docs.sort(key=lambda t: (t["status"] == "done", t.get("due_date") or "9999"))
     return docs
 
 
 @api.post("/tasks")
-async def create_task(body: TaskIn, admin=Depends(admin_user)):
-    assignee = await db.users.find_one({"user_id": body.assignee_id}, P)
-    if not assignee:
-        raise HTTPException(404, "Assignee not found")
+async def create_task(body: TaskIn, user=Depends(current_user)):
     if body.due_date:
         try:
             date.fromisoformat(body.due_date)
@@ -649,13 +653,41 @@ async def create_task(body: TaskIn, admin=Depends(admin_user)):
             raise HTTPException(400, "Due date must be YYYY-MM-DD")
     if not body.title.strip():
         raise HTTPException(400, "Title is required")
-    doc = {"task_id": new_id("task"), "title": body.title.strip(), "description": body.description.strip(),
-           "due_date": body.due_date, "assignee_id": assignee["user_id"], "assignee_name": assignee["name"],
-           "status": "open", "created_by": admin["name"], "created_at": now_iso()}
-    await db.tasks.insert_one(dict(doc))
-    if assignee["user_id"] != admin["user_id"]:
-        await notify([assignee["user_id"]], "task", "New task assigned", doc["title"], "/tasks")
-    return doc
+    is_admin = user["role"] == "admin"
+    target = body.assignee_id or user["user_id"]
+    if not is_admin and target != user["user_id"]:
+        raise HTTPException(403, "You can only create tasks for yourself")
+    if target == "all":
+        assignees = await db.users.find({"hidden": {"$ne": True}}, P).to_list(2000)
+    else:
+        a = await db.users.find_one({"user_id": target}, P)
+        if not a:
+            raise HTTPException(404, "Assignee not found")
+        assignees = [a]
+    private = target == user["user_id"]
+    group_id = new_id("tgrp") if target == "all" else None
+    docs = []
+    for a in assignees:
+        doc = {"task_id": new_id("task"), "title": body.title.strip(), "description": body.description.strip(),
+               "due_date": body.due_date, "assignee_id": a["user_id"], "assignee_name": a["name"],
+               "status": "open", "created_by": user["name"], "created_by_id": user["user_id"],
+               "private": private, "group_id": group_id, "created_at": now_iso()}
+        await db.tasks.insert_one(dict(doc))
+        docs.append(doc)
+    others = [d["assignee_id"] for d in docs if d["assignee_id"] != user["user_id"]]
+    if others:
+        await notify(others, "task", "New task assigned", body.title.strip(), "/tasks")
+    return docs[0] if len(docs) == 1 else {"created": len(docs), "group_id": group_id}
+
+
+@api.delete("/tasks/{task_id}")
+async def delete_task(task_id: str, user=Depends(current_user)):
+    t = await db.tasks.find_one({"task_id": task_id}, P)
+    if not t or not (t.get("created_by_id") == user["user_id"] or
+                     (user["role"] == "admin" and not t.get("private"))):
+        raise HTTPException(404, "Task not found")
+    await db.tasks.delete_one({"task_id": task_id})
+    return {"ok": True}
 
 
 @api.patch("/tasks/{task_id}")
@@ -665,6 +697,8 @@ async def update_task(task_id: str, body: TaskPatch, user=Depends(current_user))
     q = {"task_id": task_id}
     if user["role"] != "admin":
         q["assignee_id"] = user["user_id"]
+    else:
+        q["$or"] = [{"private": {"$ne": True}}, {"assignee_id": user["user_id"]}]
     res = await db.tasks.update_one(q, {"$set": {"status": body.status}})
     if not res.matched_count:
         raise HTTPException(404, "Task not found")
@@ -816,6 +850,9 @@ async def set_shared_folder(body: SharedFolderIn, admin=Depends(admin_user)):
         raise HTTPException(400, "That link is a file, not a folder")
     await db.integrations.update_one({"key": DRIVE_KEY}, {"$set": {"shared_folder_id": fid,
                                                                   "shared_folder_name": meta["name"]}})
+    await db.drive_docs.delete_many({"root_id": {"$ne": fid}})
+    await db.drive_pins.delete_many({"root_id": {"$ne": fid}})
+    spawn(index_drive())
     return {"shared_folder_id": fid, "shared_folder_name": meta["name"]}
 
 
@@ -823,6 +860,8 @@ async def set_shared_folder(body: SharedFolderIn, admin=Depends(admin_user)):
 async def clear_shared_folder(admin=Depends(admin_user)):
     await db.integrations.update_one({"key": DRIVE_KEY}, {"$unset": {"shared_folder_id": "",
                                                                     "shared_folder_name": ""}})
+    await db.drive_docs.delete_many({})
+    await db.drive_pins.delete_many({})
     return {"ok": True}
 
 
@@ -837,6 +876,96 @@ def drive_item(f: dict) -> dict:
     return {"id": f["id"], "name": f["name"], "mime_type": f["mimeType"],
             "is_folder": f["mimeType"] == gs.FOLDER_MIME, "modified": f.get("modifiedTime", ""),
             "size": int(f["size"]) if f.get("size") else None}
+
+
+# ---- Drive index for the AI assistant
+drive_index_lock = asyncio.Lock()
+
+
+async def index_drive():
+    if drive_index_lock.locked():
+        return
+    async with drive_index_lock:
+        conn = await drive_conn()
+        root = (conn or {}).get("shared_folder_id")
+        if not root:
+            await db.drive_docs.delete_many({})
+            return
+        try:
+            svc = await run_in_threadpool(gs.drive_service, conn["refresh_token"])
+            files = [f for f in await run_in_threadpool(gs.drive_walk, svc, root) if gs.readable(f["mimeType"])]
+        except Exception as e:
+            logger.error(f"Drive index listing failed: {e}")
+            return
+        keep = []
+        for f in files:
+            keep.append(f["id"])
+            old = await db.drive_docs.find_one({"file_id": f["id"], "root_id": root}, {"modified": 1})
+            if old and old.get("modified") == f.get("modifiedTime"):
+                continue
+            try:
+                text = await run_in_threadpool(gs.drive_text, svc, f)
+            except Exception as e:
+                logger.warning(f"Drive text failed for {f['name']}: {e}")
+                text = ""
+            await db.drive_docs.update_one({"file_id": f["id"]}, {"$set": {
+                "file_id": f["id"], "root_id": root, "name": f["name"], "mime_type": f["mimeType"],
+                "modified": f.get("modifiedTime"), "text": text, "indexed_at": now_iso()}}, upsert=True)
+        await db.drive_docs.delete_many({"$or": [{"root_id": {"$ne": root}}, {"file_id": {"$nin": keep}}]})
+        await db.meta.update_one({"key": "drive_index"}, {"$set": {"key": "drive_index", "last_run": now_iso(),
+                                                                  "count": len(keep)}}, upsert=True)
+
+
+async def drive_index_loop():
+    while True:
+        try:
+            await index_drive()
+        except Exception as e:
+            logger.error(f"Drive index failed: {e}")
+        await asyncio.sleep(4 * 3600)
+
+
+@api.get("/drive/index-status")
+async def drive_index_status(admin=Depends(admin_user)):
+    m = await db.meta.find_one({"key": "drive_index"}, P) or {}
+    return {"last_run": m.get("last_run"), "count": await db.drive_docs.count_documents({"text": {"$ne": ""}}),
+            "running": drive_index_lock.locked()}
+
+
+@api.post("/drive/reindex")
+async def drive_reindex(admin=Depends(admin_user)):
+    await shared_root()
+    spawn(index_drive())
+    return {"ok": True}
+
+
+# ---- Pinned key files
+class PinIn(BaseModel):
+    file_id: str
+
+
+@api.post("/drive/pins")
+async def pin_file(body: PinIn, admin=Depends(admin_user)):
+    root_id, _ = await shared_root()
+    svc = await drive_svc_or_409()
+    try:
+        if not await run_in_threadpool(gs.drive_is_under, svc, body.file_id, root_id) or body.file_id == root_id:
+            raise HTTPException(404, "File not found")
+        meta = await run_in_threadpool(gs.drive_get, svc, body.file_id)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(404, "File not found")
+    await db.drive_pins.update_one({"file_id": body.file_id}, {"$set": {
+        "file_id": body.file_id, "root_id": root_id, "name": meta["name"], "mime_type": meta["mimeType"],
+        "pinned_by": admin["name"], "pinned_at": now_iso()}}, upsert=True)
+    return {"ok": True}
+
+
+@api.delete("/drive/pins/{file_id}")
+async def unpin_file(file_id: str, admin=Depends(admin_user)):
+    await db.drive_pins.delete_one({"file_id": file_id})
+    return {"ok": True}
 
 
 @api.get("/drive/shared")
@@ -857,8 +986,13 @@ async def shared_files(folder: str = "", q: str = "", user=Depends(current_user)
     except Exception as e:
         logger.error(f"Shared drive list failed: {e}")
         raise HTTPException(502, "Could not load the company Drive folder")
-    return {"root_id": root_id, "root_name": root_name, "folder_id": folder_id,
-            "items": [drive_item(f) for f in items]}
+    pins = await db.drive_pins.find({"root_id": root_id}, P).sort("pinned_at", -1).to_list(50)
+    pin_ids = {p["file_id"] for p in pins}
+    out = [{**drive_item(f), "pinned": f["id"] in pin_ids} for f in items]
+    pinned = [{"id": p["file_id"], "name": p["name"], "mime_type": p["mime_type"],
+               "is_folder": p["mime_type"] == gs.FOLDER_MIME, "modified": "", "size": None, "pinned": True}
+              for p in pins]
+    return {"root_id": root_id, "root_name": root_name, "folder_id": folder_id, "items": out, "pinned": pinned}
 
 
 @api.get("/drive/shared/file/{file_id}")
@@ -1173,12 +1307,312 @@ async def delete_form(form_id: str, admin=Depends(admin_user)):
     return {"ok": True}
 
 
+# ---------------------------------------------------------------- Socials (Facebook, Instagram, LinkedIn)
+SOCIAL_LABELS = {"facebook": "Facebook", "instagram": "Instagram", "linkedin": "LinkedIn"}
+
+
+async def social_conn(key: str):
+    return await db.integrations.find_one({"key": key}, P)
+
+
+async def oauth_state_for(admin: dict, kind: str) -> str:
+    state = secrets.token_urlsafe(32)
+    await db.oauth_states.insert_one({"state": state, "user_id": admin["user_id"], "kind": kind, "created_at": now()})
+    return state
+
+
+async def take_state(state: str, kind: str):
+    st = await db.oauth_states.find_one_and_delete({"state": state, "kind": kind})
+    if not st:
+        return None
+    created = st["created_at"].replace(tzinfo=timezone.utc) if st["created_at"].tzinfo is None else st["created_at"]
+    return st if now() - created <= timedelta(minutes=15) else None
+
+
+@api.get("/socials")
+async def socials(user=Depends(current_user)):
+    meta, li = await social_conn("meta"), await social_conn("linkedin")
+    posts = await db.updates.find({"source": {"$in": list(SOCIAL_LABELS)}}, P).sort("created_at", -1).to_list(30)
+    status = {"meta": {"configured": ss.meta_configured(), "connected": bool(meta),
+                       "name": (meta or {}).get("page_name", ""), "instagram": (meta or {}).get("ig_username", ""),
+                       "last_error": (meta or {}).get("last_error", "")},
+              "linkedin": {"configured": ss.linkedin_configured(), "connected": bool(li),
+                           "name": (li or {}).get("org_name", ""), "last_error": (li or {}).get("last_error", "")}}
+    if user["role"] == "admin":
+        status["redirect_uris"] = {"meta": ss.redirect_uri("meta"), "linkedin": ss.redirect_uri("linkedin")}
+    return {"links": ss.SOCIAL_LINKS, "posts": posts, "status": status}
+
+
+@api.post("/integrations/{kind}/start")
+async def social_start(kind: str, admin=Depends(admin_user)):
+    if kind == "meta":
+        if not ss.meta_configured():
+            raise HTTPException(409, "Facebook app credentials are not set up yet")
+        return {"authorization_url": ss.meta_auth_url(await oauth_state_for(admin, "meta"))}
+    if kind == "linkedin":
+        if not ss.linkedin_configured():
+            raise HTTPException(409, "LinkedIn app credentials are not set up yet")
+        return {"authorization_url": ss.linkedin_auth_url(await oauth_state_for(admin, "linkedin"))}
+    raise HTTPException(404, "Unknown integration")
+
+
+@api.get("/integrations/meta/callback")
+async def meta_callback(state: str = "", code: str = "", error: str = ""):
+    st = await take_state(state, "meta")
+    if error or not st or not code:
+        return result_page("Facebook not connected", "The request was cancelled or expired.")
+    try:
+        info = await ss.meta_exchange(code)
+    except Exception as e:
+        logger.error(f"Meta OAuth failed: {e}")
+        return result_page("Facebook not connected", "Couldn't read your Facebook Page. Make sure you manage the "
+                                                     "Page and allow StaffHub to see it.")
+    await db.integrations.update_one({"key": "meta"}, {"$set": {
+        "key": "meta", "page_id": info["page_id"], "page_name": info["page_name"],
+        "page_token": gs.encrypt(info["page_token"]), "ig_user_id": info["ig_user_id"],
+        "ig_username": info["ig_username"], "connected_by": st["user_id"], "last_error": "",
+        "initial_sync_done": False, "updated_at": now_iso()}}, upsert=True)
+    spawn(sync_socials())
+    extra = f" and Instagram @{info['ig_username']}" if info["ig_username"] else ""
+    return result_page("Facebook connected", f"StaffHub will share new posts from {info['page_name']}{extra}.")
+
+
+@api.get("/integrations/linkedin/callback")
+async def linkedin_callback(state: str = "", code: str = "", error: str = ""):
+    st = await take_state(state, "linkedin")
+    if error or not st or not code:
+        return result_page("LinkedIn not connected", "The request was cancelled or expired.")
+    try:
+        info = await ss.linkedin_exchange(code)
+    except Exception as e:
+        logger.error(f"LinkedIn OAuth failed: {e}")
+        return result_page("LinkedIn not connected", "Couldn't read the company page. Make sure you're an admin of "
+                                                     "the LinkedIn page.")
+    await db.integrations.update_one({"key": "linkedin"}, {"$set": {
+        "key": "linkedin", "access_token": gs.encrypt(info["access_token"]),
+        "refresh_token": gs.encrypt(info["refresh_token"]) if info.get("refresh_token") else None,
+        "expires_at": info["expires_at"], "org_urn": info["org_urn"], "org_name": info["org_name"],
+        "connected_by": st["user_id"], "last_error": "", "initial_sync_done": False, "updated_at": now_iso()}},
+        upsert=True)
+    spawn(sync_socials())
+    return result_page("LinkedIn connected", "StaffHub will share new LinkedIn company posts.")
+
+
+@api.delete("/integrations/{kind}")
+async def social_disconnect(kind: str, admin=Depends(admin_user)):
+    if kind not in ("meta", "linkedin"):
+        raise HTTPException(404, "Unknown integration")
+    await db.integrations.delete_one({"key": kind})
+    return {"ok": True}
+
+
+@api.post("/socials/sync")
+async def socials_sync_now(admin=Depends(admin_user)):
+    return {"imported": await sync_socials()}
+
+
+async def import_social_posts(posts: list, notify_new: bool) -> int:
+    added = 0
+    for p in posts:
+        if not p.get("external_id") or await db.updates.find_one({"source": p["source"],
+                                                                  "external_id": p["external_id"]}):
+            continue
+        label = SOCIAL_LABELS[p["source"]]
+        text = (p.get("text") or "").strip()
+        title = text.split("\n")[0][:90] if text else f"New {label} post"
+        doc = {"update_id": new_id("upd"), "title": title, "body": text, "pinned": False,
+               "author_id": "social", "author_name": f"Aspire & Grow on {label}", "source": p["source"],
+               "external_id": p["external_id"], "link": p.get("link"), "image_url": p.get("image_url"),
+               "created_at": p.get("published_at") or now_iso()}
+        await db.updates.insert_one(dict(doc))
+        added += 1
+        if notify_new:
+            await notify(await all_user_ids(), "update", f"New {label} post", title, "/updates")
+    return added
+
+
+async def sync_socials() -> int:
+    total = 0
+    meta = await social_conn("meta")
+    if meta:
+        try:
+            posts = await ss.meta_posts(meta["page_id"], meta.get("ig_user_id"), gs.decrypt(meta["page_token"]))
+            first = not meta.get("initial_sync_done")
+            total += await import_social_posts(posts[:3] if first else posts, notify_new=not first)
+            await db.integrations.update_one({"key": "meta"}, {"$set": {"initial_sync_done": True, "last_error": "",
+                                                                       "last_sync": now_iso()}})
+            if first:  # remember the rest without posting old content
+                for p in posts[3:]:
+                    await db.social_seen.update_one({"external_id": p["external_id"]}, {"$set": p}, upsert=True)
+        except Exception as e:
+            logger.error(f"Meta sync failed: {e}")
+            await db.integrations.update_one({"key": "meta"}, {"$set": {
+                "last_error": "Couldn't read Facebook/Instagram posts. An admin may need to reconnect."}})
+    li = await social_conn("linkedin")
+    if li:
+        try:
+            token = gs.decrypt(li["access_token"])
+            if li.get("expires_at", 0) < time.time() + 3600 and li.get("refresh_token"):
+                fresh = await ss.linkedin_refresh(gs.decrypt(li["refresh_token"]))
+                token = fresh["access_token"]
+                await db.integrations.update_one({"key": "linkedin"}, {"$set": {
+                    "access_token": gs.encrypt(token), "refresh_token": gs.encrypt(fresh["refresh_token"]),
+                    "expires_at": fresh["expires_at"]}})
+            posts = await ss.linkedin_posts(token, li["org_urn"])
+            first = not li.get("initial_sync_done")
+            total += await import_social_posts(posts[:3] if first else posts, notify_new=not first)
+            await db.integrations.update_one({"key": "linkedin"}, {"$set": {"initial_sync_done": True,
+                                                                           "last_error": "", "last_sync": now_iso()}})
+        except Exception as e:
+            logger.error(f"LinkedIn sync failed: {e}")
+            await db.integrations.update_one({"key": "linkedin"}, {"$set": {
+                "last_error": "Couldn't read LinkedIn posts. An admin may need to reconnect."}})
+    return total
+
+
+async def socials_loop():
+    while True:
+        try:
+            await sync_socials()
+        except Exception as e:
+            logger.error(f"Socials loop error: {e}")
+        await asyncio.sleep(900)
+
+
+# ---------------------------------------------------------------- CPD
+class CpdIn(BaseModel):
+    title: str
+    provider: str = ""
+    date: str
+    hours: float
+    category: str = ""
+    notes: str = ""
+
+
+def cpd_year_start() -> str:
+    return f"{date.today().year}-01-01"
+
+
+@api.get("/cpd")
+async def list_cpd(scope: str = "mine", user=Depends(current_user)):
+    q = {} if scope == "all" and user["role"] == "admin" else {"user_id": user["user_id"]}
+    logs = await db.cpd_logs.find(q, P).sort("date", -1).to_list(2000)
+    year = cpd_year_start()
+    mine_year = sum(lg["hours"] for lg in logs if lg["user_id"] == user["user_id"] and lg["date"] >= year)
+    totals = {}
+    if scope == "all" and user["role"] == "admin":
+        for lg in logs:
+            if lg["date"] >= year and lg["user_id"] not in HIDDEN_TEST_USERS:
+                t = totals.setdefault(lg["user_id"], {"user_id": lg["user_id"], "user_name": lg["user_name"],
+                                                      "hours": 0})
+                t["hours"] += lg["hours"]
+    return {"logs": logs, "year_hours": round(mine_year, 2), "year": date.today().year,
+            "team_totals": sorted(totals.values(), key=lambda t: -t["hours"])}
+
+
+@api.post("/cpd")
+async def add_cpd(body: CpdIn, user=Depends(current_user)):
+    if not body.title.strip():
+        raise HTTPException(400, "Enter what you did")
+    try:
+        date.fromisoformat(body.date)
+    except ValueError:
+        raise HTTPException(400, "Date must be YYYY-MM-DD")
+    if not (0 < body.hours <= 200):
+        raise HTTPException(400, "Hours must be between 0 and 200")
+    doc = {"log_id": new_id("cpd"), "user_id": user["user_id"], "user_name": user["name"],
+           "title": body.title.strip()[:200], "provider": body.provider.strip()[:200], "date": body.date,
+           "hours": round(body.hours, 2), "category": body.category.strip()[:60], "notes": body.notes.strip()[:2000],
+           "created_at": now_iso()}
+    await db.cpd_logs.insert_one(dict(doc))
+    return doc
+
+
+@api.delete("/cpd/{log_id}")
+async def delete_cpd(log_id: str, user=Depends(current_user)):
+    q = {"log_id": log_id}
+    if user["role"] != "admin":
+        q["user_id"] = user["user_id"]
+    if not (await db.cpd_logs.delete_one(q)).deleted_count:
+        raise HTTPException(404, "Entry not found")
+    return {"ok": True}
+
+
+class CpdResourceIn(BaseModel):
+    title: str
+    description: str = ""
+    url: str = ""
+    category: str = ""
+
+
+@api.get("/cpd/resources")
+async def list_cpd_resources(user=Depends(current_user)):
+    return await db.cpd_resources.find({}, P).sort("created_at", -1).to_list(500)
+
+
+@api.post("/cpd/resources")
+async def add_cpd_resource(body: CpdResourceIn, admin=Depends(admin_user)):
+    if not body.title.strip():
+        raise HTTPException(400, "Enter a title")
+    url = body.url.strip()
+    if url and not url.startswith(("https://", "http://")):
+        url = "https://" + url
+    doc = {"resource_id": new_id("cpdr"), "title": body.title.strip()[:200], "description": body.description.strip()[:2000],
+           "url": url[:1000], "category": body.category.strip()[:60], "created_by": admin["name"],
+           "created_at": now_iso()}
+    await db.cpd_resources.insert_one(dict(doc))
+    await notify(await all_user_ids(admin["user_id"]), "update", "New CPD resource", doc["title"], "/cpd")
+    return doc
+
+
+@api.delete("/cpd/resources/{resource_id}")
+async def delete_cpd_resource(resource_id: str, admin=Depends(admin_user)):
+    await db.cpd_resources.delete_one({"resource_id": resource_id})
+    return {"ok": True}
+
+
 # ---------------------------------------------------------------- Claude AI
 class AskIn(BaseModel):
     question: str
 
 
-async def assistant_context(user: dict) -> str:
+STOPWORDS = {"what", "when", "where", "which", "about", "should", "would", "could", "there", "their", "with",
+             "from", "that", "this", "have", "does", "your", "what's", "how", "the", "and", "for", "are", "our"}
+
+
+async def drive_context(question: str, budget: int = 50000) -> str:
+    conn = await drive_conn()
+    root = (conn or {}).get("shared_folder_id")
+    if not root:
+        return ""
+    words = {w.rstrip("s") if len(w) > 4 else w
+             for w in re.findall(r"[a-z0-9]{3,}", question.lower()) if w not in STOPWORDS}
+    docs = await db.drive_docs.find({"root_id": root, "text": {"$ne": ""}},
+                                    {"_id": 0, "name": 1, "text": 1}).to_list(400)
+    if not docs:
+        return ""
+    names = "\n".join(f"- {d['name']}" for d in docs)
+
+    def score(d):
+        name, text = d["name"].lower(), d["text"].lower()
+        return sum(name.count(w) * 5 + min(text.count(w), 20) for w in words)
+
+    ranked = sorted(docs, key=score, reverse=True)
+    out, total = [], 0
+    for d in ranked:
+        if words and score(d) == 0 and out:
+            break
+        chunk = f"### Drive file: {d['name']}\n{d['text'][:15000]}\n"
+        if total + len(chunk) > budget:
+            if out:
+                break
+            chunk = chunk[:budget]
+        out.append(chunk)
+        total += len(chunk)
+    return f"All files in the folder ({len(docs)}):\n{names}\n\n" + "\n".join(out)
+
+
+async def assistant_context(user: dict, question: str = "") -> str:
     pols = await db.policies.find({}, P).sort("created_at", -1).to_list(100)
     text, total = [], 0
     for p in pols:
@@ -1190,11 +1624,13 @@ async def assistant_context(user: dict) -> str:
     certs = [with_status(c) for c in await db.certificates.find({"owner_id": user["user_id"], "is_deleted": False}, P)
              .to_list(100)]
     cert_lines = "\n".join(f"- {c['title']}: expires {c['expiry_date']} ({c['status']})" for c in certs) or "none"
+    drive = await drive_context(question)
     return ("You are the StaffHub assistant for employees. Answer clearly and briefly using the company "
-            "policies and procedures below. If the answer isn't in them, say so and suggest asking a manager. "
-            "Quote the policy title you used. Never invent policy rules.\n"
+            "policies and procedures and the company Drive documents below. If the answer isn't in them, say so "
+            "and suggest asking a manager. Name the policy or Drive file you used. Never invent policy rules.\n"
             f"Today's date: {date.today().isoformat()}. Employee: {user['name']}.\n"
-            f"Employee's certificates:\n{cert_lines}\n\nCOMPANY POLICIES & PROCEDURES:\n" + "\n".join(text))
+            f"Employee's certificates:\n{cert_lines}\n\nCOMPANY POLICIES & PROCEDURES:\n" + "\n".join(text)
+            + (f"\n\nCOMPANY DRIVE DOCUMENTS (most relevant):\n{drive}" if drive else ""))
 
 
 @api.get("/ai/history")
@@ -1216,7 +1652,7 @@ async def ai_ask(body: AskIn, user=Depends(current_user)):
     history = await db.ai_messages.find({"user_id": user["user_id"]}, P).sort("created_at", -1).to_list(8)
     convo = "\n".join(f"{'Employee' if m['role'] == 'user' else 'Assistant'}: {m['text']}" for m in reversed(history))
     prompt = (f"Earlier conversation:\n{convo}\n\n" if convo else "") + f"Employee question: {q}"
-    system = await assistant_context(user)
+    system = await assistant_context(user, q)
     asked_at = now_iso()
 
     async def gen():
@@ -1272,6 +1708,89 @@ async def summarise_conversation(conv_id: str, user=Depends(current_user)):
             "from": msgs[-len(lines)]["created_at"], "to": msgs[-1]["created_at"]}
 
 
+# ---------------------------------------------------------------- Weekly chat digest (email)
+DIGEST_TZ = ZoneInfo("Australia/Perth")
+DIGEST_SYSTEM = ("You write a weekly recap of one workplace team chat channel for a Monday morning email. "
+                 "Plain text only, no markdown symbols. Write 1 sentence overview, then up to 5 lines starting "
+                 "with '• ' for key updates, wins, decisions and action items (with owners). Be factual and brief; "
+                 "never invent details; do not mention clock times.")
+
+
+async def build_digest() -> list:
+    since = (now() - timedelta(days=7)).isoformat()
+    out = []
+    for ch in await db.conversations.find({"type": "channel"}, P).sort("name", 1).to_list(50):
+        msgs = await db.messages.find({"conversation_id": ch["conversation_id"], "created_at": {"$gte": since}},
+                                      P).sort("created_at", 1).to_list(400)
+        if not msgs:
+            continue
+        lines = [f"{m.get('sender_name', 'Someone')}: {m['text'][:800]}" for m in msgs][-300:]
+        try:
+            summary = await ai_service.answer(DIGEST_SYSTEM, f"Channel #{ch['name']}, last 7 days:\n\n"
+                                              + "\n".join(lines)[:40000])
+        except Exception as e:
+            logger.error(f"Digest summary failed for {ch['name']}: {e}")
+            summary = f"{len(msgs)} new messages this week."
+        out.append({"channel": ch["name"], "count": len(msgs), "summary": summary.replace("**", "").strip()})
+    return out
+
+
+def digest_email_html(name: str, sections: list) -> str:
+    blocks = "".join(
+        f"<div style='margin:0 0 20px;padding:16px;background:#E3F1FE;border-radius:12px'>"
+        f"<h3 style='margin:0 0 4px;color:#205890'>#{escape(s['channel'])}</h3>"
+        f"<p style='margin:0 0 8px;color:#6b7280;font-size:13px'>{s['count']} message{'s' if s['count'] != 1 else ''}</p>"
+        f"<p style='margin:0;white-space:pre-line;color:#111827;line-height:1.5'>{escape(s['summary'])}</p></div>"
+        for s in sections)
+    return (f"<div style='font-family:Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px'>"
+            f"<h2 style='color:#205890;margin:0 0 8px'>Your weekly StaffHub recap</h2>"
+            f"<p style='color:#374151'>Hi {escape(name.split(' ')[0] if name else 'there')}, here's what happened "
+            f"in your team channels last week.</p>{blocks}"
+            f"<p style='color:#6b7280;font-size:12px'>Summaries written by Claude AI. Open StaffHub for the full "
+            f"conversations.</p></div>")
+
+
+async def send_digest(only_user: Optional[dict] = None) -> dict:
+    sections = await build_digest()
+    if not sections:
+        return {"sent": 0, "channels": 0}
+    users = [only_user] if only_user else await db.users.find({"email": {"$regex": "@"}}, P).to_list(2000)
+    sent = 0
+    for u in users:
+        if u["email"].endswith("@example.com"):
+            continue
+        if await send_email(to=u["email"], subject="Your weekly StaffHub recap",
+                            html=digest_email_html(u.get("name", ""), sections)):
+            sent += 1
+    return {"sent": sent, "channels": len(sections)}
+
+
+async def digest_loop():
+    while True:
+        try:
+            local = datetime.now(DIGEST_TZ)
+            if local.weekday() == 0 and local.hour >= 8:
+                year, week, _ = local.isocalendar()
+                key = f"digest_{year}_{week}"
+                if not await db.meta.find_one({"key": key}):
+                    await db.meta.insert_one({"key": key, "created_at": now_iso()})
+                    res = await send_digest()
+                    await db.meta.update_one({"key": key}, {"$set": res})
+                    logger.info(f"Weekly digest sent: {res}")
+        except Exception as e:
+            logger.error(f"Digest loop error: {e}")
+        await asyncio.sleep(600)
+
+
+@api.post("/digest/test")
+async def digest_test(admin=Depends(admin_user)):
+    """Admin preview: builds this week's digest and emails it only to the requesting admin."""
+    res = await send_digest(only_user=admin)
+    if not res["channels"]:
+        raise HTTPException(400, "No channel messages in the last 7 days to summarise")
+    return {**res, "email": admin["email"]}
+
+
 @api.post("/ai/extract-certificate")
 async def ai_extract(file: UploadFile = File(...), user=Depends(current_user)):
     data = await file.read()
@@ -1317,6 +1836,24 @@ async def seed_company_data():
     await db.meta.insert_one({"key": "company_seed_v1", "created_at": now_iso()})
 
 
+async def seed_staff_v2():
+    """One-time import of the team directory (contacts.csv): adds missing staff, sets full names and groups."""
+    if await db.meta.find_one({"key": "company_staff_v2"}):
+        return
+    path = ROOT_DIR / "company_seed.json"
+    data = json.loads(path.read_text()) if path.exists() else {}
+    for u in data.get("staff_v2", []):
+        existing = await db.users.find_one({"email": u["email"]})
+        if existing:
+            await db.users.update_one({"email": u["email"]}, {"$set": {"name": u["name"],
+                                                                     "staff_group": u.get("staff_group")}})
+        else:
+            await db.users.insert_one({"user_id": new_id("user"), "email": u["email"], "name": u["name"],
+                                       "picture": None, "role": u["role"], "staff_group": u.get("staff_group"),
+                                       "job_title": "", "created_at": now_iso()})
+    await db.meta.insert_one({"key": "company_staff_v2", "created_at": now_iso()})
+
+
 async def seed():
     for name, desc in (("general", "Company-wide chat for everyone"),
                        ("announcements", "Important news and notices")):
@@ -1351,6 +1888,9 @@ async def startup():
     await db.messages.create_index("gchat_name", sparse=True)
     await seed()
     await seed_company_data()
+    await seed_staff_v2()
+    # internal test accounts stay usable but are hidden from staff everywhere
+    await db.users.update_many({"user_id": {"$in": HIDDEN_TEST_USERS}}, {"$set": {"hidden": True}})
     # migrate the old single Support Office flag / audience to staff groups
     await db.users.update_many({"support_office": True}, {"$set": {"staff_group": "support_office"},
                                                           "$unset": {"support_office": ""}})
@@ -1366,6 +1906,9 @@ async def startup():
         logger.error(f"Storage init failed: {e}")
     asyncio.create_task(expiry_loop())
     asyncio.create_task(gchat_loop())
+    asyncio.create_task(drive_index_loop())
+    asyncio.create_task(digest_loop())
+    asyncio.create_task(socials_loop())
 
 
 @app.on_event("shutdown")

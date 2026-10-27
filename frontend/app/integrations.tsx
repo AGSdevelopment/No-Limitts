@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api, openLink } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { useToast } from "@/src/components/toast";
-import { Button, ConfirmSheet, EmptyState, IconBox, Ionicons, Loading, Pill } from "@/src/components/ui";
+import { Button, ConfirmSheet, EmptyState, IconBox, Ionicons, Loading, Pill, timeAgo } from "@/src/components/ui";
 import { makeStyles, useTheme } from "@/src/theme";
 
 export default function Integrations() {
@@ -29,6 +29,61 @@ export default function Integrations() {
   const [confirmDrive, setConfirmDrive] = useState(false);
   const [folderLink, setFolderLink] = useState("");
   const [changingFolder, setChangingFolder] = useState(false);
+  const [digestBusy, setDigestBusy] = useState(false);
+  const soc = useQuery<any>({ queryKey: ["socials"], queryFn: () => api("/socials") });
+  const connectSocial = async (kind: string) => {
+    setBusy(true);
+    try {
+      const r = await api(`/integrations/${kind}/start`, { method: "POST" });
+      await openLink(r.authorization_url);
+      soc.refetch();
+    } catch (e: any) {
+      toast(e.message, "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const disconnectSocial = async (kind: string) => {
+    await api(`/integrations/${kind}`, { method: "DELETE" }).catch(() => {});
+    soc.refetch();
+    toast("Disconnected", "info");
+  };
+  const syncSocial = async () => {
+    try {
+      const r = await api("/socials/sync", { method: "POST" });
+      qc.invalidateQueries({ queryKey: ["socials"] });
+      qc.invalidateQueries({ queryKey: ["updates"] });
+      toast(r.imported ? `${r.imported} new post${r.imported > 1 ? "s" : ""} shared` : "No new posts", r.imported ? "success" : "info");
+    } catch (e: any) {
+      toast(e.message, "error");
+    }
+  };
+  const idx = useQuery<any>({
+    queryKey: ["drive-index"],
+    queryFn: () => api("/drive/index-status"),
+    enabled: user?.role === "admin" && !!drive.data?.shared_folder_id,
+    refetchInterval: (query) => (query.state.data?.running ? 4000 : false),
+  });
+  const reindex = async () => {
+    try {
+      await api("/drive/reindex", { method: "POST" });
+      toast("Refreshing Drive documents", "info");
+      setTimeout(() => idx.refetch(), 800);
+    } catch (e: any) {
+      toast(e.message, "error");
+    }
+  };
+  const testDigest = async () => {
+    setDigestBusy(true);
+    try {
+      const r = await api("/digest/test", { method: "POST" });
+      toast(r.sent ? `Preview sent to ${r.email}` : `Preview built (${r.channels} channels) but no email sent to ${r.email}`, r.sent ? "success" : "info");
+    } catch (e: any) {
+      toast(e.message, "error");
+    } finally {
+      setDigestBusy(false);
+    }
+  };
 
   const saveFolder = async () => {
     setBusy(true);
@@ -38,6 +93,7 @@ export default function Integrations() {
       setChangingFolder(false);
       drive.refetch();
       qc.invalidateQueries({ queryKey: ["drive-shared"] });
+      setTimeout(() => qc.invalidateQueries({ queryKey: ["drive-index"] }), 800);
       toast(`Company folder set to “${r.shared_folder_name}”`, "success");
     } catch (e: any) {
       toast(e.message, "error");
@@ -51,6 +107,7 @@ export default function Integrations() {
     useCallback(() => {
       drive.refetch();
       gc.refetch();
+      soc.refetch();
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []),
   );
@@ -274,6 +331,47 @@ export default function Integrations() {
         ))}
       </View>
 
+      {/* Social media */}
+      <View style={styles.card} testID="integration-socials">
+        <View style={styles.head}>
+          <IconBox name="share-social-outline" />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.title}>Social media</Text>
+            <Text style={styles.sub}>New posts are shared to Socials and Company updates automatically</Text>
+          </View>
+        </View>
+        {([
+          { key: "meta", label: "Facebook + Instagram", s: soc.data?.status?.meta, hint: "Sign in with a Facebook account that manages the AandGTS Page (its linked Instagram comes too)." },
+          { key: "linkedin", label: "LinkedIn", s: soc.data?.status?.linkedin, hint: "Sign in with a LinkedIn account that is an admin of the company page." },
+        ] as const).map((o) => (
+          <View key={o.key} style={styles.twoWayBox} testID={`social-${o.key}`}>
+            <View style={styles.channelRow}>
+              <Text style={[styles.twoWayTitle, { flex: 1 }]}>{o.label}</Text>
+              {o.s?.connected && <Pill label="Connected" />}
+            </View>
+            {!o.s?.configured ? (
+              <Text style={styles.note} testID={`social-${o.key}-not-configured`}>Waiting for app credentials before this can be connected.</Text>
+            ) : o.s?.connected ? (
+              <>
+                <Text style={styles.note}>
+                  {o.key === "meta" ? `Page: ${o.s.name}${o.s.instagram ? ` · Instagram @${o.s.instagram}` : ""}` : `Company page: ${o.s.name || "connected"}`}
+                </Text>
+                {!!o.s.last_error && <Text style={styles.err}>{o.s.last_error}</Text>}
+                <Button label="Disconnect" variant="ghost" onPress={() => disconnectSocial(o.key)} testID={`social-${o.key}-disconnect`} />
+              </>
+            ) : (
+              <>
+                <Text style={styles.note}>{o.hint}</Text>
+                <Button label={`Connect ${o.label}`} icon="link-outline" loading={busy} onPress={() => connectSocial(o.key)} testID={`social-${o.key}-connect`} />
+              </>
+            )}
+          </View>
+        ))}
+        {(soc.data?.status?.meta?.connected || soc.data?.status?.linkedin?.connected) && (
+          <Button label="Check for new posts now" variant="secondary" icon="refresh" onPress={syncSocial} testID="social-sync-now" />
+        )}
+      </View>
+
       {/* Jotform */}
       <Pressable style={styles.card} onPress={() => router.push("/forms")} testID="integration-jotform">
         <View style={styles.head}>
@@ -287,16 +385,32 @@ export default function Integrations() {
       </Pressable>
 
       {/* Claude */}
-      <Pressable style={styles.card} onPress={() => router.push("/assistant")} testID="integration-claude">
-        <View style={styles.head}>
+      <View style={styles.card} testID="integration-claude">
+        <Pressable style={styles.head} onPress={() => router.push("/assistant")} testID="integration-claude-open">
           <IconBox name="sparkles" />
           <View style={{ flex: 1 }}>
             <Text style={styles.title}>Claude AI</Text>
-            <Text style={styles.sub}>Policy Q&A, chat summaries and certificate auto-fill — active</Text>
+            <Text style={styles.sub}>Policy & Drive Q&A, chat summaries and certificate auto-fill — active</Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color={colors.muted} />
+        </Pressable>
+        {d.shared_folder_id && (
+          <View style={styles.twoWayBox} testID="ai-drive-index">
+            <Text style={styles.twoWayTitle}>Reads the Company Drive folder</Text>
+            <Text style={styles.note} testID="ai-drive-index-status">
+              {idx.data?.running
+                ? "Reading documents now…"
+                : `${idx.data?.count ?? 0} documents readable${idx.data?.last_run ? ` · checked ${timeAgo(idx.data.last_run)}` : ""}. Refreshes every 4 hours.`}
+            </Text>
+            <Button label="Refresh now" variant="ghost" icon="refresh" onPress={reindex} testID="ai-drive-reindex" />
+          </View>
+        )}
+        <View style={styles.twoWayBox} testID="digest-box">
+          <Text style={styles.twoWayTitle}>Weekly chat digest</Text>
+          <Text style={styles.note}>Every Monday at 8am Perth time, everyone gets an email recap of last week&apos;s team channels.</Text>
+          <Button label="Email me a preview" variant="ghost" icon="mail-outline" loading={digestBusy} onPress={testDigest} testID="digest-test-button" />
         </View>
-      </Pressable>
+      </View>
       <ConfirmSheet visible={confirmDrive} title="Disconnect Google Drive?" message="New certificates will no longer be copied to Drive. Existing files stay in Drive." confirmLabel="Disconnect" onConfirm={disconnectDrive} onClose={() => setConfirmDrive(false)} />
     </KeyboardAwareScrollView>
   );

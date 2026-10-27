@@ -1,0 +1,40 @@
+{
+  "summary": "Backend: 14/14 pytest PASS (tests/test_tasks_cpd_socials.py). 1) Hidden test users: GET /users returns 32 users, without Alex Admin or Erin Employee and with Ailis/Clair; the test tokens still log in. 2) Tasks: an employee task with no assignee is private:true and visible only to that employee. Employee assignee 'all' or another user -> 403. Admin scope=all excludes other users' private tasks. Admin DELETE of an employee's private task -> 404. Creator delete -> 200. Employee DELETE of an admin-assigned task -> 404, but PATCH done works. Validation returns 400. 3) CPD: POST/GET/DELETE work and year_hours updates. Admin scope=all returns team_totals. Employee scope=all falls back to their own logs. Validation (date, hours 0, empty title) -> 400. Resources: employee POST/DELETE -> 403; admin add (url normalised to https://) / list / delete works. 4) Socials: links, configured:false for both, posts [], redirect_uris shown to admin only. meta/linkedin start -> 409 for admin and 403 for employee. 5) iteration_9 regression FIXED: setting the shared folder indexed docs; DELETE shared-folder -> drive_docs=0, drive_pins=0, /drive/shared 409. With empty AI history, Ask AI says it sees no timesheets. With the admin's existing AI history it still mentioned 'Armi Myers' (from earlier chat turns, not Drive). Frontend (375x667): all requested flows PASS. Socials tab shows 3 cards (343x72), each opens its profile in a new tab; 'No posts yet' and the admin connect note route to Integrations; Integrations shows 'Social media' with 'Waiting for app credentials' for both. Employee task: + -> 'New private task' -> save -> 'Only you' + lock -> delete via confirm sheet. Admin compose has Everyone / Just me / 30 people (no Alex/Erin). CPD: log with type chip + hours -> total 0 -> 2.5 -> delete -> 0; validation messages shown; employee has no + on Resources and no Team tab; admin added a resource with a link (opens https://example.com/cpd) and deleted it; the Team hours tab lists totals. Team directory shows the new staff with group badges and no test users. No deprecated Expo packages (expo-av, expo-barcode-scanner, expo-background-fetch). No page errors.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/ai/ask", "issue": "After the shared folder is cleared, the last 8 ai_messages history turns still contain old Drive content (e.g. 'Armi Myers' timesheet), so the AI can repeat facts from a removed folder. With history cleared the answer is correct."},
+      {"endpoint": "PATCH /api/tasks/{id}", "issue": "Admin can change the status of any task, including another user's private task (no private/assignee check for admins)."},
+      {"endpoint": "DELETE /api/cpd/resources/{id}", "issue": "Returns 200 {ok:true} even when the resource does not exist (no 404)."},
+      {"endpoint": "GET /api/cpd?scope=all", "issue": "team_totals includes hidden test users (Erin Employee showed in Team hours). It only lists staff who have logs, so staff with 0 hours are not visible to the admin."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "CPD Resources", "issues": ["The resource 'Type' chip chosen in the add sheet is not shown on the resource card."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_tasks_cpd_socials.py", "/app/test_reports/pytest/pytest_iter10.xml"],
+  "action_items": [
+    "LOW-MEDIUM: When the shared folder is cleared or changed, also clear or flag Drive-derived AI history (db.ai_messages), or tell the model that earlier turns may reference removed documents.",
+    "LOW: PATCH /tasks: block admins from changing other users' private tasks.",
+    "LOW: DELETE /cpd/resources/{id}: return 404 when nothing is deleted.",
+    "LOW: CPD team_totals: exclude hidden users and consider listing all visible staff (including 0 h).",
+    "LOW: server.py is 1914 lines. Split it into routers (tasks, cpd, socials, drive, ai)."
+  ],
+  "critical_code_review_comments": [
+    "server.py >700 lines (1914) - should be modularised.",
+    "all_user_ids() used for notifications includes hidden test users (harmless, but inconsistent with the hidden filter).",
+    "Route order is OK: /integrations/{kind}/start and DELETE /integrations/{kind} are declared after the google-drive/google-chat routes, so there is no shadowing."
+  ],
+  "updated_files": ["/app/backend/tests/test_tasks_cpd_socials.py (new)"],
+  "success_rate": {"backend": "100% (14/14)", "frontend": "100% of requested flows"},
+  "seed_data_creation": "None kept. Cleaned up: TEST_ tasks, cpd logs and resources, plus 33 TEST notifications from resource posts. The Drive shared folder was set then cleared (shared_folder_id unset, drive_docs/pins 0) and Drive is still connected. The test admin's ai_messages history was cleared. Google Chat links untouched; nothing posted to chat.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run pytest with -n0 -s to see prints (pytest.ini uses xdist). Do not test admin assignee_id 'all' (it creates tasks for 30 real staff). The Drive test sets folder 1d8-5EPvhUq943PVfHj5PR5VEYZfL0SNM and clears it again. The browser clock in automation is Oct 2026.",
+  "rca_of_issue": "AI 'Armi Myers' mention after the folder was cleared: drive_docs is empty and drive_context returns ''. The leak comes from ask_ai including the last 8 ai_messages, which still hold an earlier Drive-based answer. Reproduce: ask about timesheets while the folder is set, clear the folder, ask again -> the model mentions the earlier names. Mitigation: clear ai_messages on folder clear/change, or add a system note."
+}

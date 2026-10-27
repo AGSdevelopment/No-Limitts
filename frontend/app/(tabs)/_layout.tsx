@@ -25,6 +25,10 @@ export default function TabsLayout() {
           <NativeTabs.Trigger.Icon sf="checkmark.seal.fill" />
           <NativeTabs.Trigger.Label>Certificates</NativeTabs.Trigger.Label>
         </NativeTabs.Trigger>
+        <NativeTabs.Trigger name="socials">
+          <NativeTabs.Trigger.Icon sf="megaphone.fill" />
+          <NativeTabs.Trigger.Label>Socials</NativeTabs.Trigger.Label>
+        </NativeTabs.Trigger>
         <NativeTabs.Trigger name="library">
           <NativeTabs.Trigger.Icon sf="books.vertical.fill" />
           <NativeTabs.Trigger.Label>Library</NativeTabs.Trigger.Label>
@@ -62,6 +66,7 @@ export default function TabsLayout() {
         name="certificates"
         options={{ title: "Certificates", tabBarIcon: icon("ribbon", "ribbon-outline"), tabBarButtonTestID: "tab-certificates" }}
       />
+      <Tabs.Screen name="socials" options={{ title: "Socials", tabBarIcon: icon("megaphone", "megaphone-outline"), tabBarButtonTestID: "tab-socials" }} />
       <Tabs.Screen name="library" options={{ title: "Library", tabBarIcon: icon("library", "library-outline"), tabBarButtonTestID: "tab-library" }} />
     </Tabs>
   );

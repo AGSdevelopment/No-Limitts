@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { useToast } from "@/src/components/toast";
-import { Chip, EmptyState, ErrorState, Ionicons, Loading, formatDate } from "@/src/components/ui";
+import { Chip, ConfirmSheet, EmptyState, ErrorState, Ionicons, Loading, formatDate } from "@/src/components/ui";
 import { makeStyles, useTheme } from "@/src/theme";
 
 export default function Tasks() {
@@ -21,8 +21,21 @@ export default function Tasks() {
   const qc = useQueryClient();
   const isAdmin = user?.role === "admin";
   const [scope, setScope] = useState<"mine" | "all">("mine");
+  const [del, setDel] = useState<any>(null);
   const q = useQuery<any[]>({ queryKey: ["tasks", scope], queryFn: () => api(`/tasks?scope=${scope}`) });
   const today = new Date().toISOString().slice(0, 10);
+
+  const remove = async () => {
+    try {
+      await api(`/tasks/${del.task_id}`, { method: "DELETE" });
+      qc.invalidateQueries({ queryKey: ["tasks"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      toast("Task deleted", "info");
+    } catch (e: any) {
+      toast(e.message, "error");
+    }
+    setDel(null);
+  };
 
   const toggle = async (t: any) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
@@ -42,13 +55,11 @@ export default function Tasks() {
     <View style={styles.root} testID="tasks-screen">
       <Stack.Screen
         options={{
-          headerRight: isAdmin
-            ? () => (
-                <Pressable testID="tasks-new-button" onPress={() => router.push("/compose?type=task")} hitSlop={10}>
-                  <Ionicons name="add-circle" size={30} color={colors.brandPrimary} style={{ marginRight: 8 }} />
-                </Pressable>
-              )
-            : undefined,
+          headerRight: () => (
+            <Pressable testID="tasks-new-button" onPress={() => router.push("/compose?type=task")} hitSlop={10} accessibilityLabel="New task">
+              <Ionicons name="add-circle" size={30} color={colors.brandPrimary} style={{ marginRight: 8 }} />
+            </Pressable>
+          ),
         }}
       />
       {isAdmin && (
@@ -67,11 +78,13 @@ export default function Tasks() {
           keyExtractor={(t) => t.task_id}
           contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: insets.bottom + 24, flexGrow: 1 }}
           refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => q.refetch()} tintColor={colors.brandPrimary} />}
-          ListEmptyComponent={<EmptyState icon="checkbox-outline" title="No tasks" subtitle="Tasks assigned to you will appear here." />}
+          ListEmptyComponent={<EmptyState icon="checkbox-outline" title="No tasks" subtitle="Tap + to add a private task, or wait for tasks assigned to you." />}
           renderItem={({ item }) => {
             const done = item.status === "done";
             const overdue = !done && item.due_date && item.due_date < today;
             const canToggle = isAdmin || item.assignee_id === user?.user_id;
+            const canDelete = item.created_by_id === user?.user_id || (isAdmin && !item.private);
+            const who = item.private ? "Only you" : scope === "all" ? item.assignee_name : `From ${item.created_by}`;
             return (
               <Pressable
                 testID={`task-${item.task_id}`}
@@ -88,17 +101,24 @@ export default function Tasks() {
                 <View style={{ flex: 1, gap: 2 }}>
                   <Text style={[styles.title, done && styles.doneText]}>{item.title}</Text>
                   {!!item.description && <Text style={styles.desc} numberOfLines={2}>{item.description}</Text>}
-                  <Text style={[styles.sub, overdue && { color: colors.errorText, fontWeight: "600" }]}>
-                    {[scope === "all" ? item.assignee_name : `From ${item.created_by}`, item.due_date ? `${overdue ? "Overdue · " : "Due "}${formatDate(item.due_date)}` : ""]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </Text>
+                  <View style={styles.subRow}>
+                    {item.private && <Ionicons name="lock-closed" size={12} color={colors.muted} />}
+                    <Text style={[styles.sub, overdue && { color: colors.errorText, fontWeight: "600" }]}>
+                      {[who, item.due_date ? `${overdue ? "Overdue · " : "Due "}${formatDate(item.due_date)}` : ""].filter(Boolean).join(" · ")}
+                    </Text>
+                  </View>
                 </View>
+                {canDelete && (
+                  <Pressable testID={`task-delete-${item.task_id}`} onPress={() => setDel(item)} hitSlop={6} style={styles.delBtn} accessibilityLabel="Delete task">
+                    <Ionicons name="trash-outline" size={19} color={colors.muted} />
+                  </Pressable>
+                )}
               </Pressable>
             );
           }}
         />
       )}
+      <ConfirmSheet visible={!!del} title="Delete task?" message={del?.private ? "This removes your private task." : "This removes the task for its assignee."} confirmLabel="Delete" onConfirm={remove} onClose={() => setDel(null)} />
     </View>
   );
 }
@@ -111,5 +131,7 @@ const useStyles = makeStyles((c) => ({
   title: { fontSize: 16, fontWeight: "600", color: c.onSurface },
   doneText: { textDecorationLine: "line-through", color: c.muted },
   desc: { fontSize: 14, color: c.onSurfaceSecondary },
-  sub: { fontSize: 13, color: c.muted, marginTop: 2 },
+  sub: { fontSize: 13, color: c.muted },
+  subRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2 },
+  delBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center", marginTop: -10, marginRight: -8 },
 }));

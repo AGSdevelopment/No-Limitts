@@ -9,6 +9,7 @@ import { useAuth } from "@/src/auth";
 import { useToast } from "@/src/components/toast";
 import { Button, Card, ConfirmSheet, EmptyState, ErrorState, Ionicons, Loading, Pill, timeAgo } from "@/src/components/ui";
 import { makeStyles, useTheme } from "@/src/theme";
+import { SocialPost } from "@/src/components/social-post";
 
 export default function Updates() {
   const router = useRouter();
@@ -60,7 +61,15 @@ export default function Updates() {
           ListEmptyComponent={
             <EmptyState icon="megaphone-outline" title="No updates yet" actionLabel={isAdmin ? "Post update" : undefined} onAction={() => router.push("/compose?type=update")} />
           }
-          renderItem={({ item }) => (
+          renderItem={({ item }) =>
+            item.source ? (
+              <View>
+                <SocialPost item={item} />
+                {isAdmin && (
+                  <Button label="Delete" variant="ghost" icon="trash-outline" onPress={() => setDel(item)} style={styles.del} testID={`update-delete-${item.update_id}`} />
+                )}
+              </View>
+            ) : (
             <Card testID={`update-${item.update_id}`}>
               <View style={styles.meta}>
                 {item.pinned && <Pill label="Pinned" tone="accent" />}
@@ -72,7 +81,8 @@ export default function Updates() {
                 <Button label="Delete" variant="ghost" icon="trash-outline" onPress={() => setDel(item)} style={styles.del} testID={`update-delete-${item.update_id}`} />
               )}
             </Card>
-          )}
+            )
+          }
         />
       )}
       <ConfirmSheet visible={!!del} title="Delete update?" message="This removes it for everyone." confirmLabel="Delete" onConfirm={remove} onClose={() => setDel(null)} />

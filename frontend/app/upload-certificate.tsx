@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { Linking, Modal, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
@@ -39,12 +39,14 @@ export default function UploadCertificate() {
   const [error, setError] = useState<string | null>(null);
   const [reading, setReading] = useState(false);
 
-  const autoFill = async () => {
-    if (!file) return;
+  const [camSheet, setCamSheet] = useState<null | "ask" | "settings">(null);
+
+  const autoFill = async (target: Picked | null = file) => {
+    if (!target) return;
     setError(null);
     setReading(true);
     try {
-      const res = await uploadForm(`${API_URL}/ai/extract-certificate`, { headers: authHeaders(), files: { file } });
+      const res = await uploadForm(`${API_URL}/ai/extract-certificate`, { headers: authHeaders(), files: { file: target } });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(typeof body.detail === "string" ? body.detail : "Couldn't read the certificate");
       if (body.title) setTitle(body.title);
@@ -72,6 +74,29 @@ export default function UploadCertificate() {
       const a = r.assets[0];
       setFile({ uri: a.uri, name: a.fileName ?? "certificate.jpg", mimeType: a.mimeType ?? "image/jpeg" });
     }
+  };
+
+  const launchCamera = async () => {
+    setCamSheet(null);
+    const r = await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.7 });
+    if (!r.canceled && r.assets?.[0]) {
+      const a = r.assets[0];
+      const picked = { uri: a.uri, name: a.fileName ?? "certificate-photo.jpg", mimeType: a.mimeType ?? "image/jpeg" };
+      setFile(picked);
+      autoFill(picked);
+    }
+  };
+  const takePhoto = async () => {
+    if (Platform.OS === "web") return launchCamera();
+    const perm = await ImagePicker.getCameraPermissionsAsync();
+    if (perm.granted) return launchCamera();
+    setCamSheet(perm.status === "undetermined" || perm.canAskAgain ? "ask" : "settings");
+  };
+  const requestCamera = async () => {
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (perm.granted) return launchCamera();
+    setCamSheet(perm.canAskAgain ? null : "settings");
+    if (perm.canAskAgain) toast("Camera access is needed to take a photo. You can still choose a file.", "info");
   };
 
   const submit = async () => {
@@ -121,7 +146,16 @@ export default function UploadCertificate() {
           </Pressable>
         </View>
       ) : (
-        <View style={styles.pickRow}>
+        <View style={{ marginBottom: 20, gap: 12 }}>
+        <Pressable testID="upload-take-photo" onPress={takePhoto} style={({ pressed }) => [styles.camera, pressed && { opacity: 0.85 }]}>
+          <Ionicons name="camera" size={26} color={colors.onBrandPrimary} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.cameraText}>Take a photo</Text>
+            <Text style={styles.cameraSub}>We&apos;ll fill in the details for you</Text>
+          </View>
+          <Ionicons name="sparkles" size={18} color={colors.onBrandPrimary} />
+        </Pressable>
+        <View style={[styles.pickRow, { marginBottom: 0 }]}>
           <Pressable testID="upload-pick-document" onPress={pickDoc} style={({ pressed }) => [styles.pick, pressed && { opacity: 0.7 }]}>
             <Ionicons name="document-attach-outline" size={28} color={colors.brandPrimary} />
             <Text style={styles.pickText}>Choose file</Text>
@@ -133,6 +167,7 @@ export default function UploadCertificate() {
             <Text style={styles.pickSub}>Photo of certificate</Text>
           </Pressable>
         </View>
+        </View>
       )}
 
       {file && (
@@ -141,7 +176,7 @@ export default function UploadCertificate() {
           icon="sparkles-outline"
           variant="secondary"
           loading={reading}
-          onPress={autoFill}
+          onPress={() => autoFill()}
           style={{ marginBottom: 20 }}
           testID="upload-ai-autofill-button"
         />
@@ -159,6 +194,24 @@ export default function UploadCertificate() {
       <Text style={styles.hint}>We&apos;ll remind you in the app and by email 30 days before it expires.</Text>
       {error && <Text style={styles.error} testID="upload-error">{error}</Text>}
       <Button label="Upload certificate" icon="cloud-upload-outline" loading={saving} onPress={submit} testID="upload-submit-button" />
+      <Modal visible={!!camSheet} transparent animationType="fade" onRequestClose={() => setCamSheet(null)}>
+        <Pressable style={styles.scrim} onPress={() => setCamSheet(null)} />
+        <View style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]} testID="camera-permission-sheet">
+          <IconBox name="camera" size={52} />
+          <Text style={styles.sheetTitle}>{camSheet === "settings" ? "Camera access is off" : "Snap your certificate"}</Text>
+          <Text style={styles.sheetMsg}>
+            {camSheet === "settings"
+              ? "Turn on camera access for StaffHub in Settings to photograph certificates. You can still choose a file instead."
+              : "Allow camera access to photograph your certificate. Claude reads it and fills in the name and dates for you."}
+          </Text>
+          {camSheet === "settings" ? (
+            <Button label="Open Settings" icon="settings-outline" onPress={() => { setCamSheet(null); Linking.openSettings(); }} testID="camera-open-settings" />
+          ) : (
+            <Button label="Continue" onPress={requestCamera} testID="camera-permission-continue" />
+          )}
+          <Button label="Not now" variant="ghost" onPress={() => setCamSheet(null)} testID="camera-permission-cancel" />
+        </View>
+      </Modal>
     </KeyboardAwareScrollView>
   );
 }
@@ -166,6 +219,13 @@ export default function UploadCertificate() {
 const useStyles = makeStyles((c) => ({
   root: { flex: 1, backgroundColor: c.surface },
   pickRow: { flexDirection: "row", gap: 12, marginBottom: 20 },
+  camera: { flexDirection: "row", alignItems: "center", gap: 14, borderRadius: 16, padding: 18, backgroundColor: c.brandPrimary, minHeight: 72 },
+  cameraText: { fontSize: 17, fontWeight: "700", color: c.onBrandPrimary },
+  cameraSub: { fontSize: 13, color: c.onBrandPrimary, opacity: 0.85, marginTop: 2 },
+  scrim: { flex: 1, backgroundColor: "rgba(0,0,0,0.35)" },
+  sheet: { backgroundColor: c.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, gap: 12, alignItems: "stretch" },
+  sheetTitle: { fontSize: 19, fontWeight: "700", color: c.onSurface },
+  sheetMsg: { fontSize: 15, color: c.onSurfaceSecondary, lineHeight: 21 },
   pick: { flex: 1, borderWidth: 1.5, borderStyle: "dashed", borderColor: c.borderStrong, borderRadius: 16, padding: 20, alignItems: "center", gap: 4, backgroundColor: c.brandTertiary },
   pickText: { fontSize: 15, fontWeight: "600", color: c.onSurface, marginTop: 4 },
   pickSub: { fontSize: 12, color: c.muted },

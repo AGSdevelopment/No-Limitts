@@ -39,6 +39,20 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Company Drive: admin pastes a Drive folder link in Integrations; all staff browse it (subfolders, search) from Library → Company Drive; files streamed via backend (Google Docs exported as PDF), access restricted to items under the chosen folder
 - Claude chat summaries: "Summarise" button in every chat thread → bottom sheet summary of last 200 messages
 
+## Round 3 (2026-06)
+- Claude reads Company Drive docs: background index every 4h (+ on folder set / admin "Refresh now"); Docs/Sheets/Slides/PDF/text → db.drive_docs; keyword-ranked top docs (≤50k chars) added to assistant context
+- Weekly chat digest: Monday 8am Australia/Perth, email to all users (team channels only, Claude summary per channel); admin "Email me a preview" (POST /api/digest/test); dedupe via meta digest_<year>_<week>
+- Camera certificates: "Take a photo" → camera (pre-permission sheet, Open Settings fallback) → auto Claude fill
+- Pinned Drive files: admin pin/unpin (db.drive_pins), Pinned section at top of Company Drive root
+
+## Round 4 (2026-06)
+- Drive AI fix: docs/pins cleared when shared folder cleared/changed; AI context filtered by current root + full file list
+- Socials tab (Instagram/Facebook/LinkedIn links + latest posts). Meta Graph v26 (FB Page + linked IG) and LinkedIn Posts API (r_organization_social) admin OAuth; poll every 15 min, new posts → Company Updates (+notify). Needs META_APP_ID/SECRET, LINKEDIN_CLIENT_ID/SECRET. Redirects: PUBLIC_BACKEND_URL/api/integrations/{meta|linkedin}/callback
+- Tasks: anyone creates private tasks (only visible to them); admins assign to one person or Everyone (copy per user); delete own tasks
+- CPD (Library): personal log with yearly hours, shared resources (admin), team hours (admin)
+- Test users Alex Admin / Erin Employee hidden (hidden flag) from /users
+- Team directory: 27 staff imported from contacts.csv (company_seed.json staff_v2, one-time meta company_staff_v2) with staff groups
+
 ## Backlog
 - P0: Add Google Drive OAuth credentials and connect
 - P1: Phone push notifications (Firebase file + build)

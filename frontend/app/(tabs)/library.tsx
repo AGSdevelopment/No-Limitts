@@ -26,6 +26,7 @@ export default function Library() {
     { icon: "shield-checkmark-outline", label: "Policies & procedures", to: "/policies", id: "policies", count: dash.data?.pending_policies },
     { icon: "sparkles-outline", label: "Ask AI about policies", to: "/assistant", id: "assistant" },
     { icon: "folder-open-outline", label: "Company Drive", to: "/drive", id: "drive" },
+    { icon: "school-outline", label: "CPD", to: "/cpd", id: "cpd" },
     { icon: "clipboard-outline", label: "Forms", to: "/forms", id: "forms" },
     { icon: "megaphone-outline", label: "Company updates", to: "/updates", id: "updates" },
     { icon: "calendar-outline", label: "Events", to: "/events", id: "events" },

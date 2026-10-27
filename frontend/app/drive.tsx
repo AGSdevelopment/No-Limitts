@@ -1,15 +1,16 @@
 import { useState } from "react";
 import { FlatList, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from "react-native";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api, openDriveFile } from "@/src/api";
+import { useAuth } from "@/src/auth";
 import { useToast } from "@/src/components/toast";
 import { EmptyState, ErrorState, IconName, Ionicons, Loading, timeAgo } from "@/src/components/ui";
 import { makeStyles, useTheme } from "@/src/theme";
 
-type Item = { id: string; name: string; mime_type: string; is_folder: boolean; modified: string; size: number | null };
-type Listing = { root_id: string; root_name: string; folder_id: string; items: Item[] };
+type Item = { id: string; name: string; mime_type: string; is_folder: boolean; modified: string; size: number | null; pinned?: boolean };
+type Listing = { root_id: string; root_name: string; folder_id: string; items: Item[]; pinned: Item[] };
 type Crumb = { id: string; name: string };
 
 function iconFor(i: Item): IconName {
@@ -39,18 +40,33 @@ export default function CompanyDrive() {
   const [query, setQuery] = useState("");
   const [opening, setOpening] = useState<string | null>(null);
   const folder = path[path.length - 1]?.id ?? "";
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const qc = useQueryClient();
 
   const q = useQuery<Listing>({
     queryKey: ["drive-shared", folder, query],
     queryFn: () => api(`/drive/shared?folder=${encodeURIComponent(folder)}&q=${encodeURIComponent(query)}`),
     retry: false,
   });
+  const data = q.data;
 
-  const open = async (item: Item) => {
+  const togglePin = async (item: Item) => {
+    try {
+      if (item.pinned) await api(`/drive/pins/${item.id}`, { method: "DELETE" });
+      else await api("/drive/pins", { method: "POST", body: { file_id: item.id } });
+      await qc.invalidateQueries({ queryKey: ["drive-shared"] });
+      toast(item.pinned ? "Unpinned" : "Pinned to the top of Company Drive", item.pinned ? "info" : "success");
+    } catch (e: any) {
+      toast(e.message, "error");
+    }
+  };
+
+  const open = async (item: Item, fromPin = false) => {
     if (item.is_folder) {
       setSearch("");
       setQuery("");
-      setPath((p) => [...p, { id: item.id, name: item.name }]);
+      setPath((p) => (fromPin ? [{ id: item.id, name: item.name }] : [...p, { id: item.id, name: item.name }]));
       return;
     }
     setOpening(item.id);
@@ -72,8 +88,37 @@ export default function CompanyDrive() {
       <ErrorState message={(q.error as any)?.message ?? "Couldn't load files."} onRetry={() => q.refetch()} />
     );
   }
-  const data = q.data!;
-  const crumbs: Crumb[] = [{ id: "", name: data.root_name }, ...path];
+  const crumbs: Crumb[] = [{ id: "", name: data!.root_name }, ...path];
+  const showPinned = !folder && !query && (data!.pinned?.length ?? 0) > 0;
+
+  const renderRow = (item: Item, prefix = "drive-item") => (
+    <Pressable
+      key={`${prefix}-${item.id}`}
+      testID={`${prefix}-${item.id}`}
+      onPress={() => open(item, prefix === "drive-pinned")}
+      style={({ pressed }) => [styles.item, pressed && { opacity: 0.7 }]}
+    >
+      <View style={[styles.iconBox, item.is_folder && { backgroundColor: colors.brandTertiary }]}>
+        <Ionicons name={iconFor(item)} size={22} color={item.is_folder ? colors.brandPrimary : colors.accent} />
+      </View>
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text style={styles.name} numberOfLines={2}>{item.name}</Text>
+        <Text style={styles.meta}>
+          {item.is_folder ? "Folder" : [sizeLabel(item.size), item.modified ? `Updated ${timeAgo(item.modified)}` : ""].filter(Boolean).join(" · ") || "File"}
+        </Text>
+      </View>
+      {isAdmin && (
+        <Pressable testID={`drive-pin-${item.id}`} onPress={() => togglePin(item)} hitSlop={6} style={styles.pinBtn}>
+          <Ionicons name={item.pinned ? "pin" : "pin-outline"} size={20} color={item.pinned ? colors.accent : colors.muted} />
+        </Pressable>
+      )}
+      {opening === item.id ? (
+        <Text style={styles.meta}>Opening…</Text>
+      ) : (
+        <Ionicons name={item.is_folder ? "chevron-forward" : "open-outline"} size={18} color={colors.muted} />
+      )}
+    </Pressable>
+  );
 
   return (
     <View style={styles.root} testID="drive-screen">
@@ -116,37 +161,25 @@ export default function CompanyDrive() {
         </ScrollView>
       </View>
       <FlatList
-        data={data.items}
+        data={data!.items}
         keyExtractor={(i) => i.id}
         contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 24, flexGrow: 1 }}
         keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => q.refetch()} tintColor={colors.brandPrimary} />}
+        ListHeaderComponent={
+          showPinned ? (
+            <View style={{ gap: 8, marginBottom: 16 }} testID="drive-pinned-section">
+              <Text style={styles.section}>Pinned</Text>
+              {data!.pinned.map((p) => renderRow(p, "drive-pinned"))}
+              <Text style={[styles.section, { marginTop: 8 }]}>All files</Text>
+            </View>
+          ) : null
+        }
         ListEmptyComponent={
           <EmptyState icon="folder-open-outline" title={query ? "No matching files" : "This folder is empty"} subtitle={query ? "Try a different search." : undefined} testID="drive-empty" />
         }
         ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
-        renderItem={({ item }) => (
-          <Pressable
-            testID={`drive-item-${item.id}`}
-            onPress={() => open(item)}
-            style={({ pressed }) => [styles.item, pressed && { opacity: 0.7 }]}
-          >
-            <View style={[styles.iconBox, item.is_folder && { backgroundColor: colors.brandTertiary }]}>
-              <Ionicons name={iconFor(item)} size={22} color={item.is_folder ? colors.brandPrimary : colors.accent} />
-            </View>
-            <View style={{ flex: 1, gap: 2 }}>
-              <Text style={styles.name} numberOfLines={2}>{item.name}</Text>
-              <Text style={styles.meta}>
-                {item.is_folder ? "Folder" : [sizeLabel(item.size), item.modified ? `Updated ${timeAgo(item.modified)}` : ""].filter(Boolean).join(" · ")}
-              </Text>
-            </View>
-            {opening === item.id ? (
-              <Text style={styles.meta}>Opening…</Text>
-            ) : (
-              <Ionicons name={item.is_folder ? "chevron-forward" : "open-outline"} size={18} color={colors.muted} />
-            )}
-          </Pressable>
-        )}
+        renderItem={({ item }) => renderRow(item)}
       />
     </View>
   );
@@ -166,4 +199,6 @@ const useStyles = makeStyles((c) => ({
   iconBox: { width: 44, height: 44, borderRadius: 12, backgroundColor: c.surfaceSecondary, alignItems: "center", justifyContent: "center" },
   name: { fontSize: 16, fontWeight: "600", color: c.onSurface },
   meta: { fontSize: 13, color: c.muted },
+  section: { fontSize: 13, fontWeight: "600", color: c.muted, textTransform: "uppercase", marginLeft: 4 },
+  pinBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
 }));

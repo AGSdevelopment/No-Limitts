@@ -207,6 +207,58 @@ def drive_is_under(svc, file_id: str, root_id: str) -> bool:
     return False
 
 
+TEXT_EXPORT = {"application/vnd.google-apps.document": "text/plain",
+               "application/vnd.google-apps.presentation": "text/plain",
+               "application/vnd.google-apps.spreadsheet": "text/csv"}
+TEXT_MIMES = ("text/plain", "text/markdown", "text/csv")
+PDF_MIME = "application/pdf"
+
+
+def drive_walk(svc, root_id: str, cap: int = 300) -> list:
+    """All non-folder files below root (breadth-first, capped)."""
+    files, queue, seen = [], [root_id], 0
+    while queue and seen < 80 and len(files) < cap:
+        fid = queue.pop(0)
+        seen += 1
+        for f in drive_children(svc, fid):
+            if f["mimeType"] == FOLDER_MIME:
+                queue.append(f["id"])
+            else:
+                files.append(f)
+    return files[:cap]
+
+
+def readable(mime: str) -> bool:
+    return mime in TEXT_EXPORT or mime in TEXT_MIMES or mime == PDF_MIME
+
+
+def drive_text(svc, f: dict, limit: int = 30000) -> str:
+    mime = f["mimeType"]
+    if mime in TEXT_EXPORT:
+        data = svc.files().export(fileId=f["id"], mimeType=TEXT_EXPORT[mime]).execute()
+        text = data.decode("utf-8", "ignore") if isinstance(data, bytes) else str(data)
+    elif mime == PDF_MIME:
+        if int(f.get("size") or 0) > 15 * 1024 * 1024:
+            return ""
+        data = svc.files().get_media(fileId=f["id"], supportsAllDrives=True).execute()
+        import pymupdf
+        doc = pymupdf.open(stream=data, filetype="pdf")
+        parts, total = [], 0
+        for page in doc:
+            t = page.get_text()
+            parts.append(t)
+            total += len(t)
+            if total > limit:
+                break
+        text = "\n".join(parts)
+    elif mime in TEXT_MIMES:
+        data = svc.files().get_media(fileId=f["id"], supportsAllDrives=True).execute()
+        text = data.decode("utf-8", "ignore")
+    else:
+        return ""
+    return re.sub(r"\n{3,}", "\n\n", text).strip()[:limit]
+
+
 def drive_download(svc, file_id: str):
     meta = drive_get(svc, file_id)
     mime = meta["mimeType"]

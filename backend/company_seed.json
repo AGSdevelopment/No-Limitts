@@ -129,7 +129,7 @@
    ]
   },
   {
-   "title": "Cardholder – Card Issuance",
+   "title": "Cardholder \u2013 Card Issuance",
    "url": "https://form.jotform.com/team/261958881415065/cardholder---card-issuance",
    "description": "Request or record a company card issue",
    "category": "Support Office",
@@ -181,6 +181,170 @@
    "name": "Sienna",
    "role": "employee",
    "staff_group": "support_office"
+  }
+ ],
+ "staff_v2": [
+  {
+   "email": "ailis@aspireandgrow.com.au",
+   "name": "Ailis O'Mahony",
+   "role": "employee",
+   "staff_group": "therapist_employee"
+  },
+  {
+   "email": "alev@aspireandgrow.com.au",
+   "name": "Alev Longbottom",
+   "role": "employee",
+   "staff_group": "therapist_employee"
+  },
+  {
+   "email": "bronte@aspireandgrow.com.au",
+   "name": "Bronte Moltoni",
+   "role": "employee",
+   "staff_group": "therapist_contractor"
+  },
+  {
+   "email": "brook@aspireandgrow.com.au",
+   "name": "Brook Baller",
+   "role": "employee",
+   "staff_group": "therapist_contractor"
+  },
+  {
+   "email": "clair@aspireandgrow.com.au",
+   "name": "Clair Vann",
+   "role": "employee",
+   "staff_group": "support_office"
+  },
+  {
+   "email": "ellie@aspireandgrow.com.au",
+   "name": "Ellie Jenner",
+   "role": "employee",
+   "staff_group": "therapist_contractor"
+  },
+  {
+   "email": "elliot@aspireandgrow.com.au",
+   "name": "Elliot Nyirenda",
+   "role": "employee",
+   "staff_group": "therapist_contractor"
+  },
+  {
+   "email": "jamison@aspireandgrow.com.au",
+   "name": "Jamison Kenny",
+   "role": "employee",
+   "staff_group": "therapist_contractor"
+  },
+  {
+   "email": "janie@aspireandgrow.com.au",
+   "name": "Janie Ludik",
+   "role": "employee",
+   "staff_group": "therapist_contractor"
+  },
+  {
+   "email": "jessica@aspireandgrow.com.au",
+   "name": "Jessica Mai",
+   "role": "employee",
+   "staff_group": "therapist_contractor"
+  },
+  {
+   "email": "kaitlyn@aspireandgrow.com.au",
+   "name": "Kaitlyn Hailes",
+   "role": "employee",
+   "staff_group": "therapist_employee"
+  },
+  {
+   "email": "khulan@aspireandgrow.com.au",
+   "name": "Khulan Ganbaatar",
+   "role": "employee",
+   "staff_group": "therapist_contractor"
+  },
+  {
+   "email": "kristin@aspireandgrow.com.au",
+   "name": "Kristin Palicas",
+   "role": "employee",
+   "staff_group": "support_office"
+  },
+  {
+   "email": "kyla@aspireandgrow.com.au",
+   "name": "Kyla Stanger",
+   "role": "employee",
+   "staff_group": "therapist_contractor"
+  },
+  {
+   "email": "lorraine@aspireandgrow.com.au",
+   "name": "Lorraine Lau",
+   "role": "employee",
+   "staff_group": "therapist_contractor"
+  },
+  {
+   "email": "lyon@aspireandgrow.com.au",
+   "name": "Lyon Seow",
+   "role": "employee",
+   "staff_group": "therapist_employee"
+  },
+  {
+   "email": "madeleine@aspireandgrow.com.au",
+   "name": "Madeleine Davies",
+   "role": "employee",
+   "staff_group": "therapist_employee"
+  },
+  {
+   "email": "melissa@aspireandgrow.com.au",
+   "name": "Melissa Van Zyl",
+   "role": "employee",
+   "staff_group": "therapist_contractor"
+  },
+  {
+   "email": "milda@aspireandgrow.com.au",
+   "name": "Milda Ho",
+   "role": "employee",
+   "staff_group": "therapist_contractor"
+  },
+  {
+   "email": "nathan@aspireandgrow.com.au",
+   "name": "Nathan Pintabona",
+   "role": "employee",
+   "staff_group": "therapist_contractor"
+  },
+  {
+   "email": "portia@aspireandgrow.com.au",
+   "name": "Portia Libao",
+   "role": "employee",
+   "staff_group": "therapist_contractor"
+  },
+  {
+   "email": "rinu@aspireandgrow.com.au",
+   "name": "Rinu Jacob",
+   "role": "employee",
+   "staff_group": "therapist_contractor"
+  },
+  {
+   "email": "samuel@aspireandgrow.com.au",
+   "name": "Samuel Fowler",
+   "role": "employee",
+   "staff_group": "therapist_contractor"
+  },
+  {
+   "email": "saraya@aspireandgrow.com.au",
+   "name": "Saraya Bowlzer-Harrison",
+   "role": "employee",
+   "staff_group": "therapist_employee"
+  },
+  {
+   "email": "shaun@aspireandgrow.com.au",
+   "name": "Shaun Hunter",
+   "role": "employee",
+   "staff_group": "therapist_employee"
+  },
+  {
+   "email": "steffy@aspireandgrow.com.au",
+   "name": "Steff Dawson",
+   "role": "employee",
+   "staff_group": "therapist_employee"
+  },
+  {
+   "email": "stephanie@aspireandgrow.com.au",
+   "name": "Stephanie Goodchild",
+   "role": "employee",
+   "staff_group": "therapist_contractor"
   }
  ]
 }
