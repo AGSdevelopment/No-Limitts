@@ -114,7 +114,7 @@ async def auth_session(body: SessionIn):
     if r.status_code != 200:
         raise HTTPException(status_code=401, detail="Invalid session")
     data = r.json()
-    email = data["email"]
+    email = data["email"].strip().lower()
     admin_emails = {e.strip().lower() for e in os.environ.get("ADMIN_EMAILS", "").split(",") if e.strip()}
     existing = await db.users.find_one({"email": email}, P)
     if existing:
@@ -158,6 +158,20 @@ async def list_users(user=Depends(current_user)):
 
 class RoleIn(BaseModel):
     role: str
+
+
+class StaffGroupIn(BaseModel):
+    staff_group: Optional[str] = None
+
+
+@api.patch("/users/{user_id}/group")
+async def set_staff_group(user_id: str, body: StaffGroupIn, admin=Depends(admin_user)):
+    if body.staff_group is not None and body.staff_group not in STAFF_GROUPS:
+        raise HTTPException(400, "Unknown staff group")
+    res = await db.users.update_one({"user_id": user_id}, {"$set": {"staff_group": body.staff_group}})
+    if not res.matched_count:
+        raise HTTPException(404, "User not found")
+    return await db.users.find_one({"user_id": user_id}, P)
 
 
 @api.patch("/users/{user_id}/role")
@@ -959,6 +973,45 @@ class FormIn(BaseModel):
     title: str
     url: str
     description: str = ""
+    audiences: List[str] = []
+    category: str = "Day-to-Day"
+
+
+class FormPatch(BaseModel):
+    title: Optional[str] = None
+    url: Optional[str] = None
+    description: Optional[str] = None
+    audiences: Optional[List[str]] = None
+    category: Optional[str] = None
+
+
+FORM_CATEGORIES = ("Day-to-Day", "New Starter", "HR", "Compliance", "Referral Triage", "Therapy Triage",
+                   "Support Office")
+
+
+def clean_category(value: str) -> str:
+    if value not in FORM_CATEGORIES:
+        raise HTTPException(400, "Unknown form section")
+    return value
+
+
+STAFF_GROUPS = ("support_office", "therapist_employee", "therapist_contractor", "support_worker_employee",
+                "support_worker_contractor")
+
+
+def clean_audiences(values: List[str]) -> List[str]:
+    if any(v not in STAFF_GROUPS for v in values):
+        raise HTTPException(400, "Unknown staff group")
+    return sorted(set(values))
+
+
+def forms_query(user: dict) -> dict:
+    if user.get("role") == "admin":
+        return {}
+    ors = [{"audiences": {"$size": 0}}, {"audiences": {"$exists": False}}]
+    if user.get("staff_group"):
+        ors.append({"audiences": user["staff_group"]})
+    return {"$or": ors}
 
 
 def normalize_jotform(url: str) -> Optional[str]:
@@ -975,7 +1028,33 @@ def normalize_jotform(url: str) -> Optional[str]:
 
 @api.get("/forms")
 async def list_forms(user=Depends(current_user)):
-    return await db.forms.find({}, P).sort("created_at", -1).to_list(200)
+    return await db.forms.find(forms_query(user), P).sort("created_at", -1).to_list(200)
+
+
+@api.patch("/forms/{form_id}")
+async def update_form(form_id: str, body: FormPatch, admin=Depends(admin_user)):
+    upd = {}
+    if body.title is not None:
+        if not body.title.strip():
+            raise HTTPException(400, "Title is required")
+        upd["title"] = body.title.strip()
+    if body.url is not None:
+        url = normalize_jotform(body.url)
+        if not url:
+            raise HTTPException(400, "Paste a Jotform link (e.g. https://form.jotform.com/123...) or form ID")
+        upd["url"] = url
+    if body.description is not None:
+        upd["description"] = body.description.strip()
+    if body.audiences is not None:
+        upd["audiences"] = clean_audiences(body.audiences)
+    if body.category is not None:
+        upd["category"] = clean_category(body.category)
+    if not upd:
+        raise HTTPException(400, "Nothing to update")
+    res = await db.forms.update_one({"form_id": form_id}, {"$set": upd})
+    if not res.matched_count:
+        raise HTTPException(404, "Form not found")
+    return await db.forms.find_one({"form_id": form_id}, P)
 
 
 @api.post("/forms")
@@ -985,10 +1064,18 @@ async def create_form(body: FormIn, admin=Depends(admin_user)):
         raise HTTPException(400, "Paste a Jotform link (e.g. https://form.jotform.com/123...) or form ID")
     if not body.title.strip():
         raise HTTPException(400, "Title is required")
+    audiences = clean_audiences(body.audiences)
     doc = {"form_id": new_id("form"), "title": body.title.strip(), "description": body.description.strip(),
-           "url": url, "created_by": admin["name"], "created_at": now_iso()}
+           "url": url, "audiences": audiences, "category": clean_category(body.category),
+           "created_by": admin["name"], "created_at": now_iso()}
     await db.forms.insert_one(dict(doc))
-    await notify(await all_user_ids(admin["user_id"]), "form", "New form available", doc["title"], "/forms")
+    if audiences:
+        users = await db.users.find({"$or": [{"role": "admin"}, {"staff_group": {"$in": audiences}}]},
+                                    {"_id": 0, "user_id": 1}).to_list(5000)
+        recipients = [u["user_id"] for u in users if u["user_id"] != admin["user_id"]]
+    else:
+        recipients = await all_user_ids(admin["user_id"])
+    await notify(recipients, "form", "New form available", doc["title"], "/forms")
     return doc
 
 
@@ -1089,6 +1176,30 @@ app.add_middleware(CORSMiddleware, allow_credentials=True, allow_origins=["*"], 
                    allow_headers=["*"])
 
 
+async def seed_company_data():
+    """One-time import of the company's forms and staff (admins, staff groups) into a fresh database,
+    e.g. the first time the published app starts. Never re-runs, so later edits/deletes stick."""
+    if await db.meta.find_one({"key": "company_seed_v1"}):
+        return
+    path = ROOT_DIR / "company_seed.json"
+    if path.exists():
+        data = json.loads(path.read_text())
+        for f in data.get("forms", []):
+            if not await db.forms.find_one({"url": f["url"]}):
+                await db.forms.insert_one({"form_id": new_id("form"), **f, "created_by": "Andrew Thomas",
+                                           "created_at": now_iso()})
+        for u in data.get("users", []):
+            existing = await db.users.find_one({"email": u["email"]})
+            if existing:
+                await db.users.update_one({"email": u["email"]}, {"$set": {"role": u["role"],
+                                                                         "staff_group": u.get("staff_group")}})
+            else:
+                await db.users.insert_one({"user_id": new_id("user"), "email": u["email"], "name": u["name"],
+                                           "picture": None, "role": u["role"], "staff_group": u.get("staff_group"),
+                                           "job_title": "", "created_at": now_iso()})
+    await db.meta.insert_one({"key": "company_seed_v1", "created_at": now_iso()})
+
+
 async def seed():
     for name, desc in (("general", "Company-wide chat for everyone"),
                        ("announcements", "Important news and notices")):
@@ -1122,6 +1233,16 @@ async def startup():
     await db.notifications.create_index([("user_id", 1), ("created_at", -1)])
     await db.messages.create_index("gchat_name", sparse=True)
     await seed()
+    await seed_company_data()
+    # migrate the old single Support Office flag / audience to staff groups
+    await db.users.update_many({"support_office": True}, {"$set": {"staff_group": "support_office"},
+                                                          "$unset": {"support_office": ""}})
+    await db.users.update_many({"support_office": {"$exists": True}}, {"$unset": {"support_office": ""}})
+    await db.forms.update_many({"audience": "support_office"}, {"$set": {"audiences": ["support_office"]},
+                                                                "$unset": {"audience": ""}})
+    await db.forms.update_many({"audience": {"$exists": True}}, {"$set": {"audiences": []},
+                                                                 "$unset": {"audience": ""}})
+    await db.forms.update_many({"category": {"$exists": False}}, {"$set": {"category": "Day-to-Day"}})
     try:
         await run_in_threadpool(init_storage)
     except Exception as e:

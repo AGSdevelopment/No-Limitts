@@ -1,0 +1,38 @@
+{
+  "summary": "Tested which forms each person can see (Support Office only vs everyone) in the backend and in the web UI at 390x844. Backend: 16/16 pytest passed. Admin sees all 7 forms. The test employee sees only the 3 'everyone' forms. Johanna, using a temporary session that was deleted afterwards, sees all 7 but cannot change a form's audience (403). The PATCH support-office endpoint is admin only (403 for employees, 404 for an unknown user, 422 for a bad body), and turning it on and off shows and then hides the Support Office forms. PATCH form audience is admin only, gives 400 for an invalid value and 404 for an unknown form, and was restored. POST with audience support_office notifies only admins and Support Office users, not the creator. Frontend: admin sees the audience labels and the change toggle works and was restored. The add-form sheet audience chips work, and creating then deleting a Support Office form through the UI works. Team shows the Support Office pill for Johanna, Clair and Sienna, and the Add/Remove button changes state. Employee sees only 3 forms, no audience controls and no toggle buttons. No deprecated Expo packages found.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Forms add sheet", "issue": "After a successful save, the audience choice is not reset to 'everyone' (title, url and description are reset, audience is not). The next form defaults to the last choice, e.g. 'Support Office only', which risks hiding forms by accident. Reference: /app/frontend/app/forms.tsx:45-48", "testID": "forms-audience-support-office", "priority": "low"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Team directory (admin)", "issues": [
+        "The wide 'Add to Support Office' / 'Remove Support Office' ghost button (~186px) squeezes the name/email column at 390px. Names wrap onto 2-3 lines ('Alex Admin (you)') and emails are cut to 'johanna...'. Use a compact icon toggle or switch, or move the actions under the info.",
+        "The Support Office toggle also shows on admin rows, but admins already see every form, so it does nothing useful there. Consider hiding it for role=admin.",
+        "The Support Office toggle has no busy or disabled state, so a double tap can send conflicting PATCHes (toggleRole has setBusy, toggleSO does not). Reference: /app/frontend/app/team.tsx:33-42"
+      ]},
+      {"screen": "Forms (admin)", "issues": [
+        "The audience 'change' control is 28px tall with hitSlop 6, about 40px, under the 44px minimum. A single tap changes the audience straight away with no confirmation; only a toast appears."
+      ]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_forms_audience.py", "/app/test_reports/pytest/pytest_forms_audience.xml"],
+  "action_items": [
+    "forms.tsx save(): add setAudience('everyone') after a successful create",
+    "team.tsx: add a busy state to toggleSO, hide the Support Office toggle for admin users, and make the button compact so names and emails are not squeezed",
+    "Optional: make the form audience toggle at least 44px tall, or ask for confirmation before changing it"
+  ],
+  "critical_code_review_comments": [
+    "When a user signs in with Google, the backend matches them to an existing user by exact (case-sensitive) email (server.py:119). The pre-added Support Office users are stored in lowercase, which is fine if Google returns lowercase emails. Consider matching case-insensitively.",
+    "Forms with no audience field are treated as 'everyone' because the query uses $ne. Good, safe default."
+  ],
+  "updated_files": ["/app/backend/tests/test_forms_audience.py (new)"],
+  "success_rate": {"backend": "100%", "frontend": "100% functional (minor design issues)"},
+  "seed_data_creation": "None kept. Johanna temp session test_session_johanna_tmp deleted. TEST_ forms and their notifications deleted. Erin support_office=false. All 7 forms' audiences unchanged. Johanna, Clair and Sienna are still support_office=true.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "test_forms_audience.py creates and deletes its own Johanna session and TEST_ forms, deletes their notifications, and restores Erin to support_office=false. pytest runs in parallel (xdist); the toggle test briefly changes Erin's visibility. The add-form sheet slides in, so wait about 1.5s before clicking the chips.",
+  "rca_of_issue": ""
+}

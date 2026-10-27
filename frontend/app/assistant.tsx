@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { FlatList, Pressable, Text, TextInput, View } from "react-native";
 import { Stack } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { KeyboardAvoidingView } from "react-native-keyboard-controller";
+import { KeyboardAvoidingView, useKeyboardState } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api, streamAsk } from "@/src/api";
@@ -20,6 +20,7 @@ const SUGGESTIONS = [
 
 export default function Assistant() {
   const insets = useSafeAreaInsets();
+  const keyboardOpen = useKeyboardState((s) => s.isVisible);
   const styles = useStyles();
   const { colors } = useTheme();
   const toast = useToast();
@@ -75,7 +76,7 @@ export default function Assistant() {
             : undefined,
         }}
       />
-      <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
+      <KeyboardAvoidingView behavior="translate-with-padding" style={{ flex: 1 }} automaticOffset>
         {q.isLoading ? (
           <Loading />
         ) : (
@@ -121,7 +122,7 @@ export default function Assistant() {
             }}
           />
         )}
-        <View style={[styles.composer, { paddingBottom: insets.bottom + 8 }]}>
+        <View style={[styles.composer, { paddingBottom: keyboardOpen ? 8 : insets.bottom + 8 }]}>
           <TextInput
             testID="assistant-input"
             value={text}

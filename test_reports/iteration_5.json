@@ -1,0 +1,45 @@
+{
+  "summary": "I tested the keyboard fix, Jotform access by staff group, and form sections end to end. Backend: 11 of 11 new pytest checks passed (tests/test_forms_groups.py). They cover forms visibility for admins and employees, PATCH /users/{id}/group (403 for non-admins, 400 for an unknown group, 404 for an unknown user, null clears the group), form PATCH/POST validation for category and audiences, the create -> visibility-by-group -> patch -> delete flow, and the migration (johanna, clair and sienna are support_office; no legacy support_office or audience fields remain). Frontend at 390x844: admin Forms shows the HR, Compliance and Referral Triage section headers and an access label on every form. The edit sheet shows the 4 section chips and the 6 audience options, and saving changed the category and audiences, confirmed through the API and then restored. In the Team directory, Set group opens the picker, Save updates the pill and the button changes to 'Change group', and No group clears it. Rows are not squeezed: all are 358px wide and wrap to 135-179px tall. The employee Forms screen shows 7 forms when the group is support_office and 3 with no group, always under section headers and with no add, edit or delete controls. The chat thread (opened from Team -> message) and Ask AI composers stay visible and on top when focused, at both 844px and a simulated 480px-tall viewport. The native software keyboard cannot be shown in the web preview, so native behaviour was checked by code review only. No messages were sent and no AI calls were made. All data was restored (forms identical to the backup, all staff groups as before). Deprecated packages detected: expo-router/unstable-native-tabs (a runtime warning says to use expo-router/native-tabs). One reproduced bug: the app wipes the saved login whenever /auth/me fails for any reason, not only on 401.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PATCH /api/forms/{id}", "issue": "Opening a form to more groups (for example from support_office to everyone) sends no 'New form available' notification to the people who can now see it. Only POST notifies."},
+      {"endpoint": "PATCH /api/users/{id}/group", "issue": "A group can be set on admin users, which has no effect because admins see every form. It still shows a group pill."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Auth bootstrap", "issue": "src/auth.tsx:108-112 calls clear() (removes the saved token) on ANY /auth/me error, including network abort, offline, timeout and 5xx. I reproduced this in the web preview: /api/auth/me was aborted (net::ERR_ABORTED), the token was removed and the user landed on /login although test_session_employee is valid. On native, opening the app offline or during a backend blip would log staff out. Only clear on a 401.", "affected_testIDs": ["forms-screen", "team-screen"]}
+    ],
+    "design_issues": [
+      {"screen": "Forms edit sheet", "issues": ["The section chips sit in a horizontal ScrollView, so at 390px the 'Referral Triage' chip is cut off and easy to miss. Use flexWrap instead.", "The section and category testIDs contain a space ('forms-section-Referral Triage', 'forms-category-Referral Triage'), which makes selectors fragile. Consider slugs."]},
+      {"screen": "Chat / Ask AI composer (native)", "issues": ["The composer keeps paddingBottom insets.bottom + 8 while the keyboard is open. On iPhones with a home indicator (about 34pt), and on Android edge-to-edge with gesture navigation, this leaves an empty band between the input and the keyboard. Drop the bottom inset while the keyboard is visible (useKeyboardHandler / useReanimatedKeyboardAnimation, or KeyboardStickyView)."]}
+    ],
+    "react_native_issues": [
+      {"component": "expo-router/unstable-native-tabs", "issue": "Deprecated import. At runtime it warns '`expo-router/unstable-native-tabs` is deprecated. Use `expo-router/native-tabs` instead.' Reference: /app/frontend/app/(tabs)/_layout.tsx:3"},
+      {"component": "KeyboardAvoidingView keyboardVerticalOffset", "issue": "useHeaderHeight in src/navigation.ts:7-10 guesses the height as insets.top + 44 (iOS) or + 56 (Android). The native-stack Android default is 56, so Android is OK. On Dynamic Island iPhones the real header is about 5pt shorter (react-navigation subtracts about 5.33 from the inset), giving a small harmless gap. iPad (50), landscape (32) and modal (56) headers would be wrong. react-native-keyboard-controller 1.22.7 (installed) supports automaticOffset, which measures the view's real position on screen. Use <KeyboardAvoidingView behavior='translate-with-padding' automaticOffset> with offset 0, or the real header height from react-navigation. Reference: /app/frontend/app/chat/[id].tsx:57, /app/frontend/app/assistant.tsx:80"},
+      {"component": "GroupPickerSheet Row", "issue": "Row is declared as a component inside the render function, so every row remounts on each render. Hoist it out of the component. Reference: /app/frontend/src/components/group-picker.tsx:33"}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_forms_groups.py", "/app/test_reports/pytest/pytest_forms_groups.xml"],
+  "action_items": [
+    "src/auth.tsx:110 - only clear the stored token when /auth/me returns 401; on network or 5xx errors keep the token and show a retry state.",
+    "Replace import 'expo-router/unstable-native-tabs' with 'expo-router/native-tabs' in app/(tabs)/_layout.tsx:3.",
+    "Chat and assistant KeyboardAvoidingView: switch to automaticOffset (available in react-native-keyboard-controller 1.22.7), or use the real header height, instead of the hardcoded estimate in src/navigation.ts.",
+    "Chat and assistant composers: remove the insets.bottom padding while the keyboard is open so there is no gap above the keyboard on native.",
+    "Delete or rewrite /app/backend/tests/test_forms_audience.py. It tests the old support_office/audience model and is now obsolete (I did not run it, because it would write to the database).",
+    "Optional: wrap the section chips in the form sheet; hoist Row out of GroupPickerSheet; consider notifying users when a form's audience is widened."
+  ],
+  "critical_code_review_comments": [
+    "The backend validation is solid. clean_audiences de-duplicates and sorts, clean_category is checked before insert, and forms_query treats a missing audiences field as everyone.",
+    "list_forms responses exclude _id. The migration in startup is idempotent.",
+    "The native keyboard behaviour cannot be verified in the web preview and needs an on-device check (iOS and Android) of the chat thread and Ask AI."
+  ],
+  "updated_files": ["/app/backend/tests/test_forms_groups.py (new)"],
+  "success_rate": {"backend": "100% (11/11)", "frontend": "100% of requested flows pass on web; 1 auth robustness bug found"},
+  "seed_data_creation": "None kept. Test forms (TEST_ prefix) and their notifications were deleted. Form form_621006b5905b and user_testemp001's staff_group were restored from a backup; the restore was checked as identical.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Use DM dm_user_testadmin01_user_testemp001 for chat tests; do not post in the Allied Health or Celebrate the Wins channels. Web login: goto '/', wait about 2.5s, set localStorage auth_token, then goto the target page. Navigating away while /auth/me is still in flight can wipe the token (the auth.tsx bug). tests/test_forms_groups.py restores state itself."
+}

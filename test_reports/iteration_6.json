@@ -1,0 +1,30 @@
+{
+  "summary": "Iteration 6 follow-up. Backend: 6/6 new tests pass (tests/test_forms_support_office_section.py): the 'Support Office' category is accepted on POST/PATCH, invalid casing gets 400, employees get 403 on create, the new seeded forms have the right categories and audiences, titles are not duplicated, and visibility by staff group is correct. The older tests/test_forms_groups.py was out of date (it expected 7 forms and 3 for everyone); it was updated to 10 forms and 5 for everyone and now passes 11/11, so 17/17 in total. Frontend at 390x844: (A) The composers in the DM chat thread (Team -> message Erin) and in Ask AI keep focus, accept typing and stay on top and visible at 844px and at a simulated 480px height, with no page or console errors. A code review found automaticOffset + translate-with-padding + useKeyboardState used correctly for native (library 1.22.7 supports both props and the selector form of the hook). (B) Auth: when /auth/me is aborted (page.route), the token stays in localStorage, and after unblocking and reloading the user is logged in again. An invalid token (401) clears it. However, while offline the user is shown the Login screen. (C) Admin Forms sections appear in the order Day-to-Day (Request for Support), HR (incl. CPD and Asset Register), Compliance, Support Office (Agenda Item). The edit sheet has a 'Support Office' chip that is selected for the Agenda form. Adding a TEST form through the UI with Support Office saved category 'Support Office' and audiences ['support_office'] (checked through the API, then deleted). The employee with no group sees exactly 5 forms under Day-to-Day, HR and Compliance, with no Agenda form and no add, edit or delete controls.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Forms edit sheet - Section chips", "issue": "The section chips are in a horizontal ScrollView. At 390px the 'Support Office' chip (x=434-553) and part of 'Referral Triage' are off-screen, and there is no scroll indicator. When editing the Agenda Item form, the selected 'Support Office' chip cannot be seen unless the user scrolls sideways. Fix: use flexWrap:'wrap' on a View instead of a horizontal ScrollView. Reference: /app/frontend/app/forms.tsx:175", "testID": "forms-category-Support Office", "priority": "LOW"}
+    ],
+    "integration_issues": [
+      {"flow": "Auth start while offline", "issue": "The token is now kept when /auth/me fails, but user stays null, so Stack.Protected shows the Login screen ('Continue with Google'). Nothing retries /auth/me when the network comes back; the user has to restart or reload the app. The user may also tap Sign in while offline. Fix: keep a cached user, or show an offline/retry state when a saved token exists but /auth/me fails with a non-401 error. Reference: /app/frontend/src/auth.tsx:105-115", "affected_testIDs": ["auth-loading"]}
+    ],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_forms_support_office_section.py", "/app/backend/tests/test_forms_groups.py", "/app/test_reports/pytest/pytest_iteration6.xml"],
+  "action_items": [
+    "MEDIUM: In src/auth.tsx, when a saved token exists and /auth/me fails with a network or 5xx error, show an offline/retry state (or use a cached user) instead of the Login screen, and retry when the app returns to the foreground or the network reconnects",
+    "LOW: In forms.tsx, make the Section chips wrap (flexWrap) so 'Support Office' and 'Referral Triage' are visible at 390px without scrolling sideways"
+  ],
+  "critical_code_review_comments": [
+    "chat/[id].tsx and assistant.tsx: KeyboardAvoidingView from react-native-keyboard-controller 1.22.7 with behavior='translate-with-padding' and automaticOffset uses viewPositionInWindow, so the native header height is handled. The composer is inside the KAV, and dropping insets.bottom while the keyboard is visible is correct because the keyboard height already covers the home-indicator area. Small cosmetic risk: isVisible flips in JS at keyboard show, so the composer may move by ~34px during the animation on iOS.",
+    "auth.tsx: the 401 path also triggers setUnauthorizedHandler -> clear() from api.ts, so clear() runs twice. This is harmless.",
+    "/var/log/supervisor/expo.err.log contains an old 'Unexpected token <' JSON error from @expo/cli. The app serves normally, so this is likely stale."
+  ],
+  "updated_files": ["/app/backend/tests/test_forms_groups.py (updated out-of-date expectations: 10 forms, 5 'everyone' forms, Support Office category)", "/app/backend/tests/test_forms_support_office_section.py (new)"],
+  "success_rate": {"backend": "100% (17/17)", "frontend": "100% of requested checks pass; 1 medium UX gap (offline start shows Login) and 1 low UI issue"},
+  "seed_data_creation": "None kept. The TEST_ forms created through the UI and pytest were deleted, and the employee staff_group was restored to unset. There are 10 real forms and 0 TEST_ forms.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "pytest.ini adds -n/--dist loadscope; run forms test files with '-n 0' because they share the employee staff_group state and conflict when run in parallel. Agenda form id: form_0398949ddf3d. For DM tests use dm_user_testadmin01_user_testemp001. Web login: goto '/', wait 2.5s, set localStorage auth_token (JSON string), then goto the target page."
+}

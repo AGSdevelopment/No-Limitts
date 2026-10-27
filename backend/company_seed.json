@@ -1,0 +1,186 @@
+{
+ "forms": [
+  {
+   "title": "Leave Request & Absence Notification",
+   "url": "https://www.jotform.com/team/261958881415065/leave-request",
+   "description": "Request leave or let us know about an absence",
+   "category": "HR",
+   "audiences": []
+  },
+  {
+   "title": "Worker Screening & Set Up",
+   "url": "https://www.jotform.com/team/261958881415065/worker-onboarding",
+   "description": "New worker onboarding: screening checks and set-up",
+   "category": "New Starter",
+   "audiences": [
+    "support_office"
+   ]
+  },
+  {
+   "title": "3/6/12 Month Review",
+   "url": "https://www.jotform.com/team/261958881415065/3612-month-review",
+   "description": "Staff performance review at 3, 6 and 12 months",
+   "category": "HR",
+   "audiences": [
+    "support_office"
+   ]
+  },
+  {
+   "title": "Conflict of Interest Reporting",
+   "url": "https://form.jotform.com/team/261958881415065/conflict-of-interest-reporting",
+   "description": "Declare any actual, potential or perceived conflict of interest",
+   "category": "Compliance",
+   "audiences": []
+  },
+  {
+   "title": "6 Week Check-in",
+   "url": "https://form.jotform.com/team/261958881415065/6-week-check-in",
+   "description": "Check-in for new staff six weeks after starting",
+   "category": "HR",
+   "audiences": [
+    "support_office"
+   ]
+  },
+  {
+   "title": "Request for Support",
+   "url": "https://form.jotform.com/team/261958881415065/request-for-support",
+   "description": "Ask for help or support from the team",
+   "category": "Day-to-Day",
+   "audiences": []
+  },
+  {
+   "title": "Support Office New Starter Checklist",
+   "url": "https://form.jotform.com/team/261958881415065/support-office-new-starter-checklis",
+   "description": "Checklist for new Support Office starters",
+   "category": "Support Office",
+   "audiences": [
+    "support_office"
+   ]
+  },
+  {
+   "title": "Asset Register Submission",
+   "url": "https://form.jotform.com/team/261958881415065/asset-register-submission",
+   "description": "Record company assets issued to you",
+   "category": "New Starter",
+   "audiences": []
+  },
+  {
+   "title": "Agenda Item Request Form",
+   "url": "https://form.jotform.com/team/261958881415065/agenda-item-request-form",
+   "description": "Request an item for the next Support Office meeting agenda",
+   "category": "Support Office",
+   "audiences": [
+    "support_office"
+   ]
+  },
+  {
+   "title": "CPD Certificate Submission",
+   "url": "https://form.jotform.com/team/261958881415065/cpd-certificate-submission",
+   "description": "Submit evidence of your continuing professional development",
+   "category": "HR",
+   "audiences": []
+  },
+  {
+   "title": "Continuous Improvement",
+   "url": "https://form.jotform.com/team/261958881415065/continuous-improvement",
+   "description": "Suggest an improvement to how we work",
+   "category": "Support Office",
+   "audiences": [
+    "support_office"
+   ]
+  },
+  {
+   "title": "Two Week Check-in",
+   "url": "https://www.jotform.com/team/261958881415065/two-week-check-in",
+   "description": "Check-in for new staff two weeks after starting",
+   "category": "New Starter",
+   "audiences": []
+  },
+  {
+   "title": "Authority to Deduct Wages",
+   "url": "https://www.jotform.com/team/261958881415065/authority-to-deduct-wages",
+   "description": "Authorise deductions from your wages",
+   "category": "New Starter",
+   "audiences": []
+  },
+  {
+   "title": "Secondary Employment Declaration",
+   "url": "https://www.jotform.com/team/261958881415065/secondary-employment-declaration",
+   "description": "Declare any other employment you hold",
+   "category": "New Starter",
+   "audiences": []
+  },
+  {
+   "title": "Rejection Record",
+   "url": "https://www.jotform.com/team/261958881415065/rejection-record",
+   "description": "Record a referral that was not accepted",
+   "category": "Therapy Triage",
+   "audiences": [
+    "support_office"
+   ]
+  },
+  {
+   "title": "Pre-Referral / Enquiry Form",
+   "url": "https://form.jotform.com/team/261958881415065/pre--referral--enquiry-form",
+   "description": "Capture a pre-referral enquiry",
+   "category": "Therapy Triage",
+   "audiences": [
+    "support_office"
+   ]
+  },
+  {
+   "title": "Cardholder – Card Issuance",
+   "url": "https://form.jotform.com/team/261958881415065/cardholder---card-issuance",
+   "description": "Request or record a company card issue",
+   "category": "Support Office",
+   "audiences": [
+    "support_office"
+   ]
+  },
+  {
+   "title": "Client Feedback Form",
+   "url": "https://form.jotform.com/team/261958881415065/client-feedback-form",
+   "description": "Share feedback from a client",
+   "category": "Day-to-Day",
+   "audiences": []
+  }
+ ],
+ "users": [
+  {
+   "email": "andrew@aspireandgrow.com.au",
+   "name": "Andrew Thomas",
+   "role": "admin",
+   "staff_group": null
+  },
+  {
+   "email": "clair@aspireandgrow.com.au",
+   "name": "Clair",
+   "role": "employee",
+   "staff_group": "support_office"
+  },
+  {
+   "email": "johanna@aspireandgrow.com.au",
+   "name": "Johanna",
+   "role": "employee",
+   "staff_group": "support_office"
+  },
+  {
+   "email": "nikki@aspireandgrow.com.au",
+   "name": "Nikki",
+   "role": "admin",
+   "staff_group": null
+  },
+  {
+   "email": "pronathi@aspireandgrow.com.au",
+   "name": "Pronathi",
+   "role": "admin",
+   "staff_group": null
+  },
+  {
+   "email": "sienna@aspireandgrow.com.au",
+   "name": "Sienna",
+   "role": "employee",
+   "staff_group": "support_office"
+  }
+ ]
+}

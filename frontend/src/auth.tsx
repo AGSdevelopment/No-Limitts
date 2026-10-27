@@ -3,13 +3,14 @@ import { Platform } from "react-native";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 
-import { api, setApiToken, setUnauthorizedHandler } from "@/src/api";
+import { api, ApiError, setApiToken, setUnauthorizedHandler } from "@/src/api";
 import { queryClient } from "@/src/query-client";
 import { storage } from "@/src/utils/storage";
 
 WebBrowser.maybeCompleteAuthSession();
 
 const TOKEN_KEY = "auth_token";
+const USER_KEY = "auth_user";
 
 export type User = {
   user_id: string;
@@ -47,6 +48,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const clear = useCallback(async () => {
     await storage.secureRemove(TOKEN_KEY);
+    await storage.removeItem(USER_KEY);
     setApiToken(null);
     queryClient.clear();
     setUser(null);
@@ -65,6 +67,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await storage.secureSet(TOKEN_KEY, res.session_token);
       setApiToken(res.session_token);
       setUser(res.user);
+      await storage.setItem(USER_KEY, res.user);
       if (Platform.OS === "web") {
         const { pathname, search, hash } = window.location;
         const params = new URLSearchParams(search);
@@ -106,9 +109,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (saved) {
         setApiToken(saved);
         try {
-          setUser(await api<User>("/auth/me"));
-        } catch {
-          await clear();
+          const me = await api<User>("/auth/me");
+          setUser(me);
+          await storage.setItem(USER_KEY, me);
+        } catch (e: any) {
+          // only sign out when the session is actually invalid; offline -> use the last known profile
+          if (e instanceof ApiError && e.status === 401) await clear();
+          else setUser(await storage.getItem(USER_KEY, null as User | null));
         }
       }
       setLoading(false);

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { FlatList, Pressable, Text, TextInput, View } from "react-native";
 import { Stack, useLocalSearchParams } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { KeyboardAvoidingView } from "react-native-keyboard-controller";
+import { KeyboardAvoidingView, useKeyboardState } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api } from "@/src/api";
@@ -15,6 +15,7 @@ export default function ChatThread() {
   const { id, name } = useLocalSearchParams<{ id: string; name?: string }>();
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
+  const keyboardOpen = useKeyboardState((s) => s.isVisible);
   const styles = useStyles();
   const { colors } = useTheme();
   const toast = useToast();
@@ -52,7 +53,7 @@ export default function ChatThread() {
   return (
     <View style={styles.root} testID="chat-thread-screen">
       <Stack.Screen options={{ title: name ?? "Chat" }} />
-      <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }} keyboardVerticalOffset={0}>
+      <KeyboardAvoidingView behavior="translate-with-padding" style={{ flex: 1 }} automaticOffset>
         {q.isLoading ? (
           <Loading />
         ) : q.isError ? (
@@ -88,7 +89,7 @@ export default function ChatThread() {
             }}
           />
         )}
-        <View style={[styles.composer, { paddingBottom: insets.bottom + 8 }]}>
+        <View style={[styles.composer, { paddingBottom: keyboardOpen ? 8 : insets.bottom + 8 }]}>
           <TextInput
             testID="chat-message-input"
             value={text}

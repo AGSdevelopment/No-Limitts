@@ -1,0 +1,29 @@
+{
+  "summary": "Iteration 7. Backend: 26 of 26 tests pass when run serially (-n 0). That is 9 new tests in tests/test_forms_new_starter_therapy.py plus the updated test_forms_support_office_section.py and test_forms_groups.py. GET /api/forms as admin returns 16 forms with no duplicate titles. New Starter has Two Week Check-in, Authority to Deduct Wages, Secondary Employment Declaration and Asset Register Submission (audiences [], and Asset Register is no longer in HR). Therapy Triage has Rejection Record and Pre-Referral / Enquiry Form (['support_office']). Continuous Improvement is in Support Office (['support_office']). Referral Triage is empty. The employee with no group sees exactly 8 forms in Day-to-Day, New Starter, HR (Leave Request, CPD) and Compliance. With the support_office group set through PATCH /users/{id}/group they see all 16. With therapist_employee they see no Therapy Triage or Support Office forms. The group is reset to null afterwards. Frontend at 390x844: the admin section order is Day-to-Day, New Starter, HR, Compliance, Therapy Triage, Support Office, and Referral Triage is hidden because it is empty. The edit sheet's 7 section chips wrap onto 3 rows and all are on screen (the furthest right edge is 295px). The employee with no group sees 4 sections (1, 4, 2 and 1 forms) and no admin controls. After setting support_office and reloading, Therapy Triage (2) and Support Office (2) appear and HR has 6. Offline start: the user is cached under auth_user on load. With /auth/me aborted, the reload opens the Home tab with the tabs and Chat tab navigation working, and the token is kept. An invalid token (401) shows the login screen and clears both auth_token and auth_user. No page errors.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Offline start with a token but no cached auth_user", "issue": "Edge case: users who signed in before this update have a token but no 'auth_user' until /auth/me succeeds once. If they open the app offline before that happens, they still see the Login screen (the token is kept). This was checked: localStorage cleared, token set, /auth/me aborted, and the login screen appeared. This is acceptable, but it could be avoided by also caching inside refreshUser. Reference: /app/frontend/src/auth.tsx:118", "affected_testIDs": ["login-screen"]}
+    ],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_forms_new_starter_therapy.py", "/app/backend/tests/test_forms_support_office_section.py", "/app/backend/tests/test_forms_groups.py", "/app/test_reports/pytest/pytest_iter7.xml"],
+  "action_items": [
+    "Optional: in refreshUser (auth.tsx:158-162), also call storage.setItem('auth_user', me) so the offline cache stays fresh after a role or group change.",
+    "Optional: add staff_group?: string | null to the User type in auth.tsx (the API returns it).",
+    "Note: the new forms (New Starter x3, Therapy Triage x2, Continuous Improvement) and the Asset Register move exist only in the database. There is no seed or migration in server.py, so a deployment that uses a different database will not have them. Confirm the production database receives the same data."
+  ],
+  "critical_code_review_comments": [
+    "forms.tsx: chip row is now a flexWrap View (chipWrap style). The fix is verified.",
+    "auth.tsx:115-118: a 401 clears the session; any other error falls back to the cached auth_user. This is correct.",
+    "In New Starter, the forms are sorted by created_at desc, so Two Week Check-in is third and Secondary Employment is first. Consider a sort order if a specific order is wanted."
+  ],
+  "updated_files": ["/app/backend/tests/test_forms_new_starter_therapy.py (new)", "/app/backend/tests/test_forms_groups.py (expected 16 forms / 8 for everyone, new categories)", "/app/backend/tests/test_forms_support_office_section.py (Asset Register is now New Starter; 8 forms for everyone)"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "None. The test employee's staff_group was changed temporarily and reset to null.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Run pytest with -n 0 (pytest.ini adds xdist). Python urllib calls to the public URL get a 403 from the edge, so use requests or page.request. Forms rows' innerText starts with an icon glyph; read titles via the API. Web login bypass: localStorage auth_token = JSON string token."
+}
