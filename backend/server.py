@@ -816,14 +816,19 @@ async def gchat_status(admin=Depends(admin_user)):
             "last_error": (conn or {}).get("last_error", ""), "redirect_uri": gs.redirect_uri("google-chat")}
 
 
+class StartIn(BaseModel):
+    login_hint: str = ""
+
+
 @api.post("/integrations/google-chat/start")
-async def gchat_start(admin=Depends(admin_user)):
+async def gchat_start(body: Optional[StartIn] = None, admin=Depends(admin_user)):
     if not gs.drive_client_config():
         raise HTTPException(409, "Google sign-in credentials are not set up yet")
     state = secrets.token_urlsafe(32)
-    url, verifier = gs.oauth_auth_url("google-chat", gs.CHAT_SCOPES, state)
+    url, verifier = gs.oauth_auth_url("google-chat", gs.CHAT_SCOPES, state, (body.login_hint if body else "")[:200])
     await db.oauth_states.insert_one({"state": state, "user_id": admin["user_id"], "code_verifier": verifier,
-                                      "kind": "google-chat", "created_at": now()})
+                                      "kind": "google-chat", "login_hint": (body.login_hint if body else ""),
+                                      "created_at": now()})
     return {"authorization_url": url}
 
 
@@ -845,7 +850,10 @@ async def gchat_callback(state: str = "", code: str = "", error: str = ""):
         return result_page("Google Chat not connected", "Something went wrong while connecting.")
     await db.integrations.update_one({"key": GCHAT_KEY}, {"$set": {
         "key": GCHAT_KEY, "refresh_token": enc, "last_error": "", "connected_by": st["user_id"],
-        "updated_at": now_iso()}}, upsert=True)
+        "login_hint": st.get("login_hint", ""), "updated_at": now_iso()}}, upsert=True)
+    # start syncing from the moment of connection for channels already switched on
+    await db.conversations.update_many({"gchat_two_way": True},
+                                       {"$set": {"gchat_cursor": now().strftime("%Y-%m-%dT%H:%M:%S.%fZ")}})
     return result_page("Google Chat connected", "Replies from your Google Chat spaces can now flow into StaffHub.")
 
 
@@ -868,8 +876,6 @@ async def set_two_way(conv_id: str, body: TwoWayIn, admin=Depends(admin_user)):
     if body.enabled:
         if not conv.get("gchat_webhook") or not conv.get("gchat_space"):
             raise HTTPException(400, "Link this channel to a Google Chat space first")
-        if not await db.integrations.find_one({"key": GCHAT_KEY}):
-            raise HTTPException(409, "Connect a Google account for two-way sync first")
     update = {"gchat_two_way": body.enabled}
     if body.enabled and not conv.get("gchat_two_way"):
         update["gchat_cursor"] = now().strftime("%Y-%m-%dT%H:%M:%S.%fZ")

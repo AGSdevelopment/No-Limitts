@@ -53,9 +53,10 @@ def oauth_flow(kind: str, scopes, state=None):
     return flow
 
 
-def oauth_auth_url(kind: str, scopes, state: str):
+def oauth_auth_url(kind: str, scopes, state: str, login_hint: str = ""):
     flow = oauth_flow(kind, scopes, state)
-    url, _ = flow.authorization_url(access_type="offline", include_granted_scopes="true", prompt="consent")
+    extra = {"login_hint": login_hint} if login_hint else {}
+    url, _ = flow.authorization_url(access_type="offline", include_granted_scopes="true", prompt="consent", **extra)
     return url, flow.code_verifier
 
 
