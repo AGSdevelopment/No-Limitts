@@ -93,5 +93,5 @@ const useStyles = makeStyles((c) => ({
   title: { fontSize: 15, fontWeight: "600", color: c.onSurface },
   body: { fontSize: 14, color: c.onSurfaceSecondary },
   time: { fontSize: 12, color: c.muted, marginTop: 2 },
-  dot: { width: 9, height: 9, borderRadius: 5, backgroundColor: c.brandPrimary, marginTop: 6 },
+  dot: { width: 9, height: 9, borderRadius: 5, backgroundColor: c.accent, marginTop: 6 },
 }));

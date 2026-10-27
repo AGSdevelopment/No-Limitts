@@ -102,6 +102,6 @@ const useStyles = makeStyles((c) => ({
   rowBody: { flex: 1, flexDirection: "row", alignItems: "center", gap: 8, paddingRight: 16, minHeight: 56 },
   rowBorder: { borderBottomWidth: 0.5, borderBottomColor: c.divider },
   rowLabel: { flex: 1, fontSize: 16, color: c.onSurface },
-  count: { minWidth: 22, height: 22, borderRadius: 11, backgroundColor: c.brandPrimary, alignItems: "center", justifyContent: "center", paddingHorizontal: 6 },
+  count: { minWidth: 22, height: 22, borderRadius: 11, backgroundColor: c.accent, alignItems: "center", justifyContent: "center", paddingHorizontal: 6 },
   countText: { color: c.onBrandPrimary, fontSize: 12, fontWeight: "700" },
 }));

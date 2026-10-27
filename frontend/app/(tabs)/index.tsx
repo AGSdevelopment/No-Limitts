@@ -142,7 +142,7 @@ export default function Home() {
               {d.updates.map((u: any) => (
                 <Card key={u.update_id} testID={`home-update-${u.update_id}`} onPress={() => router.push("/updates")}>
                   <View style={styles.updateMeta}>
-                    {u.pinned && <Pill label="Pinned" />}
+                    {u.pinned && <Pill label="Pinned" tone="accent" />}
                     <Text style={styles.rowSub}>{u.author_name} · {timeAgo(u.created_at)}</Text>
                   </View>
                   <Text style={styles.updateTitle}>{u.title}</Text>

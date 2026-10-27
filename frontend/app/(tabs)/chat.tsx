@@ -116,7 +116,7 @@ const useStyles = makeStyles((c) => ({
   segActive: { backgroundColor: c.surface, shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1 },
   segText: { fontSize: 14, fontWeight: "500", color: c.muted },
   segTextActive: { color: c.onSurface, fontWeight: "600" },
-  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: c.brandPrimary },
+  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: c.accent },
   row: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 12, minHeight: 72 },
   hash: { width: 48, height: 48, borderRadius: 14, backgroundColor: c.brandTertiary, alignItems: "center", justifyContent: "center" },
   rowBody: { flex: 1, gap: 4, borderBottomWidth: 0.5, borderBottomColor: c.divider, paddingBottom: 12 },
@@ -124,6 +124,6 @@ const useStyles = makeStyles((c) => ({
   name: { flex: 1, fontSize: 16, fontWeight: "600", color: c.onSurface },
   time: { fontSize: 12, color: c.muted },
   preview: { flex: 1, fontSize: 14, color: c.muted },
-  unread: { minWidth: 20, height: 20, borderRadius: 10, backgroundColor: c.brandPrimary, alignItems: "center", justifyContent: "center", paddingHorizontal: 6 },
-  unreadText: { color: c.onBrandPrimary, fontSize: 11, fontWeight: "700" },
+  unread: { minWidth: 20, height: 20, borderRadius: 10, backgroundColor: c.accent, alignItems: "center", justifyContent: "center", paddingHorizontal: 6 },
+  unreadText: { color: c.onAccent, fontSize: 11, fontWeight: "700" },
 }));

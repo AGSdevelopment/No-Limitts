@@ -63,7 +63,7 @@ export default function Updates() {
           renderItem={({ item }) => (
             <Card testID={`update-${item.update_id}`}>
               <View style={styles.meta}>
-                {item.pinned && <Pill label="Pinned" />}
+                {item.pinned && <Pill label="Pinned" tone="accent" />}
                 <Text style={styles.sub}>{item.author_name} · {timeAgo(item.created_at)}</Text>
               </View>
               <Text style={styles.title}>{item.title}</Text>

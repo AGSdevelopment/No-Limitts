@@ -82,5 +82,5 @@ const useStyles = makeStyles((c) => ({
   row: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: c.surface, borderRadius: 14, padding: 14, minHeight: 64 },
   title: { fontSize: 16, fontWeight: "600", color: c.onSurface },
   sub: { fontSize: 13, color: c.muted },
-  newDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: c.warning },
+  newDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: c.accent },
 }));

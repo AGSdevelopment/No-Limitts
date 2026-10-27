@@ -27,15 +27,10 @@ export default function Login() {
     <View style={styles.root} testID="login-screen">
       <View style={styles.heroWrap}>
         <Image source={{ uri: HERO }} style={styles.hero} contentFit="cover" />
-        <LinearGradient colors={["rgba(17,24,28,0.1)", "rgba(17,24,28,0.75)"]} style={styles.heroOverlay} />
-        <View style={[styles.brandRow, { top: insets.top + 16 }]}>
-          <View style={styles.logo}>
-            <Ionicons name="leaf" size={18} color={colors.onBrandPrimary} />
-          </View>
-          <Text style={styles.brandName}>StaffHub</Text>
-        </View>
+        <LinearGradient colors={["rgba(32,88,144,0.15)", "rgba(32,88,144,0.8)"]} style={styles.heroOverlay} />
       </View>
       <Animated.View entering={FadeInDown.duration(500)} style={[styles.panel, { paddingBottom: insets.bottom + 24 }]}>
+        <Image source={require("@/assets/images/brand-logo.png")} style={styles.logo} contentFit="contain" testID="login-brand-logo" />
         <Text style={styles.title}>Everything your team needs, in one place.</Text>
         <View style={styles.features}>
           {FEATURES.map((f) => (
@@ -62,9 +57,7 @@ const useStyles = makeStyles((c) => ({
   heroWrap: { flex: 1, minHeight: 260 },
   hero: { ...({ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 } as const) },
   heroOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 },
-  brandRow: { position: "absolute", left: 24, flexDirection: "row", alignItems: "center", gap: 8 },
-  logo: { width: 32, height: 32, borderRadius: 8, backgroundColor: c.brandPrimary, alignItems: "center", justifyContent: "center" },
-  brandName: { color: "#FFFFFF", fontSize: 20, fontWeight: "700", letterSpacing: -0.3 },
+  logo: { width: 140, height: 160, alignSelf: "center", marginTop: -96, marginBottom: 12, backgroundColor: c.surface, borderRadius: 20 },
   panel: { backgroundColor: c.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, marginTop: -24, padding: 24 },
   title: { fontSize: 28, fontWeight: "700", color: c.onSurface, letterSpacing: -0.6, lineHeight: 34 },
   features: { marginTop: 20, marginBottom: 28, gap: 14 },

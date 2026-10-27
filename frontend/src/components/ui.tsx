@@ -123,12 +123,14 @@ export function StatusBadge({ status, testID }: { status: "valid" | "expiring" |
   );
 }
 
-export function Pill({ label, tone = "brand" }: { label: string; tone?: "brand" | "muted" }) {
+export function Pill({ label, tone = "brand" }: { label: string; tone?: "brand" | "muted" | "accent" }) {
   const styles = useStyles();
   const { colors } = useTheme();
+  const bg = tone === "brand" ? colors.brandSecondary : tone === "accent" ? colors.accentSoft : colors.surfaceSecondary;
+  const fg = tone === "brand" ? colors.onBrandSecondary : tone === "accent" ? colors.accent : colors.onSurfaceSecondary;
   return (
-    <View style={[styles.badge, { backgroundColor: tone === "brand" ? colors.brandSecondary : colors.surfaceSecondary }]}>
-      <Text style={[styles.badgeText, { color: tone === "brand" ? colors.onBrandSecondary : colors.onSurfaceSecondary }]}>{label}</Text>
+    <View style={[styles.badge, { backgroundColor: bg }]}>
+      <Text style={[styles.badgeText, { color: fg }]}>{label}</Text>
     </View>
   );
 }
