@@ -86,6 +86,9 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Drive setup: ensure_drive_setup() (runs in index_drive, once per DB when Drive connected, meta drive_setup_v1) sets Therapist (1AkYaS…) / Participants (1_Bu1oe…) folders and imports policies from folder 1jfsRbz… (27 PDFs; skips "All Published" compilations); POST /api/policies/import-drive {link}; GET /api/policies/{id}/file proxies the Drive file
 - Library: Ask AI placed below Policies & procedures
 
+- Policy versions: POST /api/policies/{id}/version (multipart: file PDF/Word → object storage, change_note, content; PDF text auto-extracted) → version+1, previous kept in versions[], acknowledged_by reset to admin, staff notified to re-acknowledge
+- Acknowledgement tracker: GET /api/policies/{id}/acks (acknowledged/pending, hidden users excluded), POST /api/policies/{id}/remind (in-app + email to pending); UI in src/components/policy-admin.tsx on policy detail (admin buttons)
+
 ## Backlog
 - P0: Add Google Drive OAuth credentials and connect
 - P1: Phone push notifications (Firebase file + build)

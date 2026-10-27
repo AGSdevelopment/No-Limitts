@@ -1,0 +1,41 @@
+{
+  "summary": "Frontend testing at 375x667 with admin and employee bypass tokens on pol_TESTVER. All 5 requested flows pass. (1) The admin detail page shows 'Version 2 · updated 27 Oct 2026', the 'What changed: TEST updated rates' box and 'Earlier versions: v1 (1 Oct 2026)'. The newpol.pdf card opens /api/policies/pol_TESTVER/file?token=..., which returns 200 application/pdf. (2) The Ack tracker sheet shows '0 of 32 staff have acknowledged version 2', 32 ack-pending rows and 'Remind 32 people'. The Remind button was NOT tapped. The close button works. (3) The New version sheet shows the validation error when nothing is entered. Publishing with text 'TEST v3 text' and note 'TEST v3 note' shows the toast 'Version 3 published. Staff have been asked to re-acknowledge.' The page then shows Version 3, the new text, the new note, history v1 and v2, and an ack count reset to 1. (4) The employee sees the change note and 'I have read the updated version', and no admin buttons. Tapping the button shows 'You have acknowledged this', the count goes to 2, and it persists after reload. (5) Regression: SMS Policy shows 'I have read and understood' with no change note or history, its PDF opens with 200, and the admin tracker shows version 1. API RBAC: the employee gets 403 on /acks, /version and /remind. Publishing a version with unchanged text returns 400. No page errors. Cleanup: deleted 33 notifications with body ^TEST. No deprecated Expo packages detected.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/policies/{id}/version", "issue": "A text-only new version keeps the previous version's file. upd['file'] and drive_file are only replaced when a new file is uploaded. So v3 (text only) still shows the v2 'newpol.pdf' as the current document, and staff may open an outdated document. Consider clearing the attachment when new text is given without a file, or asking the admin whether to keep it."},
+      {"endpoint": "GET /api/policies (ack_count) vs GET /api/policies/{id}/acks", "issue": "ack_count counts every id in acknowledged_by, including hidden users. The tracker excludes hidden users. Result: the admin button reads 'Acknowledgements (1)' while the sheet says '0 of 32'. Compute ack_count from non-hidden users so the two match."},
+      {"endpoint": "POST /api/policies/{id}/remind", "issue": "The reminder email says to tap 'I have read and understood', but for version 2 and later the button reads 'I have read the updated version'."},
+      {"endpoint": "POST /api/policies/{id}/version", "issue": "Earlier version content is truncated to 2000 chars (prev.content[:2000]), so the full text of earlier versions is lost for audit purposes."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "policy/[id] (admin)", "issues": ["At 375px the 'Acknowledgements (N)' button label wraps onto two lines and the '(1)' drops below. Use a shorter label, e.g. 'Acks (N)' or 'Who's read it', or stack the two buttons."]},
+      {"screen": "ack-tracker-sheet", "issues": ["The avatar for 'Andrew Thomas' (a Google picture URL) renders blank, with no initials fallback when the image fails to load."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_16.json"],
+  "action_items": [
+    "Decide on attachment handling for text-only new versions: currently the old PDF stays attached to the new version.",
+    "Make ack_count exclude hidden users so it matches the tracker summary.",
+    "Update the reminder email wording for policies at version 2 or later.",
+    "Fix the wrapping of the 'Acknowledgements (N)' button label at 375px width.",
+    "(Optional) Add an initials fallback to Avatar when the picture URL fails to load."
+  ],
+  "critical_code_review_comments": [
+    "server.py new_policy_version: the stored file is not cleared when only text changes (see backend minor issue).",
+    "server.py: earlier version content is truncated to 2000 chars.",
+    "policy-admin.tsx: the version history shown on the detail page does not include the change notes of earlier versions; the data is available in version_history[].change_note."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend only; RBAC spot checks 4/4 pass)", "frontend": "100% of requested flows (5/5)"},
+  "seed_data_creation": "Published version 3 of pol_TESTVER ('TEST v3 text' / 'TEST v3 note'). The employee acknowledged v3. Deleted the 33 resulting notifications with body ^TEST.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "pol_TESTVER is now at version 3, acknowledged by the test admin and the test employee, still with newpol.pdf attached. Test users are hidden (hidden: true), so the tracker shows 0 of 32 while ack_count shows 1-2. Never tap ack-remind-button. Capture window.open via add_init_script. The New-version save button was clicked with JS element.click().",
+  "rca_of_issue": ""
+}
