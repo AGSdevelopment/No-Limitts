@@ -115,16 +115,20 @@ async def auth_session(body: SessionIn):
         raise HTTPException(status_code=401, detail="Invalid session")
     data = r.json()
     email = data["email"]
+    admin_emails = {e.strip().lower() for e in os.environ.get("ADMIN_EMAILS", "").split(",") if e.strip()}
     existing = await db.users.find_one({"email": email}, P)
     if existing:
-        await db.users.update_one({"email": email}, {"$set": {"name": data.get("name") or existing["name"],
-                                                              "picture": data.get("picture")}})
+        upd = {"name": data.get("name") or existing["name"], "picture": data.get("picture")}
+        if email.lower() in admin_emails:
+            upd["role"] = "admin"
+        await db.users.update_one({"email": email}, {"$set": upd})
         user_id = existing["user_id"]
     else:
-        is_first = await db.users.count_documents({}) == 0
+        is_first = await db.users.count_documents({"email": {"$not": {"$regex": "@example\\.com$"}}}) == 0
         user_id = new_id("user")
         await db.users.insert_one({"user_id": user_id, "email": email, "name": data.get("name") or email,
-                                   "picture": data.get("picture"), "role": "admin" if is_first else "employee",
+                                   "picture": data.get("picture"),
+                                   "role": "admin" if (is_first or email.lower() in admin_emails) else "employee",
                                    "job_title": "", "created_at": now_iso()})
     token = data["session_token"]
     await db.user_sessions.insert_one({"session_token": token, "user_id": user_id,
@@ -751,6 +755,9 @@ async def drive_callback(state: str = "", code: str = "", error: str = ""):
         folder_id = await run_in_threadpool(gs.drive_ensure_folder, svc)
     except Exception as e:
         logger.error(f"Drive OAuth failed: {e}")
+        if "invalid_client" in str(e):
+            return result_page("Google Drive not connected",
+                               "Google rejected StaffHub's sign-in credentials (client ID or secret is wrong).")
         return result_page("Google Drive not connected", "Something went wrong while connecting.")
     await db.integrations.update_one({"key": DRIVE_KEY}, {"$set": {
         "key": DRIVE_KEY, "refresh_token": enc, "email": email, "folder_id": folder_id,
@@ -847,6 +854,10 @@ async def gchat_callback(state: str = "", code: str = "", error: str = ""):
         await run_in_threadpool(gs.chat_service, enc)
     except Exception as e:
         logger.error(f"Google Chat OAuth failed: {e}")
+        if "invalid_client" in str(e):
+            return result_page("Google Chat not connected",
+                               "Google rejected StaffHub's sign-in credentials (client ID or secret is wrong). "
+                               "Please re-enter them and try again.")
         return result_page("Google Chat not connected", "Something went wrong while connecting.")
     await db.integrations.update_one({"key": GCHAT_KEY}, {"$set": {
         "key": GCHAT_KEY, "refresh_token": enc, "last_error": "", "connected_by": st["user_id"],
@@ -855,6 +866,13 @@ async def gchat_callback(state: str = "", code: str = "", error: str = ""):
     await db.conversations.update_many({"gchat_two_way": True},
                                        {"$set": {"gchat_cursor": now().strftime("%Y-%m-%dT%H:%M:%S.%fZ")}})
     return result_page("Google Chat connected", "Replies from your Google Chat spaces can now flow into StaffHub.")
+
+
+@api.post("/integrations/google-chat/events")
+async def gchat_events(request: Request):
+    """Endpoint required by the Google Chat API app configuration. StaffHub reads space messages via the
+    Chat API (two-way sync), so interaction events are simply acknowledged."""
+    return {}
 
 
 @api.delete("/integrations/google-chat")

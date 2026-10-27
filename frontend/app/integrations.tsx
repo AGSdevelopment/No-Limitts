@@ -195,7 +195,9 @@ export default function Integrations() {
             </View>
             {c.google_chat && (
               <View style={styles.channelRow}>
-                <Text style={styles.twoWayLabel}>Two-way (Google Chat replies show here)</Text>
+                <Text style={styles.twoWayLabel}>
+                  {c.google_chat_two_way && !gc.data?.connected ? "Two-way on, paused until a Google account is connected" : "Two-way (Google Chat replies show here)"}
+                </Text>
                 <Switch
                   testID={`gchat-two-way-${c.name}`}
                   value={!!c.google_chat_two_way}

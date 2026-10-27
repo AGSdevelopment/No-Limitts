@@ -1,0 +1,38 @@
+{
+  "summary": "Andrew admin fix verified end-to-end. Temp session test_session_andrew_tmp created for user_ef4692877658, then deleted (auth/me now 401). Backend 10/10: Andrew /auth/me role=admin; POST /integrations/google-chat/start returns 200 with an accounts.google.com URL (PKCE S256, access_type=offline, prompt=consent, redirect_uri=preview callback) for Andrew and for test admin; employee gets 403; no auth gets 401; callback with state=bad&code=x and with error=access_denied returns the HTML page 'Google Chat not connected'; #Allied Health and #Celebrate the Wins are linked with two_way=true. Frontend at 390x844: as Andrew, Library shows ADMIN TOOLS with the Integrations row (library-row-integrations, 358x56). Tapping it opens /integrations, which shows the Google Chat card with 'Two-way sync', the Connect Google account button (gchat-reader-connect, 302x48), and both channels showing Linked with the Two-way switches ON. Tapping Connect opens an accounts.google.com sign-in popup; I closed it without finishing sign-in. As employee: no Admin tools section and no Integrations row, and going to /integrations directly shows the 'Admins only' screen. ADMIN_EMAILS code review passed: listed emails become admin for both existing and new users. Nothing was unlinked, toggled, disconnected or posted, and logout was not called.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/integrations/google-chat/callback", "issue": "oauth_states has no expiry check or TTL index. A state from /start never expires and unused states pile up. Add a created_at age check (e.g. 15 min) or a TTL index."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Integrations", "issues": [
+        "Unlink (gchat-unlink-*) and 'Disconnect Google account' run straight away with no confirmation, and Unlink sits right next to the Linked pill. The channels are linked to real spaces, so one mis-tap unlinks a real space. Add a confirm dialog like the Drive disconnect has.",
+        "The two-way switches show ON while the Google account is NOT connected (the integration doc is missing because the last token exchange failed with invalid_client), so replies are not syncing yet. Consider a hint such as 'Paused: connect Google account' next to the switches.",
+        "Opening /integrations directly as an employee shows the 'Admins only' screen with no back arrow."
+      ]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_admin_gchat_oauth.py", "/app/backend/tests/andrew_session.py", "/app/test_reports/pytest/pytest_iteration3.xml"],
+  "action_items": [
+    "User action still needed: re-enter the correct Google OAuth client secret. Until then the real OAuth callback will fail with invalid_client and two-way sync will not run.",
+    "Optional: add a confirm dialog for Unlink and for Disconnect Google account.",
+    "Optional: add a TTL or age check for oauth_states."
+  ],
+  "critical_code_review_comments": [
+    "auth_session ADMIN_EMAILS logic is correct: existing users in the list are promoted on each login, and new users get admin if they are the first non-@example.com user or are in the list. It never demotes. The lookup uses the exact email (not lowercased), which is fine as long as Google returns the same casing each time.",
+    "The gchat callback handles invalid_client with a clear message for the user."
+  ],
+  "updated_files": ["/app/backend/tests/test_admin_gchat_oauth.py (new)", "/app/backend/tests/andrew_session.py (new helper)"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "Temporary session test_session_andrew_tmp was created and deleted. 5 test-created google-chat oauth_states were deleted.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Use 'python /app/backend/tests/andrew_session.py create|delete' for a temporary Andrew admin session. Do not unlink, toggle or disconnect the Google Chat channels; they are linked to real spaces. The google_chat_reader integration doc does not exist yet, so the Connect button is shown.",
+  "rca_of_issue": "(1) Andrew was an employee because he signed up after the seeded accounts. He is now admin via the DB fix and the ADMIN_EMAILS env rule, and I verified this in the UI. (2) The Connect failure is Google invalid_client, a wrong client secret. This is a credentials problem, not a code problem."
+}
