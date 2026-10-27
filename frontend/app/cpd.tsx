@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ActivityIndicator, FlatList, Modal, Pressable, RefreshControl, ScrollView, Switch, Text, View } from "react-native";
 import { Stack } from "expo-router";
 import * as DocumentPicker from "expo-document-picker";
@@ -29,6 +29,7 @@ export default function Cpd() {
   const qc = useQueryClient();
   const [tab, setTab] = useState<Tab>("log");
   const [adding, setAdding] = useState(false);
+  const [editLog, setEditLog] = useState<any>(null);
   const [del, setDel] = useState<{ kind: "log" | "res"; id: string } | null>(null);
   const logs = useQuery<any>({ queryKey: ["cpd", tab === "team" ? "all" : "mine"], queryFn: () => api(`/cpd?scope=${tab === "team" ? "all" : "mine"}`), enabled: tab !== "resources" });
   const res = useQuery<any[]>({ queryKey: ["cpd-resources"], queryFn: () => api("/cpd/resources"), enabled: tab === "resources" });
@@ -146,7 +147,7 @@ export default function Cpd() {
                 <Text style={styles.hours}>{Math.round(item.hours * 100) / 100} h</Text>
               </View>
             ) : (
-              <View style={styles.card} testID={`cpd-log-${item.log_id}`}>
+              <Pressable style={styles.card} testID={`cpd-log-${item.log_id}`} onPress={() => setEditLog(item)} accessibilityLabel={`Edit ${item.title}`}>
                 <View style={styles.hoursBox}>
                   <Text style={styles.hoursBig}>{item.hours}</Text>
                   <Text style={styles.hoursUnit}>hrs</Text>
@@ -162,21 +163,24 @@ export default function Cpd() {
                     </Pressable>
                   )}
                 </View>
+                <Pressable testID={`cpd-log-edit-${item.log_id}`} onPress={() => setEditLog(item)} hitSlop={6} style={styles.iconBtn} accessibilityLabel="Edit">
+                  <Ionicons name="create-outline" size={20} color={colors.brandPrimary} />
+                </Pressable>
                 <Pressable testID={`cpd-log-delete-${item.log_id}`} onPress={() => setDel({ kind: "log", id: item.log_id })} hitSlop={6} style={styles.iconBtn}>
                   <Ionicons name="trash-outline" size={20} color={colors.muted} />
                 </Pressable>
-              </View>
+              </Pressable>
             )
           }
         />
       )}
-      <AddSheet kind={tab === "resources" ? "resource" : "log"} visible={adding} onClose={() => setAdding(false)} />
+      <AddSheet kind={tab === "resources" ? "resource" : "log"} visible={adding || !!editLog} editing={editLog} onClose={() => { setAdding(false); setEditLog(null); }} />
       <ConfirmSheet visible={!!del} title="Delete this?" message="This can't be undone." confirmLabel="Delete" onConfirm={remove} onClose={() => setDel(null)} />
     </View>
   );
 }
 
-function AddSheet({ kind, visible, onClose }: { kind: "log" | "resource"; visible: boolean; onClose: () => void }) {
+function AddSheet({ kind, visible, onClose, editing }: { kind: "log" | "resource"; visible: boolean; onClose: () => void; editing?: any }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
@@ -195,10 +199,22 @@ function AddSheet({ kind, visible, onClose }: { kind: "log" | "resource"; visibl
   const [error, setError] = useState<string | null>(null);
   const [share, setShare] = useState(false);
   const [shareSection, setShareSection] = useState<string>("Resource Links");
-  const close = () => {
-    reset();
-    onClose();
-  };
+  const close = () => onClose();
+
+  useEffect(() => {
+    if (visible && !editing) reset();
+    if (visible && editing) {
+      setTitle(editing.title ?? "");
+      setProvider(editing.provider ?? "");
+      setDate(isoToDmy(editing.date));
+      setHours(String(editing.hours ?? ""));
+      setCategory(editing.category ?? "");
+      setNotes(editing.notes ?? "");
+      setFile(null);
+      setShare(false);
+      setError(null);
+    }
+  }, [visible, editing]);
 
   const readFile = async (f: Picked) => {
     setReading(true);
@@ -215,7 +231,7 @@ function AddSheet({ kind, visible, onClose }: { kind: "log" | "resource"; visibl
         setCategory(b.category);
         setShareSection(b.category === "Course" ? "Courses" : b.category === "Webinar" ? "Webinars" : b.category === "Case Study" ? "Case Studies" : "Resource Links");
       }
-      toast(b.hours ? "Details filled in. Please check them." : "Hours couldn't be read. Please add them.", b.hours ? "success" : "info");
+      toast(b.hours ? "Details filled in. Check and edit anything below." : "Hours couldn't be read. Please add them.", b.hours ? "success" : "info");
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -248,7 +264,8 @@ function AddSheet({ kind, visible, onClose }: { kind: "log" | "resource"; visibl
     setSaving(true);
     try {
       if (kind === "log") {
-        const log = await api("/cpd", { method: "POST", body: { title, provider, date: dmyToIso(date), hours: parseFloat(hours.replace(",", ".")), category, notes } });
+        const body = { title, provider, date: dmyToIso(date), hours: parseFloat(hours.replace(",", ".")), category, notes };
+        const log = editing ? await api(`/cpd/${editing.log_id}`, { method: "PATCH", body }) : await api("/cpd", { method: "POST", body });
         if (file) {
           const up = await uploadForm(`${API_URL}/cpd/${log.log_id}/file`, { headers: authHeaders(), files: { file } });
           if (!up.ok) toast("Saved, but the certificate couldn't be attached", "error");
@@ -261,14 +278,13 @@ function AddSheet({ kind, visible, onClose }: { kind: "log" | "resource"; visibl
           qc.invalidateQueries({ queryKey: ["cpd-resources"] });
         }
         qc.invalidateQueries({ queryKey: ["cpd"] });
-        if (share && !shared) toast("CPD logged, but sharing to the library failed", "error");
-        else toast(shared ? "CPD logged and shared" : "CPD logged");
+        if (share && !shared) toast(editing ? "Saved, but sharing to the library failed" : "CPD logged, but sharing to the library failed", "error");
+        else toast(editing ? (shared ? "Changes saved and shared" : "Changes saved") : shared ? "CPD logged and shared" : "CPD logged");
       } else {
         await api("/cpd/resources", { method: "POST", body: { title, description: notes, url, category } });
         qc.invalidateQueries({ queryKey: ["cpd-resources"] });
         toast("Resource added");
       }
-      reset();
       onClose();
     } catch (e: any) {
       setError(e.message);
@@ -281,7 +297,7 @@ function AddSheet({ kind, visible, onClose }: { kind: "log" | "resource"; visibl
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={close}>
       <KeyboardAwareScrollView style={styles.sheet} contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 24 }} keyboardShouldPersistTaps="handled" bottomOffset={24} testID="cpd-add-sheet">
         <View style={styles.sheetHead}>
-          <Text style={styles.sheetTitle}>{kind === "log" ? "Log CPD" : "Add CPD resource"}</Text>
+          <Text style={styles.sheetTitle}>{kind === "log" ? (editing ? "Edit CPD" : "Log CPD") : "Add CPD resource"}</Text>
           <Pressable onPress={close} hitSlop={10} style={styles.iconBtn} testID="cpd-add-close">
             <Ionicons name="close" size={24} />
           </Pressable>
@@ -306,8 +322,8 @@ function AddSheet({ kind, visible, onClose }: { kind: "log" | "resource"; visibl
             <Pressable testID="cpd-attach-button" onPress={pickFile} style={({ pressed }) => [styles.attach, pressed && { opacity: 0.8 }]}>
               <Ionicons name="sparkles" size={22} color={colors.brandPrimary} />
               <View style={{ flex: 1 }}>
-                <Text style={styles.title}>Attach certificate</Text>
-                <Text style={styles.sub}>PDF or photo. We&apos;ll fill in the hours and details.</Text>
+                <Text style={styles.title}>{editing?.storage_path ? "Replace certificate" : "Attach certificate"}</Text>
+                <Text style={styles.sub}>PDF or photo. We&apos;ll fill in the details; you can edit anything after.</Text>
               </View>
               <Ionicons name="attach" size={22} color={colors.brandPrimary} />
             </Pressable>
@@ -326,6 +342,7 @@ function AddSheet({ kind, visible, onClose }: { kind: "log" | "resource"; visibl
             <Field label="Date (DD-MM-YYYY)" value={date} onChangeText={setDate} autoCapitalize="none" placeholder="e.g. 12-05-2026" testID="cpd-date-input" />
             <Field label="Hours taken to complete" value={hours} onChangeText={setHours} keyboardType="decimal-pad" placeholder="e.g. 1.5" testID="cpd-hours-input" />
             <Field label="Notes (optional)" value={notes} onChangeText={setNotes} multiline placeholder="What you learned" testID="cpd-notes-input" />
+            {!editing?.shared_resource_id && (
             <View style={styles.shareBox}>
               <View style={styles.shareRow}>
                 <View style={{ flex: 1 }}>
@@ -342,6 +359,7 @@ function AddSheet({ kind, visible, onClose }: { kind: "log" | "resource"; visibl
                 </ScrollView>
               )}
             </View>
+            )}
           </>
         ) : (
           <>
@@ -350,7 +368,7 @@ function AddSheet({ kind, visible, onClose }: { kind: "log" | "resource"; visibl
           </>
         )}
         {error && <Text style={styles.error} testID="cpd-add-error">{error}</Text>}
-        <Button label={kind === "log" ? "Save CPD" : "Add resource"} loading={saving} disabled={reading} onPress={save} testID="cpd-save-button" />
+        <Button label={kind === "log" ? (editing ? "Save changes" : "Save CPD") : "Add resource"} loading={saving} disabled={reading} onPress={save} testID="cpd-save-button" />
       </KeyboardAwareScrollView>
     </Modal>
   );

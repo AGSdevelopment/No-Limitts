@@ -1667,6 +1667,25 @@ async def add_cpd(body: CpdIn, user=Depends(current_user)):
     return doc
 
 
+@api.patch("/cpd/{log_id}")
+async def update_cpd(log_id: str, body: CpdIn, user=Depends(current_user)):
+    if not body.title.strip():
+        raise HTTPException(400, "Enter what you did")
+    try:
+        date.fromisoformat(body.date)
+    except ValueError:
+        raise HTTPException(400, "Date must be YYYY-MM-DD")
+    if not (0 < body.hours <= 200):
+        raise HTTPException(400, "Hours must be between 0 and 200")
+    upd = {"title": body.title.strip()[:200], "provider": body.provider.strip()[:200], "date": body.date,
+           "hours": round(body.hours, 2), "category": body.category.strip()[:60], "notes": body.notes.strip()[:2000],
+           "updated_at": now_iso()}
+    res = await db.cpd_logs.update_one({"log_id": log_id, "user_id": user["user_id"]}, {"$set": upd})
+    if not res.matched_count:
+        raise HTTPException(404, "Entry not found")
+    return await db.cpd_logs.find_one({"log_id": log_id}, P)
+
+
 @api.delete("/cpd/{log_id}")
 async def delete_cpd(log_id: str, user=Depends(current_user)):
     q = {"log_id": log_id}

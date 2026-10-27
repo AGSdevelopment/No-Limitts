@@ -78,6 +78,8 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - CPD library resources: delete is admin-only
 - Pending from user: Therapist/Participants Drive folder links (skipped), LinkedIn keys (skipped)
 
+- CPD entries editable: tap entry or pencil → Edit CPD sheet prefilled (PATCH /api/cpd/{id}, owner only); can replace certificate; AI-filled fields editable before save
+
 ## Backlog
 - P0: Add Google Drive OAuth credentials and connect
 - P1: Phone push notifications (Firebase file + build)
