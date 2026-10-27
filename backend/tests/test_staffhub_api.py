@@ -206,11 +206,11 @@ class TestContent:
                              headers=h(EMP)).status_code == 403
         r = requests.post(f"{API}/policies", json={"title": "TEST_policy", "content": "c", "category": "Procedure"},
                           headers=h(ADMIN))
-        assert r.status_code == 200 and r.json()["category"] == "Procedure" and r.json()["acknowledged"] is False
+        assert r.status_code == 200 and r.json()["category"] == "Procedure" and r.json()["acknowledged"] is True  # author auto-acknowledged
         pid = r.json()["policy_id"]
         assert requests.post(f"{API}/policies/{pid}/acknowledge", headers=h(EMP)).status_code == 200
         p = next(x for x in requests.get(f"{API}/policies", headers=h(EMP)).json() if x["policy_id"] == pid)
-        assert p["acknowledged"] is True and p["ack_count"] == 1
+        assert p["acknowledged"] is True and p["ack_count"] == 2  # author + employee
         assert requests.post(f"{API}/policies/nope/acknowledge", headers=h(EMP)).status_code == 404
 
     def test_events_rsvp(self):

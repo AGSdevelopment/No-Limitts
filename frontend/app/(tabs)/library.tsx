@@ -24,6 +24,8 @@ export default function Library() {
 
   const resources: Row[] = [
     { icon: "shield-checkmark-outline", label: "Policies & procedures", to: "/policies", id: "policies", count: dash.data?.pending_policies },
+    { icon: "sparkles-outline", label: "Ask AI about policies", to: "/assistant", id: "assistant" },
+    { icon: "clipboard-outline", label: "Forms", to: "/forms", id: "forms" },
     { icon: "megaphone-outline", label: "Company updates", to: "/updates", id: "updates" },
     { icon: "calendar-outline", label: "Events", to: "/events", id: "events" },
     { icon: "checkbox-outline", label: "My tasks", to: "/tasks", id: "tasks", count: dash.data?.open_task_count },
@@ -36,6 +38,7 @@ export default function Library() {
     { icon: "calendar-number-outline", label: "Create event", to: "/compose?type=event", id: "post-event" },
     { icon: "person-add-outline", label: "Assign task", to: "/compose?type=task", id: "post-task" },
     { icon: "chatbubbles-outline", label: "New chat channel", to: "/compose?type=channel", id: "post-channel" },
+    { icon: "extension-puzzle-outline", label: "Integrations", to: "/integrations", id: "integrations" },
   ];
 
   const Group = ({ rows }: { rows: Row[] }) => (

@@ -1,0 +1,42 @@
+{
+  "summary": "Iteration 2: Tested the new integrations (Claude AI ask/extract, Google Chat webhooks, Google Drive not-configured state, Jotform forms) on the backend and the frontend (web 390x844, admin + employee), plus a regression check. Backend: 30/30 pass. The only failure in the first run was a stale assertion in test_staffhub_api.py that no longer matched the intended change where a policy's author auto-acknowledges it; I updated the test. Claude: SSE streams real incremental deltas then {done}; history is saved and cleared; answers quote the 'Sample: Health & Safety Policy' content. extract-certificate correctly read a generated PNG (First Aid at Work / Red Cross / 2025-03-01 / 2028-03-01) and a PDF (2025-06-15 / 2027-06-15), and returns 415 for text/plain. Google Chat: bad URL gets 400, an employee gets 403, an unknown channel gets 404. A fake webhook saves with test_delivered:false, the google_chat flag is true, and the webhook URL and ciphertext never appear in /conversations. Messages are mirrored (backend log shows the attempted POST), and unlinking works. Drive: status configured:false, start returns 409 for admin and 403 for employee, /drive/files returns 403 for employee and 409 for admin, a policy without drive_file_id creates fine, and a policy with drive_file_id returns 409. Jotform: create works with a numeric ID or a form.jotform.com URL; evil.com and jotform.com.evil.com are rejected; admin-only; employees get a 'form' notification; delete works and a second delete returns 404. Frontend: the new Library rows and Home quick actions are present; the Ask AI screen shows 3 suggestion chips and streams an answer; Forms add (shows a validation error, saves a valid form), tapping a form opens a new tab to form.jotform.com/<id>?name=..&email=.., and delete via the confirm sheet works; Integrations shows Drive 'Waiting for Google Drive app credentials', Google Chat Link (bad URL toast) → Linked → Unlink, and the Jotform/Claude cards; Upload certificate shows 'Auto-fill details with AI' only after a file is picked, and AI filled all 4 fields; the employee view hides admin controls in Library and Forms. Regression: chat send (the G indicator shows in the chat list when linked), and the certificates, policies, events and tasks screens load. No deprecated Expo packages and no SafeAreaView issues detected.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/ai/ask", "issue": "The user question is saved before streaming. If the stream errors or the client disconnects, an orphan user message with no answer stays in history and is fed back into later prompts. Observed: admin history had an unanswered 'What does the health and safety policy say?' (03:15:47). Consider saving the Q+A pair together after a successful answer, or marking failures."},
+      {"endpoint": "DELETE /api/channels/{conv_id}/google-chat", "issue": "Returns 200 {ok:true} for a non-existent channel (no 404), unlike PUT."},
+      {"endpoint": "POST /api/conversations/{id}/messages, POST /api/certificates", "issue": "asyncio.create_task(...) results are not referenced, so background Google Chat/Drive tasks may be garbage-collected mid-flight. Keep them in a module-level set. Also, gs.decrypt() runs inline in send_message: if WEBHOOK_ENCRYPTION_KEY changes, every message to that channel returns 500 (InvalidToken). Wrap it in try/except."},
+      {"endpoint": "POST /api/ai/ask, /api/ai/extract-certificate", "issue": "No per-user rate limiting on paid LLM endpoints."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Integrations screen (employee)", "issue": "There is no admin route guard (compose.tsx has one). An employee who opens /integrations directly sees Google Chat Link buttons and the webhook input; the backend correctly returns 403. Add the same user.role !== 'admin' guard as compose.tsx:60.", "testID": "integrations-screen", "priority": "medium"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Integrations", "issues": ["The 'Linked' Pill on a linked Google Chat channel row sits higher than the channel name and Unlink text (not vertically centered in channelRow)", "Unlink happens immediately with no confirm sheet, while form delete has one (inconsistent)"]},
+      {"screen": "Compose (deep link)", "issue_note": "", "issues": ["After submit, router.back() is a no-op when compose is opened via a direct URL (no history). Use router.canGoBack() ? back() : replace('/library'). Only seen on deep link."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_integrations_api.py", "/app/backend/tests/test_staffhub_api.py", "/app/test_reports/pytest/pytest_results_iter2.xml"],
+  "action_items": [
+    "Add an admin-only guard to app/integrations.tsx (mirror compose.tsx:60)",
+    "ai_ask: avoid orphan user messages on stream failure or disconnect (persist after success, or delete on failure)",
+    "DELETE /channels/{id}/google-chat: return 404 when the channel doesn't exist",
+    "Hold references to background asyncio tasks; guard gs.decrypt in send_message with try/except",
+    "Vertically align the 'Linked' pill in the Integrations Google Chat rows; optionally add a confirm before Unlink"
+  ],
+  "critical_code_review_comments": [
+    "server.py is 960 lines (>700): split the integrations (Drive/GChat/Forms/AI) routes into separate router modules",
+    "Jotform prefill uses ?name=&email= query params. Jotform only prefills fields whose unique name matches exactly (Full Name fields are usually name[first]/name[last]), so prefill may silently not apply to many forms. Document this for admins or allow a custom field mapping.",
+    "valid_gchat_url only checks the prefix and the key=/token= substrings. That is acceptable, but consider also requiring a '/v1/spaces/' path."
+  ],
+  "updated_files": ["/app/backend/tests/test_staffhub_api.py (updated stale policy auto-ack assertions)", "/app/backend/tests/test_integrations_api.py (new)"],
+  "success_rate": {"backend": "100% (30/30)", "frontend": "~95% (all requested flows work; 1 missing route guard, minor design issues)"},
+  "seed_data_creation": "None persistent. Created and cleaned up TEST_ forms, TEST_ policies, TEST_ chat messages and notifications; unlinked all webhooks (0 conversations with gchat_webhook). AI history cleared for admin and employee.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Web bypass: wait for [data-testid=login-screen] FIRST, then localStorage.setItem('auth_token', JSON.stringify('test_session_admin')), then reload or goto. Run pytest from /app/backend (pytest.ini uses xdist). The integrations tests make 3 LLM calls (ask + 2 extracts). Use cert_png()/cert_pdf() in test_integrations_api.py for image fixtures. A fake GChat webhook gets a 400 from Google (test_delivered:false); this is expected. The Forms add sheet slides in, so wait about 1.5s before clicking forms-save-button or it reports 'outside of viewport'. Drive is not configured (no GOOGLE_DRIVE_CLIENT_ID/SECRET), so the compose policy screen hides the Drive attach UI."
+}

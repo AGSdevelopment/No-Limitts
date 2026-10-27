@@ -1,5 +1,6 @@
 import { Platform } from "react-native";
 import * as WebBrowser from "expo-web-browser";
+import { fetch as expoFetch } from "expo/fetch";
 
 export const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 export const API_URL = `${BACKEND_URL}/api`;
@@ -59,5 +60,44 @@ export async function openCertificateFile(certId: string) {
     window.open(url, "_blank");
   } else {
     await WebBrowser.openBrowserAsync(url);
+  }
+}
+
+export async function openLink(url: string) {
+  if (Platform.OS === "web") {
+    window.open(url, "_blank");
+  } else {
+    await WebBrowser.openBrowserAsync(url);
+  }
+}
+
+// Streams Server-Sent Events from POST /api/ai/ask. Calls onDelta for each text chunk.
+export async function streamAsk(question: string, onDelta: (t: string) => void): Promise<void> {
+  const res = await expoFetch(`${API_URL}/ai/ask`, {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json", Accept: "text/event-stream" },
+    body: JSON.stringify({ question }),
+  });
+  if (!res.ok || !res.body) {
+    if (res.status === 401) onUnauthorized?.();
+    throw new ApiError(res.status, "The assistant is unavailable right now.");
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const events = buf.split("\n\n");
+    buf = events.pop() ?? "";
+    for (const ev of events) {
+      const line = ev.trim();
+      if (!line.startsWith("data:")) continue;
+      const data = JSON.parse(line.slice(5).trim());
+      if (data.error) throw new ApiError(502, data.error);
+      if (data.delta) onDelta(data.delta);
+      if (data.done) return;
+    }
   }
 }

@@ -1,10 +1,10 @@
 import { useState } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { api } from "@/src/api";
+import { api, openLink } from "@/src/api";
 import { useToast } from "@/src/components/toast";
 import { Button, ErrorState, Ionicons, Loading, Pill, formatDate } from "@/src/components/ui";
 import { makeStyles, useTheme } from "@/src/theme";
@@ -46,6 +46,16 @@ export default function PolicyDetail() {
           {p.author_name} · {formatDate(p.created_at)} · {p.ack_count} acknowledged
         </Text>
         <Text style={styles.body} testID="policy-content">{p.content}</Text>
+        {p.drive_file && (
+          <Pressable testID="policy-drive-file" onPress={() => openLink(p.drive_file.link)} style={styles.driveCard}>
+            <Ionicons name="logo-google" size={20} color={colors.brandPrimary} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.driveName} numberOfLines={1}>{p.drive_file.name}</Text>
+              <Text style={styles.driveSub}>Open in Google Drive</Text>
+            </View>
+            <Ionicons name="open-outline" size={18} color={colors.muted} />
+          </Pressable>
+        )}
       </ScrollView>
       <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
         {p.acknowledged ? (
@@ -66,6 +76,9 @@ const useStyles = makeStyles((c) => ({
   title: { fontSize: 26, fontWeight: "700", color: c.onSurface, letterSpacing: -0.5, marginTop: 12 },
   meta: { fontSize: 13, color: c.muted, marginTop: 6, marginBottom: 20 },
   body: { fontSize: 16, color: c.onSurfaceSecondary, lineHeight: 25 },
+  driveCard: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 24, padding: 14, borderRadius: 14, backgroundColor: c.brandTertiary, minHeight: 56 },
+  driveName: { fontSize: 15, fontWeight: "600", color: c.onSurface },
+  driveSub: { fontSize: 12, color: c.muted },
   footer: { paddingHorizontal: 16, paddingTop: 12, borderTopWidth: 0.5, borderTopColor: c.divider, backgroundColor: c.surface },
   done: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, minHeight: 48, borderRadius: 12, backgroundColor: c.successSoft },
   doneText: { fontSize: 15, fontWeight: "600", color: c.successText },

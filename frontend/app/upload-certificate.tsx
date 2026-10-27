@@ -37,6 +37,27 @@ export default function UploadCertificate() {
   const [expiry, setExpiry] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reading, setReading] = useState(false);
+
+  const autoFill = async () => {
+    if (!file) return;
+    setError(null);
+    setReading(true);
+    try {
+      const res = await uploadForm(`${API_URL}/ai/extract-certificate`, { headers: authHeaders(), files: { file } });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(typeof body.detail === "string" ? body.detail : "Couldn't read the certificate");
+      if (body.title) setTitle(body.title);
+      if (body.issuer) setIssuer(body.issuer);
+      if (body.issue_date) setIssueDate(body.issue_date);
+      if (body.expiry_date) setExpiry(body.expiry_date);
+      toast(body.expiry_date ? "Details filled in. Please check them." : "Some details couldn't be read. Please check.", body.expiry_date ? "success" : "info");
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setReading(false);
+    }
+  };
 
   const pickDoc = async () => {
     const r = await DocumentPicker.getDocumentAsync({ type: ["application/pdf", "image/*"], copyToCacheDirectory: true });
@@ -112,6 +133,18 @@ export default function UploadCertificate() {
             <Text style={styles.pickSub}>Photo of certificate</Text>
           </Pressable>
         </View>
+      )}
+
+      {file && (
+        <Button
+          label={reading ? "Reading certificate…" : "Auto-fill details with AI"}
+          icon="sparkles-outline"
+          variant="secondary"
+          loading={reading}
+          onPress={autoFill}
+          style={{ marginBottom: 20 }}
+          testID="upload-ai-autofill-button"
+        />
       )}
 
       <Field label="Certificate name" value={title} onChangeText={setTitle} placeholder="e.g. First Aid at Work" testID="upload-title-input" />

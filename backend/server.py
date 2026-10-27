@@ -1,6 +1,8 @@
 from fastapi import FastAPI, APIRouter, Request, HTTPException, Depends, UploadFile, File, Form
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse, HTMLResponse
 from fastapi.concurrency import run_in_threadpool
+import json
+import secrets
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -20,6 +22,8 @@ load_dotenv(ROOT_DIR / '.env')
 
 from storage import init_storage, put_object, get_object, APP_NAME  # noqa: E402
 from email_service import send_email, EMAIL_FROM_NAME  # noqa: E402
+import google_services as gs  # noqa: E402
+import ai_service  # noqa: E402
 
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
@@ -53,6 +57,15 @@ def now_iso():
 
 def new_id(prefix: str):
     return f"{prefix}_{uuid.uuid4().hex[:12]}"
+
+
+_bg_tasks = set()
+
+
+def spawn(coro):
+    t = asyncio.create_task(coro)
+    _bg_tasks.add(t)
+    t.add_done_callback(_bg_tasks.discard)
 
 
 # ---------------------------------------------------------------- auth
@@ -298,6 +311,7 @@ async def upload_certificate(title: str = Form(...), expiry_date: str = Form(...
             "storage_path": result["path"], "file_name": file.filename or "certificate", "content_type": ctype,
             "size": len(data), "is_deleted": False, "notified_stage": "valid", "created_at": now_iso()}
     await db.certificates.insert_one(dict(cert))
+    spawn(copy_cert_to_drive(cert, data))
     await check_certificate(cert)
     cert["notified_stage"] = cert_status(expiry_date)["status"]
     return with_status(cert)
@@ -355,6 +369,7 @@ async def list_conversations(user=Depends(current_user)):
             c["picture"] = other.get("picture")
             c["other_user_id"] = other_id
         c["unread"] = unread
+        c["google_chat"] = bool(c.pop("gchat_webhook", None))
         out.append(c)
     out.sort(key=lambda c: c.get("last_at") or c.get("created_at"), reverse=True)
     return out
@@ -429,6 +444,12 @@ async def send_message(conv_id: str, body: MessageIn, user=Depends(current_user)
                                                 "last_at": msg["created_at"]}})
     await db.conv_reads.update_one({"user_id": user["user_id"], "conversation_id": conv_id},
                                    {"$set": {"last_read_at": msg["created_at"]}}, upsert=True)
+    if conv["type"] == "channel" and conv.get("gchat_webhook"):
+        try:
+            hook = gs.decrypt(conv["gchat_webhook"])
+            spawn(gs.post_to_gchat(hook, f"*{user['name']}* in #{conv['name']} (StaffHub):\n{text[:4000]}"))
+        except Exception as e:
+            logger.error(f"Google Chat webhook unusable for {conv_id}: {e}")
     if conv["type"] == "dm":
         others = [m for m in conv["member_ids"] if m != user["user_id"]]
         await notify(others, "message", f"New message from {user['name']}", text[:120], f"/chat/{conv_id}")
@@ -480,6 +501,7 @@ class PolicyIn(BaseModel):
     title: str
     category: str = "Policy"
     content: str
+    drive_file_id: Optional[str] = None
 
 
 @api.get("/policies")
@@ -499,7 +521,15 @@ async def create_policy(body: PolicyIn, admin=Depends(admin_user)):
     cat = body.category if body.category in ("Policy", "Procedure") else "Policy"
     doc = {"policy_id": new_id("pol"), "title": body.title.strip(), "category": cat,
            "content": body.content.strip(), "author_name": admin["name"], "acknowledged_by": [admin["user_id"]],
-           "created_at": now_iso()}
+           "drive_file": None, "created_at": now_iso()}
+    if body.drive_file_id:
+        svc = await drive_svc_or_409()
+        try:
+            f = await run_in_threadpool(gs.drive_get, svc, body.drive_file_id)
+        except Exception:
+            raise HTTPException(404, "Drive file not found or not accessible")
+        doc["drive_file"] = {"id": f["id"], "name": f.get("name"), "link": f.get("webViewLink"),
+                             "mime_type": f.get("mimeType")}
     await db.policies.insert_one(dict(doc))
     await notify(await all_user_ids(admin["user_id"]), "policy", f"New {cat.lower()}: please review",
                  doc["title"], "/policies")
@@ -636,6 +666,266 @@ async def dashboard(user=Depends(current_user)):
     return {"cert_alerts": alerts, "cert_total": len(certs), "events": events, "open_tasks": tasks[:5],
             "open_task_count": len(tasks), "updates": updates, "unread_notifications": unread,
             "pending_policies": pending_policies}
+
+
+# ---------------------------------------------------------------- Google Drive integration
+DRIVE_KEY = "google_drive"
+
+
+async def drive_conn():
+    return await db.integrations.find_one({"key": DRIVE_KEY}, P)
+
+
+async def drive_svc_or_409():
+    conn = await drive_conn()
+    if not conn or not gs.drive_client_config():
+        raise HTTPException(409, "Google Drive is not connected")
+    try:
+        return await run_in_threadpool(gs.drive_service, conn["refresh_token"])
+    except Exception as e:
+        logger.error(f"Drive auth failed: {e}")
+        raise HTTPException(502, "Google Drive access failed. An admin may need to reconnect it.")
+
+
+async def copy_cert_to_drive(cert: dict, data: bytes):
+    conn = await drive_conn()
+    if not conn or not gs.drive_client_config():
+        return
+    try:
+        svc = await run_in_threadpool(gs.drive_service, conn["refresh_token"])
+        name = f"{cert['owner_name']} - {cert['title']} (expires {cert['expiry_date']})"
+        ext = cert["file_name"].rsplit(".", 1)[-1] if "." in cert["file_name"] else ""
+        f = await run_in_threadpool(gs.drive_upload, svc, conn["folder_id"], f"{name}.{ext}" if ext else name,
+                                    data, cert["content_type"])
+        await db.certificates.update_one({"cert_id": cert["cert_id"]},
+                                         {"$set": {"drive_file_id": f["id"], "drive_link": f.get("webViewLink")}})
+    except Exception as e:
+        logger.error(f"Drive copy failed for {cert['cert_id']}: {e}")
+
+
+@api.get("/integrations/google-drive/status")
+async def drive_status(user=Depends(current_user)):
+    conn = await drive_conn()
+    return {"configured": bool(gs.drive_client_config()), "connected": bool(conn),
+            "email": (conn or {}).get("email", ""), "folder_name": gs.DRIVE_FOLDER_NAME,
+            "redirect_uri": gs.drive_redirect_uri() if user["role"] == "admin" else None}
+
+
+@api.post("/integrations/google-drive/start")
+async def drive_start(admin=Depends(admin_user)):
+    if not gs.drive_client_config():
+        raise HTTPException(409, "Google Drive credentials are not set up yet")
+    state = secrets.token_urlsafe(32)
+    url, verifier = gs.drive_auth_url(state)
+    await db.oauth_states.insert_one({"state": state, "user_id": admin["user_id"], "code_verifier": verifier,
+                                      "created_at": now()})
+    return {"authorization_url": url}
+
+
+def result_page(title: str, msg: str) -> HTMLResponse:
+    return HTMLResponse(f"<html><head><meta name='viewport' content='width=device-width,initial-scale=1'></head>"
+                        f"<body style='font-family:Arial;padding:32px;text-align:center'><h2>{escape(title)}</h2>"
+                        f"<p>{escape(msg)}</p><p>You can close this window and return to StaffHub.</p></body></html>")
+
+
+@api.get("/integrations/google-drive/callback")
+async def drive_callback(state: str = "", code: str = "", error: str = ""):
+    st = await db.oauth_states.find_one_and_delete({"state": state})
+    if error or not st or not code:
+        return result_page("Google Drive not connected", "The request was cancelled or expired.")
+    created = st["created_at"].replace(tzinfo=timezone.utc) if st["created_at"].tzinfo is None else st["created_at"]
+    if now() - created > timedelta(minutes=15):
+        return result_page("Google Drive not connected", "The request expired. Please try again.")
+    try:
+        refresh = await run_in_threadpool(gs.drive_exchange, state, code, st.get("code_verifier"))
+        old = await drive_conn()
+        enc = gs.encrypt(refresh) if refresh else (old or {}).get("refresh_token")
+        if not enc:
+            return result_page("Google Drive not connected", "Google did not grant offline access. Try again.")
+        svc = await run_in_threadpool(gs.drive_service, enc)
+        email = await run_in_threadpool(gs.drive_account_email, svc)
+        folder_id = await run_in_threadpool(gs.drive_ensure_folder, svc)
+    except Exception as e:
+        logger.error(f"Drive OAuth failed: {e}")
+        return result_page("Google Drive not connected", "Something went wrong while connecting.")
+    await db.integrations.update_one({"key": DRIVE_KEY}, {"$set": {
+        "key": DRIVE_KEY, "refresh_token": enc, "email": email, "folder_id": folder_id,
+        "connected_by": st["user_id"], "updated_at": now_iso()}}, upsert=True)
+    return result_page("Google Drive connected", f"StaffHub is now linked to {email}.")
+
+
+@api.delete("/integrations/google-drive")
+async def drive_disconnect(admin=Depends(admin_user)):
+    await db.integrations.delete_one({"key": DRIVE_KEY})
+    return {"ok": True}
+
+
+@api.get("/drive/files")
+async def drive_files(q: str = "", admin=Depends(admin_user)):
+    svc = await drive_svc_or_409()
+    try:
+        return await run_in_threadpool(gs.drive_list, svc, q[:100])
+    except Exception as e:
+        logger.error(f"Drive list failed: {e}")
+        raise HTTPException(502, "Could not list Google Drive files")
+
+
+# ---------------------------------------------------------------- Google Chat integration
+class WebhookIn(BaseModel):
+    webhook_url: str
+
+
+@api.put("/channels/{conv_id}/google-chat")
+async def set_gchat(conv_id: str, body: WebhookIn, admin=Depends(admin_user)):
+    url = body.webhook_url.strip()
+    if not gs.valid_gchat_url(url):
+        raise HTTPException(400, "That doesn't look like a Google Chat webhook link")
+    res = await db.conversations.update_one({"conversation_id": conv_id, "type": "channel"},
+                                            {"$set": {"gchat_webhook": gs.encrypt(url)}})
+    if not res.matched_count:
+        raise HTTPException(404, "Channel not found")
+    conv = await db.conversations.find_one({"conversation_id": conv_id}, P)
+    ok = await gs.post_to_gchat(url, f"StaffHub is now connected to #{conv['name']}. "
+                                     "Messages posted there will appear here.")
+    return {"ok": True, "test_delivered": ok}
+
+
+@api.delete("/channels/{conv_id}/google-chat")
+async def remove_gchat(conv_id: str, admin=Depends(admin_user)):
+    res = await db.conversations.update_one({"conversation_id": conv_id, "type": "channel"},
+                                            {"$unset": {"gchat_webhook": ""}})
+    if not res.matched_count:
+        raise HTTPException(404, "Channel not found")
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------- Jotform forms
+class FormIn(BaseModel):
+    title: str
+    url: str
+    description: str = ""
+
+
+def normalize_jotform(url: str) -> Optional[str]:
+    url = url.strip()
+    if url.isdigit():
+        return f"https://form.jotform.com/{url}"
+    if not url.startswith("http"):
+        url = "https://" + url
+    host = (url.split("/")[2] if len(url.split("/")) > 2 else "").lower()
+    if not url.startswith("https://") or not (host == "jotform.com" or host.endswith(".jotform.com")):
+        return None
+    return url
+
+
+@api.get("/forms")
+async def list_forms(user=Depends(current_user)):
+    return await db.forms.find({}, P).sort("created_at", -1).to_list(200)
+
+
+@api.post("/forms")
+async def create_form(body: FormIn, admin=Depends(admin_user)):
+    url = normalize_jotform(body.url)
+    if not url:
+        raise HTTPException(400, "Paste a Jotform link (e.g. https://form.jotform.com/123...) or form ID")
+    if not body.title.strip():
+        raise HTTPException(400, "Title is required")
+    doc = {"form_id": new_id("form"), "title": body.title.strip(), "description": body.description.strip(),
+           "url": url, "created_by": admin["name"], "created_at": now_iso()}
+    await db.forms.insert_one(dict(doc))
+    await notify(await all_user_ids(admin["user_id"]), "form", "New form available", doc["title"], "/forms")
+    return doc
+
+
+@api.delete("/forms/{form_id}")
+async def delete_form(form_id: str, admin=Depends(admin_user)):
+    res = await db.forms.delete_one({"form_id": form_id})
+    if not res.deleted_count:
+        raise HTTPException(404, "Form not found")
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------- Claude AI
+class AskIn(BaseModel):
+    question: str
+
+
+async def assistant_context(user: dict) -> str:
+    pols = await db.policies.find({}, P).sort("created_at", -1).to_list(100)
+    text, total = [], 0
+    for p in pols:
+        chunk = f"### {p['category']}: {p['title']}\n{p['content']}\n"
+        total += len(chunk)
+        if total > 60000:
+            break
+        text.append(chunk)
+    certs = [with_status(c) for c in await db.certificates.find({"owner_id": user["user_id"], "is_deleted": False}, P)
+             .to_list(100)]
+    cert_lines = "\n".join(f"- {c['title']}: expires {c['expiry_date']} ({c['status']})" for c in certs) or "none"
+    return ("You are the StaffHub assistant for employees. Answer clearly and briefly using the company "
+            "policies and procedures below. If the answer isn't in them, say so and suggest asking a manager. "
+            "Quote the policy title you used. Never invent policy rules.\n"
+            f"Today's date: {date.today().isoformat()}. Employee: {user['name']}.\n"
+            f"Employee's certificates:\n{cert_lines}\n\nCOMPANY POLICIES & PROCEDURES:\n" + "\n".join(text))
+
+
+@api.get("/ai/history")
+async def ai_history(user=Depends(current_user)):
+    return await db.ai_messages.find({"user_id": user["user_id"]}, P).sort("created_at", 1).to_list(200)
+
+
+@api.delete("/ai/history")
+async def ai_clear(user=Depends(current_user)):
+    await db.ai_messages.delete_many({"user_id": user["user_id"]})
+    return {"ok": True}
+
+
+@api.post("/ai/ask")
+async def ai_ask(body: AskIn, user=Depends(current_user)):
+    q = body.question.strip()[:2000]
+    if not q:
+        raise HTTPException(400, "Ask a question")
+    history = await db.ai_messages.find({"user_id": user["user_id"]}, P).sort("created_at", -1).to_list(8)
+    convo = "\n".join(f"{'Employee' if m['role'] == 'user' else 'Assistant'}: {m['text']}" for m in reversed(history))
+    prompt = (f"Earlier conversation:\n{convo}\n\n" if convo else "") + f"Employee question: {q}"
+    system = await assistant_context(user)
+    asked_at = now_iso()
+
+    async def gen():
+        parts = []
+        try:
+            async for delta in ai_service.stream_answer(system, prompt):
+                parts.append(delta)
+                yield f"data: {json.dumps({'delta': delta})}\n\n"
+        except Exception as e:
+            logger.error(f"AI stream failed: {e}")
+            yield f"data: {json.dumps({'error': 'The assistant is unavailable right now. Please try again.'})}\n\n"
+        answer = "".join(parts).strip()
+        if answer:
+            await db.ai_messages.insert_many([
+                {"message_id": new_id("aim"), "user_id": user["user_id"], "role": "user", "text": q,
+                 "created_at": asked_at},
+                {"message_id": new_id("aim"), "user_id": user["user_id"], "role": "assistant", "text": answer,
+                 "created_at": now_iso()}])
+        yield f"data: {json.dumps({'done': True})}\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@api.post("/ai/extract-certificate")
+async def ai_extract(file: UploadFile = File(...), user=Depends(current_user)):
+    data = await file.read()
+    if not data or len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(400, "File is empty or too large")
+    ctype = file.content_type or ""
+    if not ("pdf" in ctype or ctype in ("image/png", "image/jpeg", "image/jpg", "image/webp")):
+        raise HTTPException(415, "Use a PDF, JPG or PNG")
+    try:
+        return await ai_service.extract_certificate(data, ctype)
+    except Exception as e:
+        logger.error(f"AI extract failed: {e}")
+        raise HTTPException(502, "Couldn't read the certificate. Please fill in the details manually.")
 
 
 app.include_router(api)

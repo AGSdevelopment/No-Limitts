@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pressable, ScrollView, Switch, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, Switch, Text, TextInput, View } from "react-native";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "@/src/api";
 import { useToast } from "@/src/components/toast";
 import { useAuth } from "@/src/auth";
-import { Avatar, Button, Chip, EmptyState, Field, isoDate } from "@/src/components/ui";
+import { Avatar, Button, Chip, EmptyState, Field, Ionicons, isoDate } from "@/src/components/ui";
 import { makeStyles, useTheme } from "@/src/theme";
 
 type Kind = "update" | "policy" | "event" | "task" | "channel";
@@ -48,6 +48,14 @@ export default function Compose() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const users = useQuery<any[]>({ queryKey: ["users"], queryFn: () => api("/users"), enabled: kind === "task" });
+  const driveStatus = useQuery<any>({ queryKey: ["drive-status"], queryFn: () => api("/integrations/google-drive/status"), enabled: kind === "policy" });
+  const [driveSearch, setDriveSearch] = useState("");
+  const [driveFile, setDriveFile] = useState<any>(null);
+  const driveFiles = useQuery<any[]>({
+    queryKey: ["drive-files", driveSearch],
+    queryFn: () => api(`/drive/files?q=${encodeURIComponent(driveSearch)}`),
+    enabled: kind === "policy" && !!driveStatus.data?.connected && !driveFile,
+  });
 
   if (user?.role !== "admin") {
     return <EmptyState icon="lock-closed-outline" title="Admins only" subtitle="Only admins and managers can post here." testID="compose-admin-only" />;
@@ -65,7 +73,7 @@ export default function Compose() {
     } else if (kind === "policy") {
       if (!body.trim()) return setError("Add the policy content.");
       path = "/policies";
-      payload = { title, content: body, category };
+      payload = { title, content: body, category, drive_file_id: driveFile?.id ?? null };
     } else if (kind === "event") {
       if (!DATE_RE.test(date)) return setError("Date must be YYYY-MM-DD.");
       path = "/events";
@@ -163,6 +171,41 @@ export default function Compose() {
         placeholder="Write here..."
         testID="compose-body-input"
       />
+      {kind === "policy" && driveStatus.data?.connected && (
+        <View style={{ marginBottom: 16 }} testID="compose-drive-attach">
+          <Text style={styles.label}>Attach a Google Drive file (optional)</Text>
+          {driveFile ? (
+            <View style={styles.driveSel}>
+              <Ionicons name="logo-google" size={18} color={colors.brandPrimary} />
+              <Text style={styles.driveName} numberOfLines={1}>{driveFile.name}</Text>
+              <Pressable testID="compose-drive-remove" onPress={() => setDriveFile(null)} hitSlop={10} style={styles.driveX}>
+                <Ionicons name="close-circle" size={20} color={colors.muted} />
+              </Pressable>
+            </View>
+          ) : (
+            <>
+              <TextInput
+                testID="compose-drive-search"
+                value={driveSearch}
+                onChangeText={setDriveSearch}
+                placeholder="Search Drive files"
+                placeholderTextColor={colors.muted}
+                style={styles.driveInput}
+              />
+              {driveFiles.isLoading ? (
+                <ActivityIndicator color={colors.brandPrimary} style={{ marginTop: 8 }} />
+              ) : (
+                (driveFiles.data ?? []).slice(0, 6).map((f) => (
+                  <Pressable key={f.id} testID={`compose-drive-file-${f.id}`} onPress={() => setDriveFile(f)} style={styles.driveRow}>
+                    <Ionicons name="document-outline" size={18} color={colors.muted} />
+                    <Text style={styles.driveName} numberOfLines={1}>{f.name}</Text>
+                  </Pressable>
+                ))
+              )}
+            </>
+          )}
+        </View>
+      )}
       {kind === "update" && (
         <View style={styles.switchRow}>
           <Text style={styles.switchLabel}>Pin to top</Text>
@@ -186,4 +229,9 @@ const useStyles = makeStyles((c) => ({
   switchLabel: { fontSize: 16, color: c.onSurface },
   hint: { fontSize: 13, color: c.muted, marginBottom: 12 },
   error: { fontSize: 14, color: c.errorText, marginBottom: 12 },
+  driveSel: { flexDirection: "row", alignItems: "center", gap: 10, paddingLeft: 14, borderRadius: 12, backgroundColor: c.brandTertiary, minHeight: 48 },
+  driveName: { flex: 1, fontSize: 15, color: c.onSurface },
+  driveX: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  driveInput: { minHeight: 48, borderRadius: 12, backgroundColor: c.surfaceSecondary, paddingHorizontal: 14, fontSize: 16, color: c.onSurface, marginBottom: 4 },
+  driveRow: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 44, borderBottomWidth: 0.5, borderBottomColor: c.divider },
 }));

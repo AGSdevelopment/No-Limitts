@@ -110,6 +110,7 @@ export default function Certificates() {
                 {!!item.issuer && <Text style={styles.sub} numberOfLines={1}>{item.issuer}</Text>}
                 <View style={styles.metaRow}>
                   <StatusBadge status={item.status} testID={`cert-status-${item.cert_id}`} />
+                  {!!item.drive_link && <Ionicons name="logo-google" size={14} color={colors.muted} testID={`cert-drive-${item.cert_id}`} />}
                   <Text style={styles.sub}>
                     {item.status === "expired"
                       ? `Expired ${formatDate(item.expiry_date)}`

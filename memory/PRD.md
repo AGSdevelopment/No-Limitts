@@ -23,7 +23,15 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Notifications center + badges; expiry emails
 - Tested: 15/15 backend tests, full frontend flows passed
 
+## Integrations (added 2026-06)
+- Google Chat: one-way mirror of channel messages to a Google Chat space via admin-pasted webhook (encrypted at rest)
+- Google Drive: admin OAuth connect (backend-owned refresh token, encrypted); certificates copied to "StaffHub Certificates" folder; Drive file attach on policies. Needs GOOGLE_DRIVE_CLIENT_ID / GOOGLE_DRIVE_CLIENT_SECRET (pending from user); redirect URI = PUBLIC_BACKEND_URL + /api/integrations/google-drive/callback
+- Jotform: admins add form links; employees open with name/email prefilled
+- Claude (claude-sonnet-5-5, Emergent key): streaming policy Q&A assistant; certificate auto-fill from image/PDF
+- Tested: iteration 2 — 30/30 backend, frontend flows pass
+
 ## Backlog
+- P0: Add Google Drive OAuth credentials and connect
 - P1: Phone push notifications (Firebase file + build)
 - P1: Camera capture for certificates; date picker
 - P2: Compliance export report; attachments in chat; real-time websockets; short-lived file tokens
