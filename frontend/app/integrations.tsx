@@ -28,8 +28,9 @@ export default function Integrations() {
   const [busy, setBusy] = useState(false);
   const [confirmDrive, setConfirmDrive] = useState(false);
   const [folderLink, setFolderLink] = useState("");
-  const [changingFolder, setChangingFolder] = useState(false);
+  const [editingSpace, setEditingSpace] = useState<string | null>(null);
   const [digestBusy, setDigestBusy] = useState(false);
+  const hasDriveFolder = Object.values(drive.data?.spaces ?? {}).some((s: any) => !!s.folder_id);
   const soc = useQuery<any>({ queryKey: ["socials"], queryFn: () => api("/socials") });
   const connectSocial = async (kind: string) => {
     setBusy(true);
@@ -61,7 +62,7 @@ export default function Integrations() {
   const idx = useQuery<any>({
     queryKey: ["drive-index"],
     queryFn: () => api("/drive/index-status"),
-    enabled: user?.role === "admin" && !!drive.data?.shared_folder_id,
+    enabled: user?.role === "admin" && hasDriveFolder,
     refetchInterval: (query) => (query.state.data?.running ? 4000 : false),
   });
   const reindex = async () => {
@@ -85,23 +86,22 @@ export default function Integrations() {
     }
   };
 
-  const saveFolder = async () => {
+  const saveFolder = async (space: string) => {
     setBusy(true);
     try {
-      const r = await api("/integrations/google-drive/shared-folder", { method: "PUT", body: { link: folderLink } });
+      const r = await api("/integrations/google-drive/shared-folder", { method: "PUT", body: { link: folderLink, space } });
       setFolderLink("");
-      setChangingFolder(false);
+      setEditingSpace(null);
       drive.refetch();
       qc.invalidateQueries({ queryKey: ["drive-shared"] });
       setTimeout(() => qc.invalidateQueries({ queryKey: ["drive-index"] }), 800);
-      toast(`Company folder set to “${r.shared_folder_name}”`, "success");
+      toast(`Folder set to “${r.folder_name}”`, "success");
     } catch (e: any) {
       toast(e.message, "error");
     } finally {
       setBusy(false);
     }
   };
-  const clearFolder = () => setChangingFolder(true);
 
   useFocusEffect(
     useCallback(() => {
@@ -211,33 +211,40 @@ export default function Integrations() {
             <Text style={styles.note} testID="drive-connected-email">
               Linked to {d.email}. New certificates are copied to the “{d.folder_name}” folder.
             </Text>
-            <View style={styles.twoWayBox} testID="drive-shared-folder">
-              <Text style={styles.twoWayTitle}>Company Drive folder</Text>
-              {d.shared_folder_id && !changingFolder ? (
-                <>
-                  <Text style={styles.note} testID="drive-shared-folder-name">Everyone can browse “{d.shared_folder_name}” from Library → Company Drive.</Text>
-                  <Button label="Change folder" variant="ghost" onPress={clearFolder} testID="drive-shared-folder-clear" />
-                </>
-              ) : (
-                <>
-                  <Text style={styles.note}>Paste the link of a Drive folder that all staff should be able to browse.</Text>
-                  <TextInput
-                    testID="drive-shared-folder-input"
-                    value={folderLink}
-                    onChangeText={setFolderLink}
-                    placeholder="https://drive.google.com/drive/folders/…"
-                    placeholderTextColor={colors.muted}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    style={[styles.input, { backgroundColor: colors.surface }]}
-                  />
-                  <Button label="Save folder" loading={busy} disabled={!folderLink.trim()} onPress={saveFolder} testID="drive-shared-folder-save" />
-                  {changingFolder && (
-                    <Button label="Cancel" variant="ghost" onPress={() => { setChangingFolder(false); setFolderLink(""); }} testID="drive-shared-folder-cancel" />
+            {(["therapist", "participant"] as const).map((key) => {
+              const sp = d.spaces?.[key] ?? {};
+              const editing = editingSpace === key || !sp.folder_id;
+              return (
+                <View key={key} style={styles.twoWayBox} testID={`drive-shared-folder-${key}`}>
+                  <Text style={styles.twoWayTitle}>{sp.label}</Text>
+                  {!editing ? (
+                    <>
+                      <Text style={styles.note} testID={`drive-shared-folder-name-${key}`}>Staff browse “{sp.folder_name}” from Library → Company Drive → {sp.label}.</Text>
+                      <Button label="Change folder" variant="ghost" onPress={() => { setEditingSpace(key); setFolderLink(""); }} testID={`drive-shared-folder-change-${key}`} />
+                    </>
+                  ) : (
+                    <>
+                      <Text style={styles.note}>Paste the link of the Drive folder for {sp.label}.</Text>
+                      <TextInput
+                        testID={`drive-shared-folder-input-${key}`}
+                        value={editingSpace === key ? folderLink : ""}
+                        onFocus={() => setEditingSpace(key)}
+                        onChangeText={(t) => { setEditingSpace(key); setFolderLink(t); }}
+                        placeholder="https://drive.google.com/drive/folders/…"
+                        placeholderTextColor={colors.muted}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        style={[styles.input, { backgroundColor: colors.surface }]}
+                      />
+                      <Button label="Save folder" loading={busy && editingSpace === key} disabled={editingSpace !== key || !folderLink.trim()} onPress={() => saveFolder(key)} testID={`drive-shared-folder-save-${key}`} />
+                      {!!sp.folder_id && (
+                        <Button label="Cancel" variant="ghost" onPress={() => { setEditingSpace(null); setFolderLink(""); }} testID={`drive-shared-folder-cancel-${key}`} />
+                      )}
+                    </>
                   )}
-                </>
-              )}
-            </View>
+                </View>
+              );
+            })}
             <Button label="Disconnect" variant="secondary" onPress={() => setConfirmDrive(true)} testID="drive-disconnect-button" />
           </>
         ) : (
@@ -394,7 +401,7 @@ export default function Integrations() {
           </View>
           <Ionicons name="chevron-forward" size={18} color={colors.muted} />
         </Pressable>
-        {d.shared_folder_id && (
+        {hasDriveFolder && (
           <View style={styles.twoWayBox} testID="ai-drive-index">
             <Text style={styles.twoWayTitle}>Reads the Company Drive folder</Text>
             <Text style={styles.note} testID="ai-drive-index-status">

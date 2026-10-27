@@ -5,10 +5,12 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { api } from "@/src/api";
+import { API_URL, api, authHeaders } from "@/src/api";
+import { uploadForm } from "@/src/utils/upload";
+import * as DocumentPicker from "expo-document-picker";
 import { useToast } from "@/src/components/toast";
 import { useAuth } from "@/src/auth";
-import { Avatar, Button, Chip, EmptyState, Field, Ionicons, isoDate } from "@/src/components/ui";
+import { Avatar, Button, Chip, EmptyState, Field, Ionicons, dmyDate, dmyToIso } from "@/src/components/ui";
 import { makeStyles, useTheme } from "@/src/theme";
 
 type Kind = "update" | "policy" | "event" | "task" | "channel";
@@ -19,12 +21,10 @@ const TITLES: Record<Kind, string> = {
   task: "Assign task",
   channel: "New channel",
 };
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
 function inDays(n: number) {
   const d = new Date();
   d.setDate(d.getDate() + n);
-  return isoDate(d);
+  return dmyDate(d);
 }
 
 export default function Compose() {
@@ -45,6 +45,11 @@ export default function Compose() {
   const [time, setTime] = useState("");
   const [location, setLocation] = useState("");
   const [assignee, setAssignee] = useState<string | null>(null);
+  const [people, setPeople] = useState<string[]>([]);
+  const togglePerson = (id: string) => {
+    setAssignee(null);
+    setPeople((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  };
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isAdmin = user?.role === "admin";
@@ -53,6 +58,14 @@ export default function Compose() {
   const driveStatus = useQuery<any>({ queryKey: ["drive-status"], queryFn: () => api("/integrations/google-drive/status"), enabled: kind === "policy" });
   const [driveSearch, setDriveSearch] = useState("");
   const [driveFile, setDriveFile] = useState<any>(null);
+  const [taskFile, setTaskFile] = useState<{ uri: string; name: string; mimeType?: string } | null>(null);
+  const pickTaskFile = async () => {
+    const r = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true });
+    if (!r.canceled && r.assets?.[0]) {
+      const a = r.assets[0];
+      setTaskFile({ uri: a.uri, name: a.name, mimeType: a.mimeType ?? undefined });
+    }
+  };
   const driveFiles = useQuery<any[]>({
     queryKey: ["drive-files", driveSearch],
     queryFn: () => api(`/drive/files?q=${encodeURIComponent(driveSearch)}`),
@@ -77,14 +90,36 @@ export default function Compose() {
       path = "/policies";
       payload = { title, content: body, category, drive_file_id: driveFile?.id ?? null };
     } else if (kind === "event") {
-      if (!DATE_RE.test(date)) return setError("Date must be YYYY-MM-DD.");
+      const iso = dmyToIso(date);
+      if (!iso) return setError("Date must be DD-MM-YYYY.");
       path = "/events";
-      payload = { title, description: body, date, time, location };
+      payload = { title, description: body, date: iso, time, location };
     } else if (kind === "task") {
-      if (isAdmin && !assignee) return setError("Choose who this task is for.");
-      if (date && !DATE_RE.test(date)) return setError("Due date must be YYYY-MM-DD.");
+      if (isAdmin && !assignee && people.length === 0) return setError("Choose who this task is for.");
+      const due = date ? dmyToIso(date) : "";
+      if (due === null) return setError("Due date must be DD-MM-YYYY.");
       path = "/tasks";
-      payload = { title, description: body, due_date: date, assignee_id: isAdmin ? assignee : "" };
+      let attachmentId: string | null = null;
+      if (taskFile) {
+        setSaving(true);
+        try {
+          const up = await uploadForm(`${API_URL}/tasks/attachments`, { headers: authHeaders(), files: { file: taskFile } });
+          const b = await up.json().catch(() => ({}));
+          if (!up.ok) throw new Error(typeof b.detail === "string" ? b.detail : "Couldn't upload the file.");
+          attachmentId = b.file_id;
+        } catch (e: any) {
+          setSaving(false);
+          return setError(e.message || "Couldn't upload the file.");
+        }
+      }
+      payload = {
+        title,
+        description: body,
+        due_date: due,
+        assignee_id: isAdmin && assignee ? assignee : "",
+        assignee_ids: isAdmin && !assignee ? people : [],
+        attachment_id: attachmentId,
+      };
     } else {
       path = "/channels";
       payload = { name: title, description: body };
@@ -137,7 +172,7 @@ export default function Compose() {
               <Pressable
                 key={o.key}
                 testID={`compose-assignee-${o.key === "all" ? "all" : "me"}`}
-                onPress={() => setAssignee(o.key)}
+                onPress={() => { setAssignee(o.key); setPeople([]); }}
                 style={[styles.person, assignee === o.key && { borderColor: colors.brandPrimary, backgroundColor: colors.brandTertiary }]}
               >
                 <View style={styles.optIcon}>
@@ -150,8 +185,8 @@ export default function Compose() {
               <Pressable
                 key={u.user_id}
                 testID={`compose-assignee-${u.user_id}`}
-                onPress={() => setAssignee(u.user_id)}
-                style={[styles.person, assignee === u.user_id && { borderColor: colors.brandPrimary, backgroundColor: colors.brandTertiary }]}
+                onPress={() => togglePerson(u.user_id)}
+                style={[styles.person, people.includes(u.user_id) && { borderColor: colors.brandPrimary, backgroundColor: colors.brandTertiary }]}
               >
                 <Avatar name={u.name} picture={u.picture} size={36} />
                 <Text style={styles.personName} numberOfLines={1}>{u.name.split(" ")[0]}</Text>
@@ -162,7 +197,7 @@ export default function Compose() {
       )}
       {(kind === "event" || kind === "task") && (
         <>
-          <Field label={kind === "event" ? "Date (YYYY-MM-DD)" : "Due date (YYYY-MM-DD)"} value={date} onChangeText={setDate} autoCapitalize="none" testID="compose-date-input" />
+          <Field label={kind === "event" ? "Date (DD-MM-YYYY)" : "Due date (DD-MM-YYYY)"} value={date} onChangeText={setDate} autoCapitalize="none" placeholder="e.g. 15-01-2027" testID="compose-date-input" />
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }} style={{ marginTop: -4, marginBottom: 16 }}>
             {[
               ["Tomorrow", 1],
@@ -224,6 +259,22 @@ export default function Compose() {
           )}
         </View>
       )}
+      {kind === "task" && (
+        <View style={{ marginBottom: 16 }} testID="compose-task-attach">
+          <Text style={styles.label}>Attachment (optional)</Text>
+          {taskFile ? (
+            <View style={styles.driveSel}>
+              <Ionicons name="document-attach-outline" size={18} color={colors.brandPrimary} />
+              <Text style={styles.driveName} numberOfLines={1} testID="compose-task-file-name">{taskFile.name}</Text>
+              <Pressable testID="compose-task-file-remove" onPress={() => setTaskFile(null)} hitSlop={10} style={styles.driveX}>
+                <Ionicons name="close-circle" size={20} color={colors.muted} />
+              </Pressable>
+            </View>
+          ) : (
+            <Button label="Upload a file" variant="secondary" icon="attach" onPress={pickTaskFile} testID="compose-task-file-button" />
+          )}
+        </View>
+      )}
       {kind === "update" && (
         <View style={styles.switchRow}>
           <Text style={styles.switchLabel}>Pin to top</Text>
@@ -232,6 +283,9 @@ export default function Compose() {
       )}
       {kind === "task" && !isAdmin && <Text style={styles.hint}>Only you can see this task.</Text>}
       {kind === "task" && isAdmin && assignee === "all" && <Text style={styles.hint}>Every staff member gets their own copy to tick off.</Text>}
+      {kind === "task" && isAdmin && people.length > 1 && (
+        <Text style={styles.hint} testID="compose-collab-hint">{people.length} people selected. Each gets their own copy and can see who else is working on it.</Text>
+      )}
       {kind !== "channel" && kind !== "task" && <Text style={styles.hint}>Everyone will get a notification.</Text>}
       {error && <Text style={styles.error} testID="compose-error">{error}</Text>}
       <Button label={kind === "task" && !isAdmin ? "Save task" : TITLES[kind]} loading={saving} onPress={submit} testID="compose-submit-button" />

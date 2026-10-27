@@ -53,6 +53,26 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Test users Alex Admin / Erin Employee hidden (hidden flag) from /users
 - Team directory: 27 staff imported from contacts.csv (company_seed.json staff_v2, one-time meta company_staff_v2) with staff groups
 
+## Round 5 (2026-06)
+- CPD certificates: attach PDF/photo to CPD log → Claude fills title/provider/date/hours/type (POST /api/cpd/extract); file stored (/api/cpd/{id}/file)
+- Home "Latest from our socials" highlight (dashboard.latest_social); social posts excluded from Home updates list
+- CPD Resources grouped into Courses / Webinars / Resource Links; staff can share a CPD log (+document) to the library (POST /api/cpd/{id}/share); contributors or admins delete
+- Upload Certificate: "Count towards my CPD hours" + hours → creates linked CPD log with certificate as evidence
+- Company Drive: two sections Therapist Resources / Participants Resources (integration.spaces.{therapist,participant}); APIs take ?space=; AI index covers both
+
+## Round 6 (2026-06)
+- Forms: 6 Week Check-in + 3/6/12 Month Review → Everyone; new "Task Creation & Management" (Support Office, support_office only) via one-time migrate_forms_v3 + company_seed.json
+- New staff groups: new_starter_employee, new_starter_contractor (backend STAFF_GROUPS + src/groups.ts)
+- Tasks: optional file attachment (POST /api/tasks/attachments → attachment_id on POST /api/tasks; GET /api/tasks/files/{id}?token=)
+- Fixes: cert delete removes linked CPD log; upload-certificate back fallback; CPD share failure toast; Drive section labels shortened
+
+## Round 7 (2026-06)
+- CPD: "Case Studies" resources section + "Case Study" log type
+- Library Resources order: Notifications, Company updates, My tasks, Forms, CPD, Events, Policies, Team directory (then Company Drive, Ask AI)
+- All date inputs DD-MM-YYYY (ui.tsx dmyDate/isoToDmy/dmyToIso; API still ISO)
+- Certificate "count towards CPD" logs with today's date so it adds to this year's total
+- Tasks: admin multi-select people (assignee_ids) → each copy has collaborators[]; shown "Working on this with …" + notification "with …"
+
 ## Backlog
 - P0: Add Google Drive OAuth credentials and connect
 - P1: Phone push notifications (Firebase file + build)

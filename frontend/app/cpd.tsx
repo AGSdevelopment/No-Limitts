@@ -1,19 +1,23 @@
 import { useState } from "react";
-import { FlatList, Modal, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
+import { ActivityIndicator, FlatList, Modal, Pressable, RefreshControl, ScrollView, Switch, Text, View } from "react-native";
 import { Stack } from "expo-router";
+import * as DocumentPicker from "expo-document-picker";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { api, openLink } from "@/src/api";
+import { API_URL, api, authHeaders, getApiToken, openLink } from "@/src/api";
+import { uploadForm } from "@/src/utils/upload";
 import { useAuth } from "@/src/auth";
 import { useToast } from "@/src/components/toast";
-import { Button, Chip, ConfirmSheet, EmptyState, ErrorState, Field, IconBox, Ionicons, Loading, formatDate, isoDate } from "@/src/components/ui";
+import { Button, Chip, ConfirmSheet, EmptyState, ErrorState, Field, IconBox, IconName, Ionicons, Loading, dmyDate, dmyToIso, formatDate, isoToDmy } from "@/src/components/ui";
 import { makeStyles, useTheme } from "@/src/theme";
 
 type Tab = "log" | "resources" | "team";
-const CATEGORIES = ["Course", "Webinar", "Conference", "Reading", "Supervision", "Other"];
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+type Picked = { uri: string; name: string; mimeType?: string };
+const CATEGORIES = ["Course", "Webinar", "Case Study", "Conference", "Reading", "Supervision", "Other"];
+const RES_SECTIONS = ["Courses", "Webinars", "Case Studies", "Resource Links"];
+const SECTION_ICON: Record<string, IconName> = { Courses: "school-outline", Webinars: "videocam-outline", "Case Studies": "briefcase-outline", "Resource Links": "link-outline" };
 
 export default function Cpd() {
   const { user } = useAuth();
@@ -68,29 +72,49 @@ export default function Cpd() {
       ) : active.isError ? (
         <ErrorState message="Couldn't load CPD." onRetry={() => active.refetch()} />
       ) : tab === "resources" ? (
-        <FlatList
-          data={res.data}
-          keyExtractor={(r) => r.resource_id}
-          contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: insets.bottom + 24, flexGrow: 1 }}
+        <ScrollView
+          contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: insets.bottom + 24 }}
           refreshControl={<RefreshControl refreshing={res.isRefetching} onRefresh={() => res.refetch()} tintColor={colors.brandPrimary} />}
-          ListEmptyComponent={<EmptyState icon="school-outline" title="No CPD resources yet" subtitle={isAdmin ? "Add courses, webinars and links for the team." : "Your managers will share CPD courses and links here."} testID="cpd-resources-empty" />}
-          renderItem={({ item }) => (
-            <Pressable testID={`cpd-resource-${item.resource_id}`} onPress={() => item.url && openLink(item.url)} style={styles.card}>
-              <IconBox name="school-outline" size={40} />
-              <View style={{ flex: 1, gap: 2 }}>
-                <Text style={styles.title}>{item.title}</Text>
-                {!!item.category && <Text style={styles.sub}>{item.category}</Text>}
-                {!!item.description && <Text style={styles.desc} numberOfLines={3}>{item.description}</Text>}
-                {!!item.url && <Text style={styles.link} numberOfLines={1}>Open link</Text>}
+          testID="cpd-resources-list"
+        >
+          {RES_SECTIONS.map((section) => {
+            const items = (res.data ?? []).filter((r) => r.category === section);
+            return (
+              <View key={section} style={{ gap: 10, marginBottom: 12 }} testID={`cpd-section-${section}`}>
+                <View style={styles.sectionHead}>
+                  <Ionicons name={SECTION_ICON[section]} size={18} color={colors.brandPrimary} />
+                  <Text style={styles.sectionTitle}>{section}</Text>
+                  <Text style={styles.sub}>{items.length}</Text>
+                </View>
+                {items.length === 0 ? (
+                  <Text style={styles.sectionEmpty}>Nothing here yet.</Text>
+                ) : (
+                  items.map((item) => {
+                    const canDelete = isAdmin || item.created_by_id === user?.user_id;
+                    const fileUrl = `${API_URL}/cpd/resources/${item.resource_id}/file?token=${encodeURIComponent(getApiToken() ?? "")}`;
+                    return (
+                      <Pressable key={item.resource_id} testID={`cpd-resource-${item.resource_id}`} onPress={() => (item.url ? openLink(item.url) : item.has_file ? openLink(fileUrl) : undefined)} style={styles.card}>
+                        <IconBox name={item.has_file ? "document-text-outline" : SECTION_ICON[section]} size={40} />
+                        <View style={{ flex: 1, gap: 2 }}>
+                          <Text style={styles.title}>{item.title}</Text>
+                          {!!item.description && <Text style={styles.desc} numberOfLines={3}>{item.description}</Text>}
+                          <Text style={styles.sub}>Shared by {item.created_by}</Text>
+                          {(!!item.url || item.has_file) && <Text style={styles.link} numberOfLines={1}>{item.url ? "Open link" : "View document"}</Text>}
+                        </View>
+                        {canDelete && (
+                          <Pressable testID={`cpd-resource-delete-${item.resource_id}`} onPress={() => setDel({ kind: "res", id: item.resource_id })} hitSlop={6} style={styles.iconBtn}>
+                            <Ionicons name="trash-outline" size={20} color={colors.muted} />
+                          </Pressable>
+                        )}
+                      </Pressable>
+                    );
+                  })
+                )}
               </View>
-              {isAdmin && (
-                <Pressable testID={`cpd-resource-delete-${item.resource_id}`} onPress={() => setDel({ kind: "res", id: item.resource_id })} hitSlop={6} style={styles.iconBtn}>
-                  <Ionicons name="trash-outline" size={20} color={colors.muted} />
-                </Pressable>
-              )}
-            </Pressable>
-          )}
-        />
+            );
+          })}
+          <Text style={styles.sectionEmpty}>Tip: share your own learning from My CPD to add it here.</Text>
+        </ScrollView>
       ) : (
         <FlatList
           data={tab === "team" ? logs.data?.team_totals : logs.data?.logs}
@@ -131,6 +155,12 @@ export default function Cpd() {
                   <Text style={styles.title}>{item.title}</Text>
                   <Text style={styles.sub}>{[item.category, item.provider, formatDate(item.date)].filter(Boolean).join(" · ")}</Text>
                   {!!item.notes && <Text style={styles.desc} numberOfLines={2}>{item.notes}</Text>}
+                  {!!item.storage_path && (
+                    <Pressable testID={`cpd-log-file-${item.log_id}`} onPress={() => openLink(`${API_URL}/cpd/${item.log_id}/file?token=${encodeURIComponent(getApiToken() ?? "")}`)} hitSlop={6} style={styles.fileLink}>
+                      <Ionicons name="attach" size={16} color={colors.brandPrimary} />
+                      <Text style={styles.link}>View certificate</Text>
+                    </Pressable>
+                  )}
                 </View>
                 <Pressable testID={`cpd-log-delete-${item.log_id}`} onPress={() => setDel({ kind: "log", id: item.log_id })} hitSlop={6} style={styles.iconBtn}>
                   <Ionicons name="trash-outline" size={20} color={colors.muted} />
@@ -148,37 +178,91 @@ export default function Cpd() {
 
 function AddSheet({ kind, visible, onClose }: { kind: "log" | "resource"; visible: boolean; onClose: () => void }) {
   const styles = useStyles();
+  const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const toast = useToast();
   const qc = useQueryClient();
   const [title, setTitle] = useState("");
   const [provider, setProvider] = useState("");
-  const [date, setDate] = useState(isoDate(new Date()));
+  const [date, setDate] = useState(dmyDate(new Date()));
   const [hours, setHours] = useState("");
   const [category, setCategory] = useState("");
   const [notes, setNotes] = useState("");
   const [url, setUrl] = useState("");
+  const [file, setFile] = useState<Picked | null>(null);
+  const [reading, setReading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [share, setShare] = useState(false);
+  const [shareSection, setShareSection] = useState<string>("Resource Links");
+  const close = () => {
+    reset();
+    onClose();
+  };
+
+  const readFile = async (f: Picked) => {
+    setReading(true);
+    setError(null);
+    try {
+      const res = await uploadForm(`${API_URL}/cpd/extract`, { headers: authHeaders(), files: { file: f } });
+      const b = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(typeof b.detail === "string" ? b.detail : "Couldn't read the certificate");
+      if (b.title) setTitle(b.title);
+      if (b.provider) setProvider(b.provider);
+      if (b.date) setDate(isoToDmy(b.date));
+      if (b.hours) setHours(String(b.hours));
+      if (b.category) {
+        setCategory(b.category);
+        setShareSection(b.category === "Course" ? "Courses" : b.category === "Webinar" ? "Webinars" : b.category === "Case Study" ? "Case Studies" : "Resource Links");
+      }
+      toast(b.hours ? "Details filled in. Please check them." : "Hours couldn't be read. Please add them.", b.hours ? "success" : "info");
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setReading(false);
+    }
+  };
+  const pickFile = async () => {
+    const r = await DocumentPicker.getDocumentAsync({ type: ["application/pdf", "image/*"], copyToCacheDirectory: true });
+    if (!r.canceled && r.assets?.[0]) {
+      const a = r.assets[0];
+      const f = { uri: a.uri, name: a.name, mimeType: a.mimeType ?? undefined };
+      setFile(f);
+      readFile(f);
+    }
+  };
 
   const reset = () => {
-    setTitle(""); setProvider(""); setHours(""); setCategory(""); setNotes(""); setUrl(""); setError(null);
-    setDate(isoDate(new Date()));
+    setTitle(""); setProvider(""); setHours(""); setCategory(""); setNotes(""); setUrl(""); setError(null); setFile(null);
+    setShare(false); setShareSection("Resource Links");
+    setDate(dmyDate(new Date()));
   };
   const save = async () => {
     setError(null);
     if (!title.trim()) return setError(kind === "log" ? "Enter what you did." : "Enter a title.");
     if (kind === "log") {
-      if (!DATE_RE.test(date)) return setError("Date must be YYYY-MM-DD.");
+      if (!dmyToIso(date)) return setError("Date must be DD-MM-YYYY.");
       const h = parseFloat(hours.replace(",", "."));
       if (!h || h <= 0) return setError("Enter the number of hours.");
     }
     setSaving(true);
     try {
       if (kind === "log") {
-        await api("/cpd", { method: "POST", body: { title, provider, date, hours: parseFloat(hours.replace(",", ".")), category, notes } });
+        const log = await api("/cpd", { method: "POST", body: { title, provider, date: dmyToIso(date), hours: parseFloat(hours.replace(",", ".")), category, notes } });
+        if (file) {
+          const up = await uploadForm(`${API_URL}/cpd/${log.log_id}/file`, { headers: authHeaders(), files: { file } });
+          if (!up.ok) toast("Saved, but the certificate couldn't be attached", "error");
+        }
+        let shared = false;
+        if (share) {
+          shared = await api(`/cpd/${log.log_id}/share`, { method: "POST", body: { category: shareSection } })
+            .then(() => true)
+            .catch(() => false);
+          qc.invalidateQueries({ queryKey: ["cpd-resources"] });
+        }
         qc.invalidateQueries({ queryKey: ["cpd"] });
-        toast("CPD logged");
+        if (share && !shared) toast("CPD logged, but sharing to the library failed", "error");
+        else toast(shared ? "CPD logged and shared" : "CPD logged");
       } else {
         await api("/cpd/resources", { method: "POST", body: { title, description: notes, url, category } });
         qc.invalidateQueries({ queryKey: ["cpd-resources"] });
@@ -194,27 +278,70 @@ function AddSheet({ kind, visible, onClose }: { kind: "log" | "resource"; visibl
   };
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={close}>
       <KeyboardAwareScrollView style={styles.sheet} contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 24 }} keyboardShouldPersistTaps="handled" bottomOffset={24} testID="cpd-add-sheet">
         <View style={styles.sheetHead}>
           <Text style={styles.sheetTitle}>{kind === "log" ? "Log CPD" : "Add CPD resource"}</Text>
-          <Pressable onPress={onClose} hitSlop={10} style={styles.iconBtn} testID="cpd-add-close">
+          <Pressable onPress={close} hitSlop={10} style={styles.iconBtn} testID="cpd-add-close">
             <Ionicons name="close" size={24} />
           </Pressable>
         </View>
+        {kind === "log" && (
+          file ? (
+            <View style={styles.fileCard} testID="cpd-attached-file">
+              <IconBox name={file.mimeType?.includes("pdf") ? "document-text" : "image"} size={40} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.title} numberOfLines={1}>{file.name}</Text>
+                <Text style={styles.sub}>{reading ? "Claude is reading the certificate…" : "Certificate attached"}</Text>
+              </View>
+              {reading ? (
+                <ActivityIndicator color={colors.brandPrimary} />
+              ) : (
+                <Pressable testID="cpd-remove-file" onPress={() => setFile(null)} hitSlop={8} style={styles.iconBtn}>
+                  <Ionicons name="close-circle" size={22} color={colors.muted} />
+                </Pressable>
+              )}
+            </View>
+          ) : (
+            <Pressable testID="cpd-attach-button" onPress={pickFile} style={({ pressed }) => [styles.attach, pressed && { opacity: 0.8 }]}>
+              <Ionicons name="sparkles" size={22} color={colors.brandPrimary} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.title}>Attach certificate</Text>
+                <Text style={styles.sub}>PDF or photo. We&apos;ll fill in the hours and details.</Text>
+              </View>
+              <Ionicons name="attach" size={22} color={colors.brandPrimary} />
+            </Pressable>
+          )
+        )}
         <Field label={kind === "log" ? "What did you do?" : "Title"} value={title} onChangeText={setTitle} placeholder={kind === "log" ? "e.g. AAC in early intervention webinar" : "e.g. Speech Pathology Australia webinars"} testID="cpd-title-input" />
-        <Text style={styles.label}>Type</Text>
+        <Text style={styles.label}>{kind === "log" ? "Type" : "Section"}</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }} style={{ marginBottom: 16 }}>
-          {CATEGORIES.map((c) => (
+          {(kind === "log" ? CATEGORIES : RES_SECTIONS).map((c) => (
             <Chip key={c} label={c} selected={category === c} onPress={() => setCategory(category === c ? "" : c)} testID={`cpd-category-${c}`} />
           ))}
         </ScrollView>
         {kind === "log" ? (
           <>
             <Field label="Provider (optional)" value={provider} onChangeText={setProvider} placeholder="e.g. Speech Pathology Australia" testID="cpd-provider-input" />
-            <Field label="Date (YYYY-MM-DD)" value={date} onChangeText={setDate} autoCapitalize="none" testID="cpd-date-input" />
-            <Field label="Hours" value={hours} onChangeText={setHours} keyboardType="decimal-pad" placeholder="e.g. 1.5" testID="cpd-hours-input" />
+            <Field label="Date (DD-MM-YYYY)" value={date} onChangeText={setDate} autoCapitalize="none" placeholder="e.g. 12-05-2026" testID="cpd-date-input" />
+            <Field label="Hours taken to complete" value={hours} onChangeText={setHours} keyboardType="decimal-pad" placeholder="e.g. 1.5" testID="cpd-hours-input" />
             <Field label="Notes (optional)" value={notes} onChangeText={setNotes} multiline placeholder="What you learned" testID="cpd-notes-input" />
+            <View style={styles.shareBox}>
+              <View style={styles.shareRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.title}>Share to CPD Resource Library</Text>
+                  <Text style={styles.sub}>Let colleagues find this {file ? "and its document" : "learning"} too</Text>
+                </View>
+                <Switch testID="cpd-share-switch" value={share} onValueChange={setShare} trackColor={{ true: colors.brandPrimary, false: colors.surfaceTertiary }} />
+              </View>
+              {share && (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                  {RES_SECTIONS.map((s) => (
+                    <Chip key={s} label={s} selected={shareSection === s} onPress={() => setShareSection(s)} testID={`cpd-share-section-${s}`} />
+                  ))}
+                </ScrollView>
+              )}
+            </View>
           </>
         ) : (
           <>
@@ -223,7 +350,7 @@ function AddSheet({ kind, visible, onClose }: { kind: "log" | "resource"; visibl
           </>
         )}
         {error && <Text style={styles.error} testID="cpd-add-error">{error}</Text>}
-        <Button label={kind === "log" ? "Save CPD" : "Add resource"} loading={saving} onPress={save} testID="cpd-save-button" />
+        <Button label={kind === "log" ? "Save CPD" : "Add resource"} loading={saving} disabled={reading} onPress={save} testID="cpd-save-button" />
       </KeyboardAwareScrollView>
     </Modal>
   );
@@ -252,4 +379,12 @@ const useStyles = makeStyles((c) => ({
   sheetTitle: { fontSize: 20, fontWeight: "700", color: c.onSurface },
   label: { fontSize: 13, fontWeight: "600", color: c.onSurfaceSecondary, marginBottom: 8 },
   error: { fontSize: 14, color: c.errorText, marginBottom: 12 },
+  attach: { flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1.5, borderStyle: "dashed", borderColor: c.borderStrong, backgroundColor: c.brandTertiary, borderRadius: 14, padding: 14, marginBottom: 16, minHeight: 64 },
+  fileCard: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: c.brandTertiary, borderRadius: 14, padding: 12, marginBottom: 16 },
+  fileLink: { flexDirection: "row", alignItems: "center", gap: 4, minHeight: 32 },
+  sectionHead: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 },
+  sectionTitle: { flex: 1, fontSize: 17, fontWeight: "700", color: c.onSurface },
+  sectionEmpty: { fontSize: 14, color: c.muted, marginLeft: 4 },
+  shareBox: { backgroundColor: c.brandTertiary, borderRadius: 14, padding: 12, gap: 10, marginBottom: 16 },
+  shareRow: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 44 },
 }));

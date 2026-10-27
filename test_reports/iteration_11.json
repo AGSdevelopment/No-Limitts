@@ -1,0 +1,39 @@
+{
+  "summary": "Frontend test at 375x667 as employee (test_session_employee). Every requested flow passed and there were no page errors. HOME: the 'Latest from our socials' card (home-social-highlight, 343x107) shows the Instagram icon, 'Instagram · 3h' and the TEST body. Tapping it opens instagram.com/aspiregrowtherapy in a new tab. 'See all' goes to /socials, which lists the TEST post under LATEST POSTS. The My tasks, Upcoming events and Company updates sections still render. CPD ATTACH: Library -> CPD -> + -> cpd-attach-button opens the file chooser; I chose /tmp/cpd.png. The card showed 'Claude is reading the certificate…' with a spinner, and Save was aria-disabled (opacity 0.5). Then it showed 'Certificate attached'. Fields were filled: title 'AAC in Early Intervention Webinar', provider 'Speech Pathology Australia', date 2026-05-12, hours 2.5, Webinar chip selected. Save -> 'CPD logged' toast; the entry shows 'View certificate' (cpd-log-file-cpd_53811b4605ef) and the year total went 0 -> 2.5. View certificate opened /api/cpd/{id}/file?token= in a new tab as image/png. Requests: POST /cpd/extract 200 -> POST /cpd 200 -> POST /cpd/{id}/file 200. MANUAL: logging without a file (hours '1,5' -> 1.5, Reading chip) worked; the total went to 4 and the entry has no file link. Removing an attached file (cpd-remove-file) brings the attach button back and keeps the filled fields. Both entries were deleted through the confirm sheet and the total went back to 0. Backend spot checks: PDF extraction returns the correct JSON, text/plain -> 415, image/heic -> 415, no auth -> 401.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "DELETE /api/cpd/{id}", "issue": "Deletes the cpd_logs doc but not the stored certificate object (storage_path), so the file is orphaned in object storage."},
+      {"endpoint": "POST /api/cpd/extract + /cpd/{id}/file", "issue": "ALLOWED_DOC_TYPES = png/jpeg/webp only, but the picker accepts image/*. iPhone HEIC photos picked via DocumentPicker would get 415 'Use a PDF, JPG or PNG'. The UI does show this error, but the experience is poor."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "CPD AddSheet", "issue": "State is not reset when the sheet is closed with X without saving. Reopening the sheet still shows the previous title, provider, hours and other fields. reset() is only called after a successful save. Reference: /app/frontend/app/cpd.tsx:205-233, 246", "testID": "cpd-add-close", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Home", "issues": ["A social post (source instagram/facebook/linkedin) in db.updates appears twice: in 'Latest from our socials' and again in 'Company updates' (home-update-upd_TESTSOCIAL). /api/dashboard 'updates' does not filter out social sources.", "'See all' section-header links have a 44x16 hit box. Check that SectionHeader uses hitSlop or minHeight 44."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_11.json"],
+  "action_items": [
+    "LOW-MEDIUM: In /api/dashboard (server.py ~line 719), exclude social sources from 'updates' (e.g. {'source': {'$nin': ['facebook','instagram','linkedin']}}) so the highlight isn't duplicated in Company updates. Check whether the /updates screen should exclude them too.",
+    "LOW: CPD AddSheet: call reset() when the sheet is closed (onClose / X / onRequestClose), or mark the retained values as a draft on purpose.",
+    "LOW: DELETE /cpd/{id}: also delete the stored certificate object (or soft-delete it).",
+    "LOW: Accept HEIC/HEIF (convert server-side with pillow-heif) or limit the picker type to image/jpeg, image/png and application/pdf.",
+    "LOW: Give the SectionHeader 'See all' links a 44px touch target (hitSlop)."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 1975 lines. Split it into routers (cpd, tasks, socials, drive, ai).",
+    "cpd.tsx readFile overwrites any values the user typed before attaching. Acceptable, but consider only filling empty fields.",
+    "If the sheet is closed while Claude is still reading, the extraction result still populates the hidden sheet state (this ties in with the missing reset)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (spot checks 4/4 pass)", "frontend": "100% of requested flows"},
+  "seed_data_creation": "None kept. Cleaned up: db.updates 'upd_TESTSOCIAL' deleted (latest_social is now null). Both CPD logs created (cpd_53811b4605ef with certificate, cpd_46629c25fcaf manual) were deleted via the UI; the employee has 0 cpd_logs. Nothing was posted in chat.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "CPD file upload in the web preview works with page.expect_file_chooser + set_files on a click of cpd-attach-button. Claude extraction takes about 5-10 s. Library row testID is library-row-cpd. The browser clock is Oct 2026. A PNG screenshot of the certificate tab fails only because quality is set on a png path (test-script issue)."
+}

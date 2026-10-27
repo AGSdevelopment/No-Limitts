@@ -59,6 +59,12 @@ def now_iso():
     return now().isoformat()
 
 
+def dmy(iso: str) -> str:
+    """yyyy-mm-dd -> dd-mm-yyyy for anything staff read (notifications, emails)."""
+    m = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", iso or "")
+    return f"{m.group(3)}-{m.group(2)}-{m.group(1)}" if m else (iso or "")
+
+
 def new_id(prefix: str):
     return f"{prefix}_{uuid.uuid4().hex[:12]}"
 
@@ -265,14 +271,14 @@ async def check_certificate(cert: dict):
         return
     await db.certificates.update_one({"cert_id": cert["cert_id"]}, {"$set": {"notified_stage": stage}})
     title = f"Certificate {'expired' if stage == 'expired' else 'expiring soon'}"
-    body = (f"{cert['title']} expired on {cert['expiry_date']}" if stage == "expired"
-            else f"{cert['title']} expires in {st['days_left']} days ({cert['expiry_date']})")
+    body = (f"{cert['title']} expired on {dmy(cert['expiry_date'])}" if stage == "expired"
+            else f"{cert['title']} expires in {st['days_left']} days ({dmy(cert['expiry_date'])})")
     await notify([cert["owner_id"]], "certificate", title, body, "/(tabs)/certificates")
     owner = await db.users.find_one({"user_id": cert["owner_id"]}, P)
     if owner and owner.get("email"):
         subject = f"{title}: {cert['title']}"
         await send_email(to=owner["email"], subject=subject,
-                         html=expiry_email_html(owner["name"], cert["title"], cert["expiry_date"], stage,
+                         html=expiry_email_html(owner["name"], cert["title"], dmy(cert["expiry_date"]), stage,
                                                 st["days_left"] or 0))
 
 
@@ -307,11 +313,19 @@ async def list_certificates(scope: str = "mine", user=Depends(current_user)):
 
 @api.post("/certificates")
 async def upload_certificate(title: str = Form(...), expiry_date: str = Form(...), issuer: str = Form(""),
-                             issue_date: str = Form(""), file: UploadFile = File(...),
+                             issue_date: str = Form(""), cpd_hours: str = Form(""), file: UploadFile = File(...),
                              user=Depends(current_user)):
     title = title.strip()
     if not title:
         raise HTTPException(400, "Title is required")
+    hours = None
+    if cpd_hours.strip():
+        try:
+            hours = round(float(cpd_hours.replace(",", ".")), 2)
+        except ValueError:
+            raise HTTPException(400, "CPD hours must be a number")
+        if not (0 < hours <= 200):
+            raise HTTPException(400, "CPD hours must be between 0 and 200")
     try:
         date.fromisoformat(expiry_date)
         if issue_date:
@@ -336,6 +350,17 @@ async def upload_certificate(title: str = Form(...), expiry_date: str = Form(...
             "storage_path": result["path"], "file_name": file.filename or "certificate", "content_type": ctype,
             "size": len(data), "is_deleted": False, "notified_stage": "valid", "created_at": now_iso()}
     await db.certificates.insert_one(dict(cert))
+    if hours:
+        log = {"log_id": new_id("cpd"), "user_id": user["user_id"], "user_name": user["name"], "title": title,
+               "provider": issuer.strip()[:200], "date": date.today().isoformat(), "hours": hours,
+               "category": "Course", "notes": "Added from a training certificate", "cert_id": cert["cert_id"],
+               "storage_path": cert["storage_path"], "file_name": cert["file_name"], "content_type": ctype,
+               "created_at": now_iso()}
+        await db.cpd_logs.insert_one(log)
+        cert["cpd_log_id"] = log["log_id"]
+        await db.certificates.update_one({"cert_id": cert["cert_id"]}, {"$set": {"cpd_log_id": log["log_id"],
+                                                                                "cpd_hours": hours}})
+        cert["cpd_hours"] = hours
     spawn(copy_cert_to_drive(cert, data))
     await check_certificate(cert)
     cert["notified_stage"] = cert_status(expiry_date)["status"]
@@ -350,6 +375,7 @@ async def delete_certificate(cert_id: str, user=Depends(current_user)):
     res = await db.certificates.update_one(q, {"$set": {"is_deleted": True}})
     if not res.matched_count:
         raise HTTPException(404, "Certificate not found")
+    await db.cpd_logs.delete_many({"cert_id": cert_id})
     return {"ok": True}
 
 
@@ -604,7 +630,7 @@ async def create_event(body: EventIn, admin=Depends(admin_user)):
            "location": body.location.strip(), "date": body.date, "time": body.time.strip(), "attendees": [],
            "created_by": admin["name"], "created_at": now_iso()}
     await db.events.insert_one(dict(doc))
-    await notify(await all_user_ids(admin["user_id"]), "event", "New event", f"{doc['title']} on {doc['date']}",
+    await notify(await all_user_ids(admin["user_id"]), "event", "New event", f"{doc['title']} on {dmy(doc['date'])}",
                  "/events")
     doc.pop("attendees")
     return {**doc, "going": False, "attendee_count": 0}
@@ -627,6 +653,45 @@ class TaskIn(BaseModel):
     description: str = ""
     due_date: str = ""
     assignee_id: str = ""  # user id, "all" (admins: everyone), or empty / own id for a private task
+    attachment_id: Optional[str] = None
+    assignee_ids: List[str] = []  # admins: several people share one task (each gets their own copy)
+
+
+@api.post("/tasks/attachments")
+async def upload_task_attachment(file: UploadFile = File(...), user=Depends(current_user)):
+    data = await file.read()
+    if not data:
+        raise HTTPException(400, "Empty file")
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, "File too large (max 15 MB)")
+    ext = (file.filename or "file").rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else "bin"
+    ctype = file.content_type or "application/octet-stream"
+    try:
+        result = await run_in_threadpool(put_object, f"{APP_NAME}/tasks/{user['user_id']}/{uuid.uuid4().hex}.{ext}",
+                                         data, ctype)
+    except Exception as e:
+        logger.error(f"Task file upload failed: {e}")
+        raise HTTPException(502, "Could not store the file, please try again")
+    doc = {"file_id": new_id("tfile"), "storage_path": result["path"], "file_name": file.filename or "file",
+           "content_type": ctype, "size": len(data), "uploaded_by": user["user_id"], "created_at": now_iso()}
+    await db.task_files.insert_one(dict(doc))
+    return {"file_id": doc["file_id"], "file_name": doc["file_name"]}
+
+
+@api.get("/tasks/files/{file_id}")
+async def task_file(file_id: str, request: Request, token: Optional[str] = None):
+    user = await user_from_token(bearer(request) or token)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    f = await db.task_files.find_one({"file_id": file_id}, P)
+    allowed = f and (user["role"] == "admin" or f["uploaded_by"] == user["user_id"] or await db.tasks.find_one(
+        {"attachment.file_id": file_id, "assignee_id": user["user_id"]}))
+    if not allowed:
+        raise HTTPException(404, "File not found")
+    data, ctype = await run_in_threadpool(get_object, f["storage_path"])
+    safe = re.sub(r'[^A-Za-z0-9 ._()-]', "_", f["file_name"])
+    return Response(content=data, media_type=f.get("content_type") or ctype,
+                    headers={"Content-Disposition": f'inline; filename="{safe}"'})
 
 
 class TaskPatch(BaseModel):
@@ -655,9 +720,17 @@ async def create_task(body: TaskIn, user=Depends(current_user)):
         raise HTTPException(400, "Title is required")
     is_admin = user["role"] == "admin"
     target = body.assignee_id or user["user_id"]
+    ids = list(dict.fromkeys(body.assignee_ids))
+    if ids and not is_admin:
+        raise HTTPException(403, "You can only create tasks for yourself")
     if not is_admin and target != user["user_id"]:
         raise HTTPException(403, "You can only create tasks for yourself")
-    if target == "all":
+    if ids:
+        assignees = await db.users.find({"user_id": {"$in": ids}}, P).to_list(500)
+        if len(assignees) != len(ids):
+            raise HTTPException(404, "Assignee not found")
+        target = ids[0] if len(ids) == 1 else "group"
+    elif target == "all":
         assignees = await db.users.find({"hidden": {"$ne": True}}, P).to_list(2000)
     else:
         a = await db.users.find_one({"user_id": target}, P)
@@ -665,18 +738,29 @@ async def create_task(body: TaskIn, user=Depends(current_user)):
             raise HTTPException(404, "Assignee not found")
         assignees = [a]
     private = target == user["user_id"]
-    group_id = new_id("tgrp") if target == "all" else None
+    group_id = new_id("tgrp") if target in ("all", "group") else None
+    collaborators = [{"user_id": a["user_id"], "name": a["name"]} for a in assignees] if target == "group" else []
+    attachment = None
+    if body.attachment_id:
+        f = await db.task_files.find_one({"file_id": body.attachment_id, "uploaded_by": user["user_id"]}, P)
+        if not f:
+            raise HTTPException(404, "Attachment not found")
+        attachment = {"file_id": f["file_id"], "file_name": f["file_name"], "content_type": f["content_type"]}
     docs = []
     for a in assignees:
         doc = {"task_id": new_id("task"), "title": body.title.strip(), "description": body.description.strip(),
                "due_date": body.due_date, "assignee_id": a["user_id"], "assignee_name": a["name"],
                "status": "open", "created_by": user["name"], "created_by_id": user["user_id"],
-               "private": private, "group_id": group_id, "created_at": now_iso()}
+               "private": private, "group_id": group_id, "attachment": attachment, "for_everyone": target == "all",
+               "collaborators": [c for c in collaborators if c["user_id"] != a["user_id"]], "created_at": now_iso()}
         await db.tasks.insert_one(dict(doc))
         docs.append(doc)
-    others = [d["assignee_id"] for d in docs if d["assignee_id"] != user["user_id"]]
-    if others:
-        await notify(others, "task", "New task assigned", body.title.strip(), "/tasks")
+    for d in docs:
+        if d["assignee_id"] == user["user_id"]:
+            continue
+        names = ", ".join(c["name"] for c in d["collaborators"])
+        msg = f"{body.title.strip()} · with {names}" if names else body.title.strip()
+        await notify([d["assignee_id"]], "task", "New shared task" if names else "New task assigned", msg, "/tasks")
     return docs[0] if len(docs) == 1 else {"created": len(docs), "group_id": group_id}
 
 
@@ -716,12 +800,14 @@ async def dashboard(user=Depends(current_user)):
     events = await db.events.find({"date": {"$gte": today}}, {"_id": 0, "attendees": 0}).sort("date", 1).to_list(3)
     tasks = await db.tasks.find({"assignee_id": uid, "status": "open"}, P).to_list(100)
     tasks.sort(key=lambda t: t.get("due_date") or "9999")
-    updates = await db.updates.find({}, P).sort([("pinned", -1), ("created_at", -1)]).to_list(3)
+    updates = await db.updates.find({"source": {"$exists": False}}, P).sort([("pinned", -1), ("created_at", -1)]).to_list(3)
     unread = await db.notifications.count_documents({"user_id": uid, "read": False})
     pending_policies = await db.policies.count_documents({"acknowledged_by": {"$ne": uid}})
+    latest_social = await db.updates.find_one({"source": {"$in": ["facebook", "instagram", "linkedin"]}}, P,
+                                              sort=[("created_at", -1)])
     return {"cert_alerts": alerts, "cert_total": len(certs), "events": events, "open_tasks": tasks[:5],
             "open_task_count": len(tasks), "updates": updates, "unread_notifications": unread,
-            "pending_policies": pending_policies}
+            "pending_policies": pending_policies, "latest_social": latest_social}
 
 
 # ---------------------------------------------------------------- Google Drive integration
@@ -764,8 +850,9 @@ async def drive_status(user=Depends(current_user)):
     conn = await drive_conn()
     return {"configured": bool(gs.drive_client_config()), "connected": bool(conn),
             "email": (conn or {}).get("email", ""), "folder_name": gs.DRIVE_FOLDER_NAME,
-            "shared_folder_id": (conn or {}).get("shared_folder_id"),
-            "shared_folder_name": (conn or {}).get("shared_folder_name"),
+            "spaces": {k: {"label": label, "folder_id": ((conn or {}).get("spaces") or {}).get(k, {}).get("id"),
+                           "folder_name": ((conn or {}).get("spaces") or {}).get(k, {}).get("name")}
+                       for k, label in DRIVE_SPACES.items()},
             "redirect_uri": gs.drive_redirect_uri() if user["role"] == "admin" else None}
 
 
@@ -831,12 +918,35 @@ async def drive_files(q: str = "", admin=Depends(admin_user)):
         raise HTTPException(502, "Could not list Google Drive files")
 
 
+DRIVE_SPACES = {"therapist": "Therapist Resources", "participant": "Participants Resources"}
+
+
 class SharedFolderIn(BaseModel):
     link: str
+    space: str = "therapist"
+
+
+def check_space(space: str) -> str:
+    if space not in DRIVE_SPACES:
+        raise HTTPException(400, "Unknown Drive section")
+    return space
+
+
+async def current_roots() -> dict:
+    """space -> root folder id for every configured Company Drive section."""
+    conn = await drive_conn()
+    return {k: v["id"] for k, v in ((conn or {}).get("spaces") or {}).items() if v.get("id") and k in DRIVE_SPACES}
+
+
+async def prune_drive_data():
+    roots = list((await current_roots()).values())
+    await db.drive_docs.delete_many({"root_id": {"$nin": roots}})
+    await db.drive_pins.delete_many({"root_id": {"$nin": roots}})
 
 
 @api.put("/integrations/google-drive/shared-folder")
 async def set_shared_folder(body: SharedFolderIn, admin=Depends(admin_user)):
+    space = check_space(body.space)
     fid = gs.folder_id_from_link(body.link)
     if not fid:
         raise HTTPException(400, "Paste a Google Drive folder link")
@@ -848,28 +958,25 @@ async def set_shared_folder(body: SharedFolderIn, admin=Depends(admin_user)):
         raise HTTPException(400, "Couldn't open that folder with the connected Google account")
     if meta["mimeType"] != gs.FOLDER_MIME:
         raise HTTPException(400, "That link is a file, not a folder")
-    await db.integrations.update_one({"key": DRIVE_KEY}, {"$set": {"shared_folder_id": fid,
-                                                                  "shared_folder_name": meta["name"]}})
-    await db.drive_docs.delete_many({"root_id": {"$ne": fid}})
-    await db.drive_pins.delete_many({"root_id": {"$ne": fid}})
+    await db.integrations.update_one({"key": DRIVE_KEY}, {"$set": {f"spaces.{space}": {"id": fid, "name": meta["name"]}},
+                                                          "$unset": {"shared_folder_id": "", "shared_folder_name": ""}})
+    await prune_drive_data()
     spawn(index_drive())
-    return {"shared_folder_id": fid, "shared_folder_name": meta["name"]}
+    return {"space": space, "folder_id": fid, "folder_name": meta["name"]}
 
 
 @api.delete("/integrations/google-drive/shared-folder")
-async def clear_shared_folder(admin=Depends(admin_user)):
-    await db.integrations.update_one({"key": DRIVE_KEY}, {"$unset": {"shared_folder_id": "",
-                                                                    "shared_folder_name": ""}})
-    await db.drive_docs.delete_many({})
-    await db.drive_pins.delete_many({})
+async def clear_shared_folder(space: str = "therapist", admin=Depends(admin_user)):
+    await db.integrations.update_one({"key": DRIVE_KEY}, {"$unset": {f"spaces.{check_space(space)}": ""}})
+    await prune_drive_data()
     return {"ok": True}
 
 
-async def shared_root():
-    conn = await drive_conn()
-    if not conn or not conn.get("shared_folder_id"):
-        raise HTTPException(409, "No company folder has been set up yet")
-    return conn["shared_folder_id"], conn.get("shared_folder_name", "Company Drive")
+async def shared_root(space: str = "therapist"):
+    roots = await current_roots()
+    if check_space(space) not in roots:
+        raise HTTPException(409, f"The {DRIVE_SPACES[space]} folder hasn't been set up yet")
+    return roots[space], DRIVE_SPACES[space]
 
 
 def drive_item(f: dict) -> dict:
@@ -887,18 +994,21 @@ async def index_drive():
         return
     async with drive_index_lock:
         conn = await drive_conn()
-        root = (conn or {}).get("shared_folder_id")
-        if not root:
+        roots = list((await current_roots()).values())
+        if not roots:
             await db.drive_docs.delete_many({})
             return
         try:
             svc = await run_in_threadpool(gs.drive_service, conn["refresh_token"])
-            files = [f for f in await run_in_threadpool(gs.drive_walk, svc, root) if gs.readable(f["mimeType"])]
+            files = []
+            for root in roots:
+                files += [(root, f) for f in await run_in_threadpool(gs.drive_walk, svc, root)
+                          if gs.readable(f["mimeType"])]
         except Exception as e:
             logger.error(f"Drive index listing failed: {e}")
             return
         keep = []
-        for f in files:
+        for root, f in files:
             keep.append(f["id"])
             old = await db.drive_docs.find_one({"file_id": f["id"], "root_id": root}, {"modified": 1})
             if old and old.get("modified") == f.get("modifiedTime"):
@@ -911,7 +1021,7 @@ async def index_drive():
             await db.drive_docs.update_one({"file_id": f["id"]}, {"$set": {
                 "file_id": f["id"], "root_id": root, "name": f["name"], "mime_type": f["mimeType"],
                 "modified": f.get("modifiedTime"), "text": text, "indexed_at": now_iso()}}, upsert=True)
-        await db.drive_docs.delete_many({"$or": [{"root_id": {"$ne": root}}, {"file_id": {"$nin": keep}}]})
+        await db.drive_docs.delete_many({"$or": [{"root_id": {"$nin": roots}}, {"file_id": {"$nin": keep}}]})
         await db.meta.update_one({"key": "drive_index"}, {"$set": {"key": "drive_index", "last_run": now_iso(),
                                                                   "count": len(keep)}}, upsert=True)
 
@@ -934,7 +1044,8 @@ async def drive_index_status(admin=Depends(admin_user)):
 
 @api.post("/drive/reindex")
 async def drive_reindex(admin=Depends(admin_user)):
-    await shared_root()
+    if not await current_roots():
+        raise HTTPException(409, "No Company Drive folders have been set up yet")
     spawn(index_drive())
     return {"ok": True}
 
@@ -942,11 +1053,12 @@ async def drive_reindex(admin=Depends(admin_user)):
 # ---- Pinned key files
 class PinIn(BaseModel):
     file_id: str
+    space: str = "therapist"
 
 
 @api.post("/drive/pins")
 async def pin_file(body: PinIn, admin=Depends(admin_user)):
-    root_id, _ = await shared_root()
+    root_id, _ = await shared_root(body.space)
     svc = await drive_svc_or_409()
     try:
         if not await run_in_threadpool(gs.drive_is_under, svc, body.file_id, root_id) or body.file_id == root_id:
@@ -969,8 +1081,8 @@ async def unpin_file(file_id: str, admin=Depends(admin_user)):
 
 
 @api.get("/drive/shared")
-async def shared_files(folder: str = "", q: str = "", user=Depends(current_user)):
-    root_id, root_name = await shared_root()
+async def shared_files(space: str = "therapist", folder: str = "", q: str = "", user=Depends(current_user)):
+    root_id, root_name = await shared_root(space)
     folder_id = folder or root_id
     svc = await drive_svc_or_409()
     try:
@@ -996,11 +1108,11 @@ async def shared_files(folder: str = "", q: str = "", user=Depends(current_user)
 
 
 @api.get("/drive/shared/file/{file_id}")
-async def shared_file(file_id: str, request: Request, token: Optional[str] = None):
+async def shared_file(file_id: str, request: Request, token: Optional[str] = None, space: str = "therapist"):
     user = await user_from_token(bearer(request) or token)
     if not user:
         raise HTTPException(401, "Not authenticated")
-    root_id, _ = await shared_root()
+    root_id, _ = await shared_root(space)
     svc = await drive_svc_or_409()
     try:
         if not await run_in_threadpool(gs.drive_is_under, svc, file_id, root_id):
@@ -1216,7 +1328,7 @@ def clean_category(value: str) -> str:
 
 
 STAFF_GROUPS = ("support_office", "therapist_employee", "therapist_contractor", "support_worker_employee",
-                "support_worker_contractor")
+                "support_worker_contractor", "new_starter_employee", "new_starter_contractor")
 
 
 def clean_audiences(values: List[str]) -> List[str]:
@@ -1538,6 +1650,76 @@ async def delete_cpd(log_id: str, user=Depends(current_user)):
     return {"ok": True}
 
 
+ALLOWED_DOC_TYPES = ("image/png", "image/jpeg", "image/jpg", "image/webp")
+
+
+def check_doc(data: bytes, ctype: str):
+    if not data or len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(400, "File is empty or too large (max 15 MB)")
+    if not ("pdf" in ctype or ctype in ALLOWED_DOC_TYPES):
+        raise HTTPException(415, "Use a PDF, JPG or PNG")
+
+
+@api.post("/cpd/extract")
+async def cpd_extract(file: UploadFile = File(...), user=Depends(current_user)):
+    data = await file.read()
+    ctype = file.content_type or ""
+    check_doc(data, ctype)
+    try:
+        return await ai_service.extract_cpd(data, ctype)
+    except Exception as e:
+        logger.error(f"CPD extract failed: {e}")
+        raise HTTPException(502, "Couldn't read the certificate. Please fill in the details manually.")
+
+
+@api.post("/cpd/{log_id}/file")
+async def cpd_attach(log_id: str, file: UploadFile = File(...), user=Depends(current_user)):
+    log = await db.cpd_logs.find_one({"log_id": log_id, "user_id": user["user_id"]}, P)
+    if not log:
+        raise HTTPException(404, "Entry not found")
+    data = await file.read()
+    ctype = file.content_type or "application/octet-stream"
+    check_doc(data, ctype)
+    ext = (file.filename or "file").rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else "bin"
+    path = f"{APP_NAME}/cpd/{user['user_id']}/{uuid.uuid4().hex}.{ext}"
+    try:
+        result = await run_in_threadpool(put_object, path, data, ctype)
+    except Exception as e:
+        logger.error(f"CPD upload failed: {e}")
+        raise HTTPException(502, "Could not store the file, please try again")
+    upd = {"storage_path": result["path"], "file_name": file.filename or "certificate", "content_type": ctype}
+    await db.cpd_logs.update_one({"log_id": log_id}, {"$set": upd})
+    return {**log, **upd}
+
+
+@api.get("/cpd/{log_id}/file")
+async def cpd_file(log_id: str, request: Request, token: Optional[str] = None):
+    user = await user_from_token(bearer(request) or token)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    log = await db.cpd_logs.find_one({"log_id": log_id}, P)
+    if not log or not log.get("storage_path") or (log["user_id"] != user["user_id"] and user["role"] != "admin"):
+        raise HTTPException(404, "File not found")
+    data, ctype = await run_in_threadpool(get_object, log["storage_path"])
+    safe = re.sub(r'[^A-Za-z0-9 ._()-]', "_", log["file_name"])
+    return Response(content=data, media_type=log.get("content_type") or ctype,
+                    headers={"Content-Disposition": f'inline; filename="{safe}"'})
+
+
+CPD_SECTIONS = ("Courses", "Webinars", "Case Studies", "Resource Links")
+
+
+def cpd_section(value: str) -> str:
+    v = (value or "").strip().lower()
+    if v.startswith("course"):
+        return "Courses"
+    if v.startswith("webinar"):
+        return "Webinars"
+    if v.startswith("case stud"):
+        return "Case Studies"
+    return "Resource Links"
+
+
 class CpdResourceIn(BaseModel):
     title: str
     description: str = ""
@@ -1545,9 +1727,18 @@ class CpdResourceIn(BaseModel):
     category: str = ""
 
 
+class CpdShareIn(BaseModel):
+    category: str = ""
+    description: str = ""
+
+
 @api.get("/cpd/resources")
 async def list_cpd_resources(user=Depends(current_user)):
-    return await db.cpd_resources.find({}, P).sort("created_at", -1).to_list(500)
+    docs = await db.cpd_resources.find({}, P).sort("created_at", -1).to_list(500)
+    for d in docs:
+        d["category"] = cpd_section(d.get("category", ""))
+        d["has_file"] = bool(d.pop("storage_path", None))
+    return docs
 
 
 @api.post("/cpd/resources")
@@ -1558,16 +1749,57 @@ async def add_cpd_resource(body: CpdResourceIn, admin=Depends(admin_user)):
     if url and not url.startswith(("https://", "http://")):
         url = "https://" + url
     doc = {"resource_id": new_id("cpdr"), "title": body.title.strip()[:200], "description": body.description.strip()[:2000],
-           "url": url[:1000], "category": body.category.strip()[:60], "created_by": admin["name"],
-           "created_at": now_iso()}
+           "url": url[:1000], "category": cpd_section(body.category), "created_by": admin["name"],
+           "created_by_id": admin["user_id"], "created_at": now_iso()}
     await db.cpd_resources.insert_one(dict(doc))
     await notify(await all_user_ids(admin["user_id"]), "update", "New CPD resource", doc["title"], "/cpd")
     return doc
 
 
+@api.post("/cpd/{log_id}/share")
+async def share_cpd(log_id: str, body: CpdShareIn, user=Depends(current_user)):
+    """Contribute a CPD entry (and its attached document) to the shared CPD Resource Library."""
+    log = await db.cpd_logs.find_one({"log_id": log_id, "user_id": user["user_id"]}, P)
+    if not log:
+        raise HTTPException(404, "Entry not found")
+    if await db.cpd_resources.find_one({"source_log_id": log_id}):
+        raise HTTPException(409, "Already shared to the library")
+    desc = body.description.strip() or " · ".join(x for x in (log.get("provider"), f"{log['hours']} hours") if x)
+    doc = {"resource_id": new_id("cpdr"), "title": log["title"], "description": desc[:2000], "url": "",
+           "category": cpd_section(body.category or log.get("category", "")), "created_by": user["name"],
+           "created_by_id": user["user_id"], "source_log_id": log_id, "created_at": now_iso()}
+    if log.get("storage_path"):
+        doc.update({"storage_path": log["storage_path"], "file_name": log.get("file_name", "document"),
+                    "content_type": log.get("content_type")})
+    await db.cpd_resources.insert_one(dict(doc))
+    await db.cpd_logs.update_one({"log_id": log_id}, {"$set": {"shared_resource_id": doc["resource_id"]}})
+    await notify(await all_user_ids(user["user_id"]), "update", "New CPD resource", doc["title"], "/cpd")
+    doc.pop("storage_path", None)
+    return doc
+
+
+@api.get("/cpd/resources/{resource_id}/file")
+async def cpd_resource_file(resource_id: str, request: Request, token: Optional[str] = None):
+    user = await user_from_token(bearer(request) or token)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    r = await db.cpd_resources.find_one({"resource_id": resource_id}, P)
+    if not r or not r.get("storage_path"):
+        raise HTTPException(404, "File not found")
+    data, ctype = await run_in_threadpool(get_object, r["storage_path"])
+    safe = re.sub(r'[^A-Za-z0-9 ._()-]', "_", r.get("file_name", "document"))
+    return Response(content=data, media_type=r.get("content_type") or ctype,
+                    headers={"Content-Disposition": f'inline; filename="{safe}"'})
+
+
 @api.delete("/cpd/resources/{resource_id}")
-async def delete_cpd_resource(resource_id: str, admin=Depends(admin_user)):
-    await db.cpd_resources.delete_one({"resource_id": resource_id})
+async def delete_cpd_resource(resource_id: str, user=Depends(current_user)):
+    q = {"resource_id": resource_id}
+    if user["role"] != "admin":
+        q["created_by_id"] = user["user_id"]
+    if not (await db.cpd_resources.delete_one(q)).deleted_count:
+        raise HTTPException(404, "Resource not found")
+    await db.cpd_logs.update_many({"shared_resource_id": resource_id}, {"$unset": {"shared_resource_id": ""}})
     return {"ok": True}
 
 
@@ -1581,13 +1813,12 @@ STOPWORDS = {"what", "when", "where", "which", "about", "should", "would", "coul
 
 
 async def drive_context(question: str, budget: int = 50000) -> str:
-    conn = await drive_conn()
-    root = (conn or {}).get("shared_folder_id")
-    if not root:
+    roots = list((await current_roots()).values())
+    if not roots:
         return ""
     words = {w.rstrip("s") if len(w) > 4 else w
              for w in re.findall(r"[a-z0-9]{3,}", question.lower()) if w not in STOPWORDS}
-    docs = await db.drive_docs.find({"root_id": root, "text": {"$ne": ""}},
+    docs = await db.drive_docs.find({"root_id": {"$in": roots}, "text": {"$ne": ""}},
                                     {"_id": 0, "name": 1, "text": 1}).to_list(400)
     if not docs:
         return ""
@@ -1836,6 +2067,21 @@ async def seed_company_data():
     await db.meta.insert_one({"key": "company_seed_v1", "created_at": now_iso()})
 
 
+async def migrate_forms_v3():
+    """One-time: 6 Week Check-in + 3/6/12 Month Review open to everyone; add Task Creation & Management form."""
+    if await db.meta.find_one({"key": "forms_v3"}):
+        return
+    await db.forms.update_many({"title": {"$in": ["6 Week Check-in", "3/6/12 Month Review"]}},
+                               {"$set": {"audiences": []}})
+    url = "https://form.jotform.com/team/261958881415065/task-creation--management-form"
+    if not await db.forms.find_one({"url": url}):
+        await db.forms.insert_one({"form_id": new_id("form"), "title": "Task Creation & Management", "url": url,
+                                   "description": "Create and allocate tasks for the Support Office team",
+                                   "category": "Support Office", "audiences": ["support_office"],
+                                   "created_by": "Andrew Thomas", "created_at": now_iso()})
+    await db.meta.insert_one({"key": "forms_v3", "created_at": now_iso()})
+
+
 async def seed_staff_v2():
     """One-time import of the team directory (contacts.csv): adds missing staff, sets full names and groups."""
     if await db.meta.find_one({"key": "company_staff_v2"}):
@@ -1889,6 +2135,7 @@ async def startup():
     await seed()
     await seed_company_data()
     await seed_staff_v2()
+    await migrate_forms_v3()
     # internal test accounts stay usable but are hidden from staff everywhere
     await db.users.update_many({"user_id": {"$in": HIDDEN_TEST_USERS}}, {"$set": {"hidden": True}})
     # migrate the old single Support Office flag / audience to staff groups

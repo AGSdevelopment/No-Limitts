@@ -1,12 +1,14 @@
 import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
+import { Image } from "expo-image";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { api } from "@/src/api";
+import { api, openLink } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { HeaderIcon, TabHeader } from "@/src/components/header";
+import { SOCIAL_BRAND } from "@/src/components/social-post";
 import { Card, EmptyState, ErrorState, IconBox, IconName, Ionicons, Loading, Pill, SectionHeader, formatDate, timeAgo } from "@/src/components/ui";
 import { usesNativeTabs } from "@/src/navigation";
 import { makeStyles, useTheme } from "@/src/theme";
@@ -90,6 +92,28 @@ export default function Home() {
               </View>
               <Ionicons name="chevron-forward" size={18} color={colors.muted} />
             </Card>
+          )}
+
+          {!!d.latest_social && (
+            <>
+              <SectionHeader title="Latest from our socials" action="See all" onAction={() => router.push("/(tabs)/socials")} testID="home-socials-see-all" />
+              <Pressable testID="home-social-highlight" onPress={() => d.latest_social.link && openLink(d.latest_social.link)} style={({ pressed }) => [styles.social, pressed && { opacity: 0.85 }]}>
+                {d.latest_social.image_url ? (
+                  <Image source={{ uri: d.latest_social.image_url }} style={styles.socialImg} contentFit="cover" transition={200} />
+                ) : (
+                  <View style={[styles.socialImg, styles.socialIconBox, { backgroundColor: SOCIAL_BRAND[d.latest_social.source]?.color }]}>
+                    <Ionicons name={SOCIAL_BRAND[d.latest_social.source]?.icon ?? "megaphone"} size={30} color="#FFFFFF" />
+                  </View>
+                )}
+                <View style={{ flex: 1, gap: 4 }}>
+                  <View style={styles.socialHead}>
+                    <Ionicons name={SOCIAL_BRAND[d.latest_social.source]?.icon ?? "megaphone"} size={14} color={SOCIAL_BRAND[d.latest_social.source]?.color} />
+                    <Text style={styles.rowSub}>{SOCIAL_BRAND[d.latest_social.source] ? d.latest_social.author_name.replace("Aspire & Grow on ", "") : ""} · {timeAgo(d.latest_social.created_at)}</Text>
+                  </View>
+                  <Text style={styles.socialText} numberOfLines={3}>{d.latest_social.body || d.latest_social.title}</Text>
+                </View>
+              </Pressable>
+            </>
           )}
 
           <SectionHeader title="My tasks" action="See all" onAction={() => router.push("/tasks")} testID="home-tasks-see-all" />
@@ -180,4 +204,9 @@ const useStyles = makeStyles((c) => ({
   updateMeta: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 },
   updateTitle: { fontSize: 17, fontWeight: "700", color: c.onSurface, marginBottom: 4 },
   updateBody: { fontSize: 14, color: c.onSurfaceSecondary, lineHeight: 20 },
+  social: { flexDirection: "row", gap: 12, alignItems: "center", backgroundColor: c.surface, borderRadius: 16, borderWidth: 1, borderColor: c.border, padding: 12 },
+  socialImg: { width: 76, height: 76, borderRadius: 12, backgroundColor: c.surfaceSecondary },
+  socialIconBox: { alignItems: "center", justifyContent: "center" },
+  socialHead: { flexDirection: "row", alignItems: "center", gap: 6 },
+  socialText: { fontSize: 14, color: c.onSurface, lineHeight: 20 },
 }));

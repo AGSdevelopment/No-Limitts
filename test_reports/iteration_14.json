@@ -1,0 +1,34 @@
+{
+  "summary": "Frontend testing at 375x667 Expo web, plus a 3-test API regression (3/3 pass). All requested flows PASS. (1) Library Resources order is exactly Notifications, Company updates, My tasks, Forms, CPD, Events, Policies & procedures, Team directory, Company Drive, Ask AI about policies. (2) CPD Resources shows 4 sections: Courses, Webinars, Case Studies, Resource Links. The admin add-resource sheet has a 'Case Studies' chip, and a resource created with it shows under Case Studies. The log sheet chips include 'Case Study'. (3) dd-mm-yyyy dates: the CPD log date defaults to today (27-10-2026). 31-02-2026 and 2026-05-12 both give 'Date must be DD-MM-YYYY.' AI autofill from /tmp/cpd.png filled the date as 12-05-2026, title, provider, Webinar and 2.5 h. The saved entry shows 12 May 2026. Upload certificate: the issue date defaults to today in dd-mm-yyyy, and +1 year gives 27-10-2027. Invalid issue and expiry dates show 'must be in DD-MM-YYYY format'. The list shows the expiry correctly (15 Mar 2027). Compose event and task: labels read DD-MM-YYYY, quick chips give dd-mm-yyyy, and invalid dates show an error. The task was saved with due_date 2026-11-20 and the event shows Sat 5 Dec. (4) A certificate with CPD on, 2 h and issue date 10-01-2024 raised the CPD year total from 1.5 to 3.5. The new log is dated today. (5) Compose task multi-select: tapping 2 people highlights both and shows the hint '2 people selected. Each gets their own copy…'. Tapping a person again deselects them. Everyone and Just me clear the people, and tapping a person clears Everyone. I did not submit with real staff. The employee sees 'Working on this with Alex Admin' (task-collaborators-task_fd6cca26056b). The admin sees 'Working on this with Erin Employee', and the All assigned tab shows 'Shared with …'. API: the collaborator notification body is 'title · with Name', and an employee sending assignee_ids gets 403. The only issue found is minor: displayed dates follow the device locale (en-US gives 'May 12, 2026'), and some server-made notification and email text still shows yyyy-mm-dd dates.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/events (notify)", "issue": "Notification body is f\"{title} on {date}\" with the ISO date (e.g. 'TEST event on 2026-12-05'). This conflicts with the dd-mm-yyyy request. server.py:627"},
+      {"endpoint": "check_certificate (notifications and expiry email)", "issue": "The certificate expiry notification and email text use the ISO expiry_date (yyyy-mm-dd). server.py:268-276"}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "CPD log list / Tasks / Certificates", "issues": ["formatDate (src/components/ui.tsx:31) calls toLocaleDateString(undefined, …), so the display follows the device locale. An en-US device shows 'May 12, 2026' or 'Nov 20, 2026' instead of '12 May 2026'. Use 'en-GB' (or a fixed d MMM yyyy format) to keep day-first everywhere. events.tsx and (tabs)/index.tsx month and weekday labels also use undefined locale."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter14_collab_cpd.py", "/app/backend/tests/cleanup_iter14.py", "/app/test_reports/pytest/iter14.xml"],
+  "action_items": [
+    "Optional: make formatDate use the 'en-GB' locale so displayed dates are always day-first (src/components/ui.tsx:31).",
+    "Optional: format dates as dd-mm-yyyy in server-made text: the event notification (server.py:627) and the certificate expiry notification and email (server.py:268-276).",
+    "Trash these Google Drive copies of test certificates: TEST_cert_api (https://drive.google.com/file/d/1IH_8iP6vrjRvOw-Y7BUgJjz1xZmGNbJL) and TEST_cert_ui (https://drive.google.com/file/d/1NCqYw7ZUiBRNxyK2RAqAIXtafHjlqQ8f)."
+  ],
+  "critical_code_review_comments": [
+    "The invalid-date message for a well-formed but impossible date (31-02-2026) reads 'must be DD-MM-YYYY'. This is acceptable, though 'Enter a real date' would be clearer.",
+    "POST /api/cpd/resources notifies all staff ('New CPD resource'). Testers should know that creating test resources sends notifications to real staff."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter14_collab_cpd.py", "/app/backend/tests/cleanup_iter14.py"],
+  "success_rate": {"backend": "100% (3/3 API regression)", "frontend": "100% of requested flows"},
+  "seed_data_creation": "Created and then cleaned up: tasks 'TEST collab api', 'TEST self task' and the main agent's 'TEST collab' (deleted via API); CPD log 'TEST cpd ui'; certificates TEST_cert_api and TEST_cert_ui (soft-deleted via API, then removed from the DB; their CPD logs cascaded); CPD resource 'TEST case study res'; event 'TEST event ddmm' (removed from the DB because there is no delete endpoint); 68 TEST notifications sent to staff by the event, the resource and the tasks (removed from the DB).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Use EXPO_PUBLIC_BACKEND_URL from frontend/.env. Web bypass: localStorage auth_token = JSON.stringify('test_session_admin'|'test_session_employee'). Header '+' buttons and modal-sheet buttons often fail Playwright's 'outside of viewport' check, so click them via JS element.click(). RN-web Switch: click its inner <input> with force=True. There is no DELETE endpoint for events or notifications; clean those via Mongo (backend/tests/cleanup_iter14.py). Certificate DELETE is a soft delete (is_deleted). Creating events or CPD resources notifies all real staff."
+}

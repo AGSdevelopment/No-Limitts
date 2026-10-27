@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Linking, Modal, Platform, Pressable, ScrollView, Text, View } from "react-native";
+import { Linking, Modal, Platform, Pressable, ScrollView, Switch, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
@@ -10,17 +10,17 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { API_URL, authHeaders } from "@/src/api";
 import { useToast } from "@/src/components/toast";
-import { Button, Chip, Field, IconBox, Ionicons, isoDate } from "@/src/components/ui";
+import { Button, Chip, Field, IconBox, Ionicons, dmyDate, dmyToIso, isoToDmy } from "@/src/components/ui";
 import { makeStyles, useTheme } from "@/src/theme";
 import { uploadForm } from "@/src/utils/upload";
 
 type Picked = { uri: string; name: string; mimeType?: string };
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const DMY_HINT = "DD-MM-YYYY";
 
 function addYears(n: number) {
   const d = new Date();
   d.setFullYear(d.getFullYear() + n);
-  return isoDate(d);
+  return dmyDate(d);
 }
 
 export default function UploadCertificate() {
@@ -33,13 +33,15 @@ export default function UploadCertificate() {
   const [file, setFile] = useState<Picked | null>(null);
   const [title, setTitle] = useState("");
   const [issuer, setIssuer] = useState("");
-  const [issueDate, setIssueDate] = useState(isoDate(new Date()));
+  const [issueDate, setIssueDate] = useState(dmyDate(new Date()));
   const [expiry, setExpiry] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reading, setReading] = useState(false);
 
   const [camSheet, setCamSheet] = useState<null | "ask" | "settings">(null);
+  const [countCpd, setCountCpd] = useState(false);
+  const [cpdHours, setCpdHours] = useState("");
 
   const autoFill = async (target: Picked | null = file) => {
     if (!target) return;
@@ -51,8 +53,8 @@ export default function UploadCertificate() {
       if (!res.ok) throw new Error(typeof body.detail === "string" ? body.detail : "Couldn't read the certificate");
       if (body.title) setTitle(body.title);
       if (body.issuer) setIssuer(body.issuer);
-      if (body.issue_date) setIssueDate(body.issue_date);
-      if (body.expiry_date) setExpiry(body.expiry_date);
+      if (body.issue_date) setIssueDate(isoToDmy(body.issue_date));
+      if (body.expiry_date) setExpiry(isoToDmy(body.expiry_date));
       toast(body.expiry_date ? "Details filled in. Please check them." : "Some details couldn't be read. Please check.", body.expiry_date ? "success" : "info");
     } catch (e: any) {
       setError(e.message);
@@ -103,13 +105,17 @@ export default function UploadCertificate() {
     setError(null);
     if (!file) return setError("Please attach the certificate file.");
     if (!title.trim()) return setError("Please enter the certificate name.");
-    if (!DATE_RE.test(expiry)) return setError("Expiry date must be in YYYY-MM-DD format.");
-    if (issueDate && !DATE_RE.test(issueDate)) return setError("Issue date must be in YYYY-MM-DD format.");
+    const expiryIso = dmyToIso(expiry);
+    const issueIso = issueDate ? dmyToIso(issueDate) : "";
+    if (!expiryIso) return setError(`Expiry date must be in ${DMY_HINT} format.`);
+    if (issueIso === null) return setError(`Issue date must be in ${DMY_HINT} format.`);
+    const h = parseFloat(cpdHours.replace(",", "."));
+    if (countCpd && (!h || h <= 0)) return setError("Enter how many CPD hours were completed.");
     setSaving(true);
     try {
       const res = await uploadForm(`${API_URL}/certificates`, {
         headers: authHeaders(),
-        fields: { title: title.trim(), issuer: issuer.trim(), issue_date: issueDate, expiry_date: expiry },
+        fields: { title: title.trim(), issuer: issuer.trim(), issue_date: issueIso, expiry_date: expiryIso, cpd_hours: countCpd ? String(h) : "" },
         files: { file },
       });
       if (!res.ok) {
@@ -119,8 +125,10 @@ export default function UploadCertificate() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       qc.invalidateQueries({ queryKey: ["certificates"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
-      toast("Certificate uploaded");
-      router.back();
+      qc.invalidateQueries({ queryKey: ["cpd"] });
+      toast(countCpd ? "Certificate uploaded and added to My CPD" : "Certificate uploaded");
+      if (router.canGoBack()) router.back();
+      else router.replace("/(tabs)/certificates");
     } catch (e: any) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
       setError(e.message);
@@ -184,14 +192,26 @@ export default function UploadCertificate() {
 
       <Field label="Certificate name" value={title} onChangeText={setTitle} placeholder="e.g. First Aid at Work" testID="upload-title-input" />
       <Field label="Issued by (optional)" value={issuer} onChangeText={setIssuer} placeholder="e.g. St John Ambulance" testID="upload-issuer-input" />
-      <Field label="Issue date (YYYY-MM-DD)" value={issueDate} onChangeText={setIssueDate} placeholder="2026-01-15" autoCapitalize="none" testID="upload-issue-date-input" />
-      <Field label="Expiry date (YYYY-MM-DD)" value={expiry} onChangeText={setExpiry} placeholder="2027-01-15" autoCapitalize="none" testID="upload-expiry-date-input" />
+      <Field label={`Issue date (${DMY_HINT})`} value={issueDate} onChangeText={setIssueDate} placeholder="15-01-2026" autoCapitalize="none" testID="upload-issue-date-input" />
+      <Field label={`Expiry date (${DMY_HINT})`} value={expiry} onChangeText={setExpiry} placeholder="15-01-2027" autoCapitalize="none" testID="upload-expiry-date-input" />
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }} style={{ marginTop: -4, marginBottom: 20 }}>
         {[1, 2, 3, 5].map((n) => (
           <Chip key={n} label={`+${n} year${n > 1 ? "s" : ""}`} selected={expiry === addYears(n)} onPress={() => setExpiry(addYears(n))} testID={`upload-expiry-quick-${n}`} />
         ))}
       </ScrollView>
       <Text style={styles.hint}>We&apos;ll remind you in the app and by email 30 days before it expires.</Text>
+      <View style={styles.cpdBox} testID="upload-cpd-box">
+        <View style={styles.cpdRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.cpdTitle}>Count towards my CPD hours</Text>
+            <Text style={styles.pickSub}>Adds this training to My CPD with the certificate as evidence</Text>
+          </View>
+          <Switch testID="upload-cpd-switch" value={countCpd} onValueChange={setCountCpd} trackColor={{ true: colors.brandPrimary, false: colors.surfaceTertiary }} />
+        </View>
+        {countCpd && (
+          <Field label="Hours completed" value={cpdHours} onChangeText={setCpdHours} keyboardType="decimal-pad" placeholder="e.g. 3" testID="upload-cpd-hours-input" style={{ marginBottom: 0 }} />
+        )}
+      </View>
       {error && <Text style={styles.error} testID="upload-error">{error}</Text>}
       <Button label="Upload certificate" icon="cloud-upload-outline" loading={saving} onPress={submit} testID="upload-submit-button" />
       <Modal visible={!!camSheet} transparent animationType="fade" onRequestClose={() => setCamSheet(null)}>
@@ -233,5 +253,8 @@ const useStyles = makeStyles((c) => ({
   fileName: { flex: 1, fontSize: 15, fontWeight: "600", color: c.onSurface },
   iconBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   hint: { fontSize: 13, color: c.muted, marginBottom: 16, lineHeight: 18 },
+  cpdBox: { backgroundColor: c.brandTertiary, borderRadius: 14, padding: 12, gap: 10, marginBottom: 16 },
+  cpdRow: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 44 },
+  cpdTitle: { fontSize: 15, fontWeight: "600", color: c.onSurface },
   error: { fontSize: 14, color: c.errorText, marginBottom: 12 },
 }));

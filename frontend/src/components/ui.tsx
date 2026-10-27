@@ -28,7 +28,7 @@ export function tap() {
 export function formatDate(iso?: string) {
   if (!iso) return "";
   const d = new Date(iso.length === 10 ? `${iso}T00:00:00` : iso);
-  return d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
 export function timeAgo(iso?: string) {
@@ -46,6 +46,25 @@ export function isoDate(d: Date) {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+// Dates are typed and shown as dd-mm-yyyy; the API stores yyyy-mm-dd.
+export function dmyDate(d: Date) {
+  return isoToDmy(isoDate(d));
+}
+
+export function isoToDmy(iso?: string) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso ?? "");
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : iso ?? "";
+}
+
+export function dmyToIso(s: string): string | null {
+  const m = /^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/.exec(s.trim());
+  if (!m) return null;
+  const [d, mo, y] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const dt = new Date(y, mo - 1, d);
+  if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return null;
+  return isoDate(dt);
 }
 
 type BtnProps = PressableProps & {

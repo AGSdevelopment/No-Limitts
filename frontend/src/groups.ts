@@ -5,6 +5,8 @@ export const STAFF_GROUPS = [
   { key: "therapist_contractor", label: "Therapist Contractors" },
   { key: "support_worker_employee", label: "Support Worker Employees" },
   { key: "support_worker_contractor", label: "Support Worker Contractors" },
+  { key: "new_starter_employee", label: "New Starter Employees" },
+  { key: "new_starter_contractor", label: "New Starter Contractors" },
 ] as const;
 
 export type StaffGroup = (typeof STAFF_GROUPS)[number]["key"];

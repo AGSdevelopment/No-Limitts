@@ -63,8 +63,8 @@ export async function openCertificateFile(certId: string) {
   }
 }
 
-export async function openDriveFile(fileId: string) {
-  await openLink(`${API_URL}/drive/shared/file/${fileId}?token=${encodeURIComponent(token ?? "")}`);
+export async function openDriveFile(fileId: string, space = "therapist") {
+  await openLink(`${API_URL}/drive/shared/file/${fileId}?space=${space}&token=${encodeURIComponent(token ?? "")}`);
 }
 
 export async function openLink(url: string) {

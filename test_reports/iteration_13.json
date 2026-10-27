@@ -1,0 +1,38 @@
+{
+  "summary": "Frontend testing at 375x667 Expo web, plus a short API sanity suite (5/5 pass). ALL requested flows PASS: (1) Employee Forms lists 6 Week Check-in and 3/6/12 Month Review under HR, and Task Creation & Management is hidden. (2) Admin Forms has a SUPPORT OFFICE section with 'Task Creation & Management' (audience label Support Office, url .../task-creation--management-form, audiences [support_office]). (3) The form audience picker and the Team directory group picker both list New Starter Employees / New Starter Contractors. (4) Compose task shows 'Attachment (optional)' and 'Upload a file'. Picking /tmp/cpd.png shows the file name and remove X, and remove/re-add works. Saved as 'Just me' (admin) and as a private task (employee), the task row shows the cpd.png paperclip link, which opens /api/tasks/files/{id}?token= (200 image/png) without toggling the task. (5) Regression: opening upload-certificate directly by URL and uploading lands on Certificates with no GO_BACK error. Company Drive shows the 'Therapist' / 'Participants' buttons in full. Deleting a certificate also removes its linked CPD log (API check). No page errors, no red screens, no deprecated Expo packages in the files reviewed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/tasks/attachments", "issue": "Uploaded files that never get attached to a task (user cancels, or POST /api/tasks fails after the upload) stay in task_files and object storage as orphans. There is no cleanup."},
+      {"endpoint": "GET /api/tasks/files/{id}?token=", "issue": "The session token is passed in the URL query. It ends up in browser history and proxy logs. This pattern was already used for Drive; consider short-lived signed URLs."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "compose.tsx task upload", "issue": "uploadForm() / up.json() at compose.tsx:100 is not inside try/finally. If the network request throws, saving stays true, the button spins forever and no error is shown. Move the upload inside the existing try block.", "testID": "compose-submit-button", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Team directory group picker (group-picker.tsx)", "issues": ["At 375x667 the 8th row 'New Starter Contractors' sits under the Save button until the user scrolls the list. The list scrolls correctly, but nothing shows that more options exist. Consider a max-height list with a fade or scroll indicator."]},
+      {"screen": "Tasks row attachment link", "issues": ["The task-attachment Pressable is 32px tall (hitSlop 6 brings it to about 44). Acceptable, but on the small side."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter13_forms_tasks_attach.py", "/app/test_reports/pytest/iter13.xml"],
+  "action_items": [
+    "(LOW) compose.tsx:97-107: wrap the task attachment upload in try/finally so saving is reset if the network request throws.",
+    "(LOW) Optional: clean up orphaned task_files (uploaded but never attached).",
+    "(INFO) Drive spaces therapist/participant currently have folder_id null in /integrations/google-drive/status, so Company Drive shows 'Therapist Resources isn't set up yet'. Re-select the folders in Integrations if they were meant to be configured."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 2142 lines; split into routers (tasks, forms, drive, certificates, cpd).",
+    "task_file access: admin, uploader or task assignee. Correct, and an employee cannot attach another user's file (404 verified)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter13_forms_tasks_attach.py (new)"],
+  "success_rate": {"backend": "100% (5/5 sanity tests)", "frontend": "100% of requested flows"},
+  "seed_data_creation": "None kept. Test tasks, TEST certificates and TEST notifications for the test users were deleted. user_testemp001's staff_group was reverted to None. Real staff groups were not changed (picker opened then cancelled). Uploaded TEST_iter13_cert and TEST_iter13_cpdcert (soft-deleted) may have copies in the real Google Drive 'StaffHub Certificates' folder, so the main agent should trash them.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Use EXPO_PUBLIC_BACKEND_URL from frontend/.env (there is no EXPO_BACKEND_URL key). Web bypass: localStorage auth_token = JSON.stringify('test_session_admin'|'test_session_employee'). DocumentPicker on web works through page.expect_file_chooser. user_testemp001 is hidden from the Team directory, so set its group through the API only.",
+  "rca_of_issue": ""
+}

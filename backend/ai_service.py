@@ -36,6 +36,37 @@ def file_to_image_b64(data: bytes, content_type: str) -> str:
     return base64.b64encode(data).decode()
 
 
+CPD_SYSTEM = ("You read certificates of attendance/completion for continuing professional development (CPD). "
+              'Reply ONLY with JSON: {"title": string, "provider": string, "date": "YYYY-MM-DD" or "", '
+              '"hours": number or null, "category": one of "Course","Webinar","Conference","Reading",'
+              '"Supervision","Other" or ""}. "date" is the completion/attendance date. If hours are stated as '
+              "CPD points, hours or minutes, convert to hours. If only a start and end time are shown, compute "
+              "the duration. Use empty strings / null when unknown.")
+
+
+async def extract_cpd(data: bytes, content_type: str) -> dict:
+    img = file_to_image_b64(data, content_type)
+    text = await new_chat(CPD_SYSTEM).send_message(UserMessage(text="Extract the CPD details.",
+                                                               file_contents=[ImageContent(image_base64=img)]))
+    m = re.search(r"\{.*\}", text or "", re.S)
+    out = {"title": "", "provider": "", "date": "", "hours": None, "category": ""}
+    if m:
+        try:
+            parsed = json.loads(m.group(0))
+            for k in ("title", "provider", "date", "category"):
+                v = parsed.get(k)
+                out[k] = str(v).strip() if v else ""
+            h = parsed.get("hours")
+            out["hours"] = round(float(h), 2) if h not in (None, "") and 0 < float(h) <= 200 else None
+        except (json.JSONDecodeError, ValueError, TypeError):
+            pass
+    if out["date"] and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", out["date"]):
+        out["date"] = ""
+    if out["category"] not in ("Course", "Webinar", "Conference", "Reading", "Supervision", "Other"):
+        out["category"] = ""
+    return out
+
+
 EXTRACT_SYSTEM = ("You read training certificates. Reply ONLY with JSON: "
                   '{"title": string, "issuer": string, "issue_date": "YYYY-MM-DD" or "", '
                   '"expiry_date": "YYYY-MM-DD" or ""}. If the certificate states a validity period instead of '

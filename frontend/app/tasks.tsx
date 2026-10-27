@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { api } from "@/src/api";
+import { API_URL, api, getApiToken, openLink } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { useToast } from "@/src/components/toast";
 import { Chip, ConfirmSheet, EmptyState, ErrorState, Ionicons, Loading, formatDate } from "@/src/components/ui";
@@ -101,6 +101,31 @@ export default function Tasks() {
                 <View style={{ flex: 1, gap: 2 }}>
                   <Text style={[styles.title, done && styles.doneText]}>{item.title}</Text>
                   {!!item.description && <Text style={styles.desc} numberOfLines={2}>{item.description}</Text>}
+                  {item.collaborators?.length > 0 && (
+                    <View style={styles.subRow} testID={`task-collaborators-${item.task_id}`}>
+                      <Ionicons name="people" size={13} color={colors.brandPrimary} />
+                      <Text style={styles.collab} numberOfLines={2}>
+                        {scope === "all" ? "Shared with" : "Working on this with"} {item.collaborators.map((c: any) => c.name).join(", ")}
+                      </Text>
+                    </View>
+                  )}
+                  {!!item.for_everyone && scope !== "all" && (
+                    <View style={styles.subRow}>
+                      <Ionicons name="people" size={13} color={colors.muted} />
+                      <Text style={styles.sub}>Assigned to everyone</Text>
+                    </View>
+                  )}
+                  {!!item.attachment && (
+                    <Pressable
+                      testID={`task-attachment-${item.task_id}`}
+                      onPress={() => openLink(`${API_URL}/tasks/files/${item.attachment.file_id}?token=${encodeURIComponent(getApiToken() ?? "")}`)}
+                      hitSlop={6}
+                      style={styles.attach}
+                    >
+                      <Ionicons name="attach" size={16} color={colors.brandPrimary} />
+                      <Text style={styles.attachText} numberOfLines={1}>{item.attachment.file_name}</Text>
+                    </Pressable>
+                  )}
                   <View style={styles.subRow}>
                     {item.private && <Ionicons name="lock-closed" size={12} color={colors.muted} />}
                     <Text style={[styles.sub, overdue && { color: colors.errorText, fontWeight: "600" }]}>
@@ -133,5 +158,8 @@ const useStyles = makeStyles((c) => ({
   desc: { fontSize: 14, color: c.onSurfaceSecondary },
   sub: { fontSize: 13, color: c.muted },
   subRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2 },
+  attach: { flexDirection: "row", alignItems: "center", gap: 4, minHeight: 32, alignSelf: "flex-start" },
+  attachText: { fontSize: 14, fontWeight: "600", color: c.brandPrimary, flexShrink: 1 },
+  collab: { fontSize: 13, color: c.brandPrimary, fontWeight: "600", flexShrink: 1 },
   delBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center", marginTop: -10, marginRight: -8 },
 }));

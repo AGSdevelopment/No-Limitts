@@ -12,6 +12,11 @@ import { makeStyles, useTheme } from "@/src/theme";
 type Item = { id: string; name: string; mime_type: string; is_folder: boolean; modified: string; size: number | null; pinned?: boolean };
 type Listing = { root_id: string; root_name: string; folder_id: string; items: Item[]; pinned: Item[] };
 type Crumb = { id: string; name: string };
+type Space = "therapist" | "participant";
+const SPACES: { key: Space; label: string; icon: IconName }[] = [
+  { key: "therapist", label: "Therapist", icon: "medkit-outline" },
+  { key: "participant", label: "Participants", icon: "people-outline" },
+];
 
 function iconFor(i: Item): IconName {
   if (i.is_folder) return "folder";
@@ -39,22 +44,46 @@ export default function CompanyDrive() {
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
   const [opening, setOpening] = useState<string | null>(null);
+  const [space, setSpace] = useState<Space>("therapist");
   const folder = path[path.length - 1]?.id ?? "";
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const qc = useQueryClient();
 
   const q = useQuery<Listing>({
-    queryKey: ["drive-shared", folder, query],
-    queryFn: () => api(`/drive/shared?folder=${encodeURIComponent(folder)}&q=${encodeURIComponent(query)}`),
+    queryKey: ["drive-shared", space, folder, query],
+    queryFn: () => api(`/drive/shared?space=${space}&folder=${encodeURIComponent(folder)}&q=${encodeURIComponent(query)}`),
     retry: false,
   });
   const data = q.data;
 
+  const switchSpace = (s: Space) => {
+    if (s === space) return;
+    setSpace(s);
+    setPath([]);
+    setSearch("");
+    setQuery("");
+  };
+  const spaceTabs = (
+    <View style={styles.spaceRow} testID="drive-space-switch">
+      {SPACES.map((s) => (
+        <Pressable
+          key={s.key}
+          testID={`drive-space-${s.key}`}
+          onPress={() => switchSpace(s.key)}
+          style={[styles.spaceBtn, space === s.key && styles.spaceBtnOn]}
+        >
+          <Ionicons name={s.icon} size={18} color={space === s.key ? colors.onBrandPrimary : colors.brandPrimary} />
+          <Text style={[styles.spaceText, space === s.key && { color: colors.onBrandPrimary }]} numberOfLines={1}>{s.label}</Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+
   const togglePin = async (item: Item) => {
     try {
       if (item.pinned) await api(`/drive/pins/${item.id}`, { method: "DELETE" });
-      else await api("/drive/pins", { method: "POST", body: { file_id: item.id } });
+      else await api("/drive/pins", { method: "POST", body: { file_id: item.id, space } });
       await qc.invalidateQueries({ queryKey: ["drive-shared"] });
       toast(item.pinned ? "Unpinned" : "Pinned to the top of Company Drive", item.pinned ? "info" : "success");
     } catch (e: any) {
@@ -71,7 +100,7 @@ export default function CompanyDrive() {
     }
     setOpening(item.id);
     try {
-      await openDriveFile(item.id);
+      await openDriveFile(item.id, space);
     } catch {
       toast("Couldn't open this file", "error");
     } finally {
@@ -79,13 +108,19 @@ export default function CompanyDrive() {
     }
   };
 
-  if (q.isLoading && !q.data) return <Loading />;
+  if (q.isLoading && !q.data) return <View style={styles.root}>{spaceTabs}<Loading /></View>;
   if (q.isError) {
     const notSet = (q.error as any)?.status === 409;
-    return notSet ? (
-      <EmptyState icon="folder-open-outline" title="Company Drive isn't set up yet" subtitle="An admin can choose the shared folder in Integrations." testID="drive-not-setup" />
-    ) : (
-      <ErrorState message={(q.error as any)?.message ?? "Couldn't load files."} onRetry={() => q.refetch()} />
+    const label = `${SPACES.find((s) => s.key === space)!.label} Resources`;
+    return (
+      <View style={styles.root} testID="drive-screen">
+        {spaceTabs}
+        {notSet ? (
+          <EmptyState icon="folder-open-outline" title={`${label} isn't set up yet`} subtitle="An admin can choose this folder in Integrations." testID="drive-not-setup" />
+        ) : (
+          <ErrorState message={(q.error as any)?.message ?? "Couldn't load files."} onRetry={() => q.refetch()} />
+        )}
+      </View>
     );
   }
   const crumbs: Crumb[] = [{ id: "", name: data!.root_name }, ...path];
@@ -122,6 +157,7 @@ export default function CompanyDrive() {
 
   return (
     <View style={styles.root} testID="drive-screen">
+      {spaceTabs}
       <View style={styles.top}>
         <View style={styles.searchBox}>
           <Ionicons name="search" size={18} color={colors.muted} />
@@ -187,6 +223,10 @@ export default function CompanyDrive() {
 
 const useStyles = makeStyles((c) => ({
   root: { flex: 1, backgroundColor: c.surfaceSecondary },
+  spaceRow: { flexDirection: "row", gap: 8, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4, backgroundColor: c.surface },
+  spaceBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, minHeight: 48, borderRadius: 12, borderWidth: 1.5, borderColor: c.brandPrimary, paddingHorizontal: 8 },
+  spaceBtnOn: { backgroundColor: c.brandPrimary },
+  spaceText: { fontSize: 14, fontWeight: "700", color: c.brandPrimary, flexShrink: 1 },
   top: { backgroundColor: c.surface, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4, borderBottomWidth: 0.5, borderBottomColor: c.divider },
   searchBox: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44, borderRadius: 12, backgroundColor: c.surfaceSecondary, paddingHorizontal: 12 },
   searchInput: { flex: 1, fontSize: 16, color: c.onSurface, minHeight: 44 },

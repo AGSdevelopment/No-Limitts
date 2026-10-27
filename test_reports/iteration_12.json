@@ -1,0 +1,44 @@
+{
+  "summary": "Frontend-only testing (375x667 Expo web) of CPD Resources sections, My CPD attach+share flow, Certificate upload with CPD hours, Integrations two Drive spaces, Company Drive space switcher + pins. ALL requested flows PASS. Home social-highlight regression SKIPPED (dashboard has no latest_social). No deprecated Expo packages / red screens / page errors found. Only minor/design issues below.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "DELETE /api/certificates/{id}", "issue": "Soft-deletes the certificate but leaves the CPD log created from it (cpd_logs.cert_id) in My CPD and still counted in year hours; also the Google Drive copy (StaffHub Certificates folder) is not removed. Decide intended behaviour (at least prompt or cascade)."},
+      {"endpoint": "GET /api/drive/shared (pinned[])", "issue": "Pinned items return size=None, modified='' so pinned row meta just shows 'File' instead of size/updated (server.py ~1039)."},
+      {"endpoint": "PUT /api/integrations/google-drive/shared-folder", "issue": "When admin changes a space's folder, old pins (root_id of previous folder) are left orphaned in drive_pins; pins also upsert by file_id only, so a file reachable from both spaces can only be pinned in one."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "upload-certificate success", "issue": "router.back() is called unconditionally; when the screen is opened directly/refreshed (no history) a red toast \"The action 'GO_BACK' was not handled\" appears after the success toast. Use router.canGoBack() ? router.back() : router.replace('/(tabs)/certificates'). Normal flow from Certificates FAB works fine. Reference: /app/frontend/app/upload-certificate.tsx:128", "testID": "upload-submit-button", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Company Drive (drive.tsx)", "issues": ["Space buttons are truncated at 375px width: 'Therapist Resou…' / 'Participants Res…'. Use shorter labels (e.g. 'Therapists' / 'Participants'), allow 2 lines, or smaller font. Reference: /app/frontend/app/drive.tsx:77"]},
+      {"screen": "Certificates list", "issues": ["Upload FAB overlaps the delete icon of the last visible certificate card at 375x667 (check list paddingBottom accounts for FAB height)."]},
+      {"screen": "CPD / Upload chips", "issues": ["Chip component exposes no accessibilityState selected (aria-selected/checked null) — selected state not announced by screen readers (minor a11y)."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "LOW: upload-certificate.tsx:128 guard router.back() with router.canGoBack() fallback to replace('/(tabs)/certificates').",
+    "LOW: Shorten/wrap Company Drive space button labels so they are not truncated on 375px phones.",
+    "LOW: Decide cascade behaviour when a certificate with a linked CPD log is deleted (log currently remains + counted).",
+    "LOW: Return size/modified for pinned drive items or hide meta; clean orphaned pins when a space folder is changed/cleared.",
+    "INFO: 3 TEST certificate copies (TEST cert, TEST UI Cert CPD, TEST UI Cert NoCPD) were mirrored to the real Google Drive 'StaffHub Certificates' folder by the upload flow; DB records are soft-deleted but Drive files remain — remove them manually in Drive if desired."
+  ],
+  "critical_code_review_comments": [
+    "cpd.tsx AddSheet: share failure is caught and toasted but final toast still says 'CPD logged and shared' right after the error toast (line 258-262) — overwrites the failure message. Track share success before choosing toast text.",
+    "cpd.tsx: if title is cleared after autofill the shareSection stays from detected category — fine; X close correctly resets all fields (verified).",
+    "integrations.tsx: no UI to clear/unset a space folder (only Change folder); backend DELETE ?space= exists.",
+    "drive.tsx: nested pin Pressable inside row Pressable works on web (pin click did not open file — verified)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend only; light curl checks of file download 200 image/png & drive file 200 application/pdf, wrong space 409)", "frontend": "100% of requested flows (6/6 executed, 1 regression skipped - no social post)"},
+  "seed_data_creation": "None persisted. Created & cleaned: 2 TEST CPD logs, 1 TEST CPD resource (deleted via contributor UI delete icon), 2 TEST certificates (+ main agent's leftover 'TEST cert' cert & CPD log also deleted), 1 drive pin (removed), Participants Resources folder (set via UI then cleared via DELETE ?space=participant). Verified: employee CPD logs=[], resources=[], certs=['First Aid'], both spaces folder_id null, drive_pins=0.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Use /cpd, /drive, /integrations, /upload-certificate routes with localStorage auth_token bypass. Modal sheets slide in — wait ~1.5s after opening before clicking; use dispatch_event('click') + expect_file_chooser for cpd-attach-button / upload-pick-document. Participants test folder link: https://drive.google.com/drive/folders/1d8-5EPvhUq943PVfHj5PR5VEYZfL0SNM (folder name '01032024', 18 PDFs, no subfolders). Certificate uploads are mirrored to real company Drive.",
+  "rca_of_issue": "GO_BACK toast: upload-certificate.tsx calls router.back() with no history when opened via direct URL/refresh."
+}
