@@ -7,6 +7,7 @@ Until WIX_API_KEY + WIX_SITE_ID are set, data is kept in StaffHub (`agts_dashboa
 import asyncio
 import json
 import os
+import re
 from pathlib import Path
 from typing import Optional
 import httpx
@@ -36,7 +37,7 @@ async def require_admin_token(request: Request, token: Optional[str]) -> dict:
     return user
 
 
-async def require_view(request: Request, token: Optional[str], view: str) -> dict:
+async def require_view(request: Request, token: Optional[str], view: str, page: str = "participant-plans") -> dict:
     """view='nk' is the Participant plans & safety page: only people the dashboard is shared with (Nikki)."""
     if view != "nk":
         return await require_admin_token(request, token)
@@ -44,9 +45,10 @@ async def require_view(request: Request, token: Optional[str], view: str) -> dic
     user = await user_from_token(bearer(request) or token)
     if not user:
         raise HTTPException(401, "Not authenticated")
-    d = await db.dashboards.find_one({"dashboard_id": "participant-plans"}, P)
+    d = await db.dashboards.find_one({"dashboard_id": page or "participant-plans", "embed": "agts-nk"}, P)
     if not d or not allowed(d, user):
         raise HTTPException(403, "Not available for your account")
+    user["_plans_tag"] = d.get("tag") or ""
     return user
 
 
@@ -80,13 +82,15 @@ async def write_part(part: str, data: str, email: str):
 
 
 @router.get("/agts-dashboard/data")
-async def dashboard_data(request: Request, token: Optional[str] = None, view: str = ""):
-    user = await require_view(request, token, view)
+async def dashboard_data(request: Request, token: Optional[str] = None, view: str = "", page: str = "participant-plans"):
+    user = await require_view(request, token, view, page)
     async with httpx.AsyncClient(timeout=30) as client:
         out = {"user": user["email"], "source": "wix" if wix_headers() else "staffhub"}
         if view == "nk":  # only Nikki's participant data, never billing, pay or bonus figures
             prev = await read_part(client, "preview")
-            nk = json.loads(prev["data"]).get("nikki") if prev and prev.get("data") else None
+            nk = (json.loads(prev["data"]).get("nikki") if prev and prev.get("data") else None) or {}
+            if user.get("_plans_tag"):  # a therapist's own page: show only participants with their tag
+                nk = {**nk, "cfg": {**(nk.get("cfg") or {}), "tag": user["_plans_tag"]}}
             out.update({p: None for p in PARTS})
             out["preview"] = {"data": json.dumps({"weeks": {}, "nikki": nk or {}}), "updatedBy": (prev or {}).get("updatedBy"),
                               "updated": (prev or {}).get("updated")}
@@ -102,8 +106,8 @@ class SaveIn(BaseModel):
 
 
 @router.post("/agts-dashboard/save")
-async def dashboard_save(body: SaveIn, request: Request, view: str = ""):
-    user = await require_view(request, None, view)
+async def dashboard_save(body: SaveIn, request: Request, view: str = "", page: str = "participant-plans"):
+    user = await require_view(request, None, view, page)
     if body.part not in PARTS:
         raise HTTPException(400, "Unknown data type.")
     if len(body.json) > 480000:
@@ -115,41 +119,105 @@ async def dashboard_save(body: SaveIn, request: Request, view: str = ""):
         async with httpx.AsyncClient(timeout=30) as client:
             prev = await read_part(client, "preview")
         full = json.loads(prev["data"]) if prev and prev.get("data") else {}
+        old_cfg = (full.get("nikki") or {}).get("cfg") or {}
         full["nikki"] = json.loads(body.json).get("nikki") or {}
+        if user.get("_plans_tag"):  # keep Nikki's tag setting; a therapist page only views with its own tag
+            full["nikki"]["cfg"] = {**(full["nikki"].get("cfg") or {}), "tag": old_cfg.get("tag", "Nikki's Clients")}
         return await write_part("preview", json.dumps(full, separators=(",", ":")), user["email"])
     return await write_part(body.part, body.json, user["email"])
 
 
-async def nikki_plan_alerts():
-    """Tell the people the plans page is shared with when a participant's plan ends within 30 days (once per plan end)."""
+def _addmonths(serial: int, months: int) -> int:
+    from datetime import date, timedelta
+    import calendar
+    d = date(1899, 12, 30) + timedelta(days=int(serial))
+    m = d.month - 1 + months
+    y, m = d.year + m // 12, m % 12 + 1
+    return (date(y, m, min(d.day, calendar.monthrange(y, m)[1])) - date(1899, 12, 30)).days
+
+
+def _fmt(serial: int) -> str:
+    from datetime import date, timedelta
+    return (date(1899, 12, 30) + timedelta(days=int(serial))).strftime("%d %b %Y")
+
+
+async def sync_plan_pages(nk: dict):
+    """One private 'My participant plans' page per therapist tag found in the client list ("<Name>'s Clients"),
+    shared only with the StaffHub user whose first name matches (skipped when the name is ambiguous)."""
+    import re
+    tags = set()
+    for c in nk.get("clients") or []:
+        for t in (c.get("tags") or "").split(","):
+            m = re.match(r"^\s*(.+?)['’]s Clients\s*$", t)
+            if m:
+                tags.add(m.group(1).strip())
+    users = await db.users.find({"hidden": {"$ne": True}}, {"_id": 0, "user_id": 1, "name": 1}).to_list(2000)
+    for name in tags:
+        if name.lower() == "nikki":
+            continue  # Nikki keeps the original page
+        match = [u for u in users if (u.get("name") or "").split(" ")[0].lower() == name.lower()]
+        if len(match) != 1:
+            continue
+        did = f"plans-{re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')}"
+        await db.dashboards.update_one({"dashboard_id": did}, {"$set": {
+            "name": "My participant plans", "url": "", "roles": [], "groups": [], "embed": "agts-nk",
+            "users": [match[0]["user_id"]], "tag": f"{name}'s Clients"}, "$setOnInsert": {"created_at": now_iso()}}, upsert=True)
+
+
+async def plan_alerts():
+    """For every private plans page: plan ending within 30 days, plan review overdue, risk assessment out of date.
+    Each alert is sent once (per participant + date) to the page's owner."""
     from datetime import date, datetime
     from core import DIGEST_TZ, notify
-    from routes.dashboards import allowed  # noqa: F401
-    d = await db.dashboards.find_one({"dashboard_id": "participant-plans"}, P)
-    ids = (d or {}).get("users") or []
-    if not ids:
-        return
     async with httpx.AsyncClient(timeout=30) as client:
         prev = await read_part(client, "preview")
     if not prev or not prev.get("data"):
         return
     nk = json.loads(prev["data"]).get("nikki") or {}
-    tag = ((nk.get("cfg") or {}).get("tag") or "Nikki's Clients").lower()
+    await sync_plan_pages(nk)
+    cfg = {"tag": "Nikki's Clients", "months": 3, "formAge": 12, **(nk.get("cfg") or {})}
     today = (datetime.now(DIGEST_TZ).date() - date(1899, 12, 30)).days
-    for c in nk.get("clients") or []:
-        end = c.get("end")
-        if c.get("archived") or tag not in (c.get("tags") or "").lower() or not isinstance(end, (int, float)):
+    forms = {}
+    for f in nk.get("forms") or []:
+        forms.setdefault(str(f.get("p", "")).strip().lower(), []).append(f)
+    pages = await db.dashboards.find({"embed": "agts-nk"}, P).to_list(100)
+    for pg in pages:
+        ids, tag = pg.get("users") or [], (pg.get("tag") or cfg["tag"]).lower()
+        if not ids:
             continue
-        days = int(end) - today
-        if 0 <= days <= 30:
-            key = f"agts_plan_end_{c['name']}_{int(end)}"
-            if await db.meta.find_one({"key": key}):
+        link = f"/dashboard/{pg['dashboard_id']}"
+
+        async def once(key, title, body):
+            if not await db.meta.find_one({"key": key}):
+                await db.meta.insert_one({"key": key, "created_at": now_iso()})
+                await notify(ids, "dashboard", title, body, link)
+        for c in nk.get("clients") or []:
+            end = c.get("end")
+            if c.get("archived") or tag not in (c.get("tags") or "").lower() or not isinstance(end, (int, float)):
                 continue
-            await db.meta.insert_one({"key": key, "created_at": now_iso()})
-            when = (date(1899, 12, 30) + __import__("datetime").timedelta(days=int(end))).strftime("%d %b %Y")
-            await notify(ids, "dashboard", f"Plan ending soon: {c['name']}",
-                         f"Their plan ends {when} ({days} day{'s' if days != 1 else ''}). Time to check the plan review.",
-                         "/dashboard/participant-plans")
+            end, name = int(end), c["name"]
+            d_end = end - today
+            if d_end < 0:
+                continue
+            k = f"{pg['dashboard_id']}_{name}"
+            if d_end <= 30:
+                await once(f"agts_plan_end_{name}_{end}" if pg["dashboard_id"] == "participant-plans" else f"agts_plan_end_{k}_{end}",
+                           f"Plan ending soon: {name}", f"Their plan ends {_fmt(end)} ({d_end} day{'s' if d_end != 1 else ''}). Time to check the plan review.")
+            else:
+                rev = _addmonths(end, -int(cfg["months"]))
+                if rev <= today:
+                    await once(f"agts_review_{k}_{rev}", f"Plan review overdue: {name}",
+                               f"The plan review was due {_fmt(rev)} (plan ends {_fmt(end)}).")
+            last = (c.get("name", "").split(" ") or [""])[-1]
+            mine = forms.get(name.strip().lower(), []) + (forms.get(f"{c['pref']} {last}".strip().lower(), []) if c.get("pref") else [])
+            ra = sorted([f for f in mine if f.get("t") == "ra"], key=lambda f: f.get("u") or f.get("c") or 0, reverse=True)
+            if ra:
+                f = ra[0]
+                done = f.get("u") or f.get("c") or today
+                complete = "complete" in str(f.get("st", "")).lower() and "incomplete" not in str(f.get("st", "")).lower()
+                if complete and today - done > float(cfg["formAge"]) * 30.4:
+                    await once(f"agts_ra_{k}_{done}", f"Risk assessment out of date: {name}",
+                               f"Last completed {_fmt(done)}, over {cfg['formAge']} months ago. Please complete a new one.")
 
 
 MOBILE_CSS = """<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style id="sh-mobile">
@@ -219,20 +287,34 @@ MOBILE_CSS = """<meta name="viewport" content="width=device-width,initial-scale=
 </script>"""
 
 
+def _inject(html: str, anchor: str, new: str) -> str:
+    """Swap one anchor in the dashboard template; log loudly if the template changed and the anchor is gone."""
+    if anchor not in html:
+        logger.error("AGTS dashboard template anchor missing: %r", anchor)
+        return html
+    return html.replace(anchor, new, 1)
+
+
 @router.get("/agts-dashboard/engine", response_class=HTMLResponse)
-async def engine(request: Request, token: Optional[str] = None, view: str = ""):
-    await require_view(request, token, view)
+async def engine(request: Request, token: Optional[str] = None, view: str = "", page: str = "participant-plans"):
+    user = await require_view(request, token, view, page)
     html = ENGINE.read_text(encoding="utf-8")
     html = html.replace("<head>", "<head>" + MOBILE_CSS, 1)
     # Participant plans & safety (Nikki) view: the engine already renders it into #v-nk; give it a tab and a home
     if view == "nk":
-        html = html.replace('<button class="tab" data-v="set">Settings</button>',
-                            '<button class="tab" data-v="set">Settings</button>\n    <button class="tab" data-v="nk">Plans &amp; safety</button>', 1)
-        html = html.replace('<div class="view" id="v-set">', '<div class="view" id="v-nk"><div class="empty">Loading…</div></div>\n  <div class="view" id="v-set">', 1)
-        html = html.replace("</body>", """<style>#tabs,.uploads,.note,#shToggle,.sharebar,.top .controls,#periodLine{display:none!important}</style>
+        own = bool(user.get("_plans_tag"))  # a therapist's own page
+        if own:  # covers plain and JS-escaped (Nikki\'s) wording, with or without "for"/"All of"
+            html = re.sub(r"(for |All of )?Nikki(\\?)'s participants",
+                          lambda m: (m.group(1) or "") + ("my" if m.group(1) else "My") + " participants", html)
+        who = "my participants" if own else "Nikki's participants"
+        html = _inject(html, '<button class="tab" data-v="set">Settings</button>',
+                       '<button class="tab" data-v="set">Settings</button>\n    <button class="tab" data-v="nk">Plans &amp; safety</button>')
+        html = _inject(html, '<div class="view" id="v-set">',
+                       '<div class="view" id="v-nk"><div class="empty">Loading…</div></div>\n  <div class="view" id="v-set">')
+        html = _inject(html, "</body>", """<style>#tabs,.uploads,.note,#shToggle,.sharebar,.top .controls,#periodLine{display:none!important}</style>
 <script>document.addEventListener('DOMContentLoaded',function(){ var h=document.querySelector('h1'); if(h) h.textContent='Participant Plans & Safety';
- var p=document.getElementById('periodLine'); if(p) p.textContent="Plan reviews, risk assessments and emergency plans for Nikki's participants";
- setTimeout(function(){ if(typeof show==='function') show('nk'); },0); });</script></body>""", 1)
+ var p=document.getElementById('periodLine'); if(p) p.textContent=""" + json.dumps("Plan reviews, risk assessments and emergency plans for " + who) + """;
+ setTimeout(function(){ if(typeof show==='function') show('nk'); },0); });</script></body>""")
     return HTMLResponse(html, headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
 
 
@@ -303,7 +385,7 @@ async def dashboard_loop():
                             await notify(await _admin_ids(), "dashboard", "Upload this week's End of Week export",
                                          "Keep the Therapist dashboard current: open it, tap Show uploads & data status and add the export.",
                                          "/dashboard/therapist-dashboard")
-                await nikki_plan_alerts()
+                await plan_alerts()
                 # Below hours target alerts, once per therapist per dashboard week
                 bill, sett = await read_part(client, "billing"), await read_part(client, "settings")
                 if bill and bill.get("data"):
@@ -322,9 +404,11 @@ async def dashboard_loop():
 
 
 @router.get("/agts-dashboard/app", response_class=HTMLResponse)
-async def app_page(request: Request, token: Optional[str] = None, view: str = ""):
+async def app_page(request: Request, token: Optional[str] = None, view: str = "", page: str = "participant-plans"):
     """Wrapper that hosts the engine in a frame and relays load/save messages, like the Wix page did."""
-    await require_view(request, token, view)
+    await require_view(request, token, view, page)
+    from urllib.parse import quote as _q
+    pq = f"&page={_q(page)}" if view == "nk" else ""
     t = json.dumps(token or "")
     html = """<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="referrer" content="no-referrer"><style>html,body{margin:0;height:100%;background:#f4f8fb}iframe{border:0;width:100%;height:100%;display:block}</style></head>
@@ -340,5 +424,5 @@ window.addEventListener('message',async e=>{ if(e.source!==f.contentWindow) retu
 });
 </script></body></html>"""
     from urllib.parse import quote
-    return HTMLResponse(html.replace("__TOK__", quote(token or "")).replace("__VIEW__", "&view=nk" if view == "nk" else "").replace("__T__", t).replace("__Q__", json.dumps("?view=nk" if view == "nk" else "")),
+    return HTMLResponse(html.replace("__TOK__", quote(token or "")).replace("__VIEW__", ("&view=nk" + pq) if view == "nk" else "").replace("__T__", t).replace("__Q__", json.dumps(("?view=nk" + pq) if view == "nk" else "")),
                         headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})

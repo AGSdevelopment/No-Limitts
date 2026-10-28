@@ -26,7 +26,7 @@ export default function Dashboard() {
       : <ErrorState message="Couldn't load the dashboard." onRetry={() => q.refetch()} />;
   }
   const d = q.data;
-  const src = d.embed?.startsWith("agts") ? `${API_URL}/agts-dashboard/app?token=${encodeURIComponent(getApiToken() ?? "")}${d.embed === "agts-nk" ? "&view=nk" : ""}` : d.url;
+  const src = d.embed?.startsWith("agts") ? `${API_URL}/agts-dashboard/app?token=${encodeURIComponent(getApiToken() ?? "")}${d.embed === "agts-nk" ? `&view=nk&page=${encodeURIComponent(d.dashboard_id)}` : ""}` : d.url;
   const host = new URL(src).host;
 
   return (
