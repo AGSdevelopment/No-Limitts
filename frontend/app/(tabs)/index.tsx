@@ -30,6 +30,7 @@ export default function Home() {
   const isEmerging = user?.staff_group === "emerging_therapist";
   const newStuff = useQuery<any[]>({ queryKey: ["directory-highlights"], queryFn: () => api("/directory/highlights") });
   const reviews = useQuery<any[]>({ queryKey: ["directory-latest-reviews"], queryFn: () => api("/directory/reviews/latest") });
+  const dashboards = useQuery<any[]>({ queryKey: ["external-dashboards"], queryFn: () => api("/dashboards") });
   const pathway = useQuery<any>({ queryKey: ["pathway"], queryFn: () => api("/pathway"), enabled: isEmerging });
   const d = q.data;
   const bottomChrome = usesNativeTabs ? insets.bottom : 0;
@@ -56,7 +57,7 @@ export default function Home() {
       ) : (
         <ScrollView
           contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: bottomChrome + 24 }}
-          refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => { q.refetch(); newStuff.refetch(); reviews.refetch(); }} tintColor={colors.brandPrimary} />}
+          refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => { q.refetch(); newStuff.refetch(); reviews.refetch(); dashboards.refetch(); }} tintColor={colors.brandPrimary} />}
         >
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickRow} style={{ marginHorizontal: -16 }}>
             {actions.map((a) => (
@@ -80,6 +81,17 @@ export default function Home() {
               <Ionicons name="chevron-forward" size={20} color={colors.onBrandPrimary} />
             </Pressable>
           )}
+
+          {(dashboards.data ?? []).map((db: any) => (
+            <Pressable key={db.dashboard_id} testID={`home-dashboard-${db.dashboard_id}`} onPress={() => router.push(`/dashboard/${db.dashboard_id}`)} style={({ pressed }) => [styles.starter, pressed && { opacity: 0.85 }]} accessibilityLabel={`Open ${db.name}`}>
+              <Ionicons name="analytics" size={24} color={colors.onBrandPrimary} />
+              <View style={{ flex: 1, gap: 2 }}>
+                <Text style={styles.starterTitle}>Open {db.name.toLowerCase().startsWith("the ") ? db.name : `the ${db.name.toLowerCase()}`}</Text>
+                <Text style={styles.starterSub}>Opens right here in the app</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={colors.onBrandPrimary} />
+            </Pressable>
+          ))}
 
           {isEmerging && pathway.data && (
             <Pressable testID="home-pathway-card" onPress={() => router.push("/pathway")} style={({ pressed }) => [styles.starter, pressed && { opacity: 0.85 }]}>
