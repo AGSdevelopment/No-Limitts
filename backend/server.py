@@ -6,7 +6,7 @@ import json
 from core import HIDDEN_TEST_USERS, ROOT_DIR, client, db, logger, new_id, now_iso
 from storage import init_storage
 from routes import (auth, users, notifications, certificates, chat, updates, policies, compliance, events, tasks,
-                    dashboard, drive, gchat, calendar, forms, socials, cpd, ai, digest, profile, places, pathway, directory, referral_map, dashboards)
+                    dashboard, drive, gchat, calendar, forms, socials, cpd, ai, digest, profile, places, pathway, directory, referral_map, dashboards, agts_dashboard)
 from routes.dashboards import ensure_dashboards
 from routes.places import migrate_place_kinds
 from routes.directory import ensure_share_channel
@@ -31,7 +31,7 @@ async def health():
 
 
 for module in (auth, users, notifications, certificates, chat, updates, policies, compliance, events, tasks,
-               dashboard, drive, gchat, calendar, forms, socials, cpd, ai, digest, profile, places, pathway, directory, referral_map, dashboards):
+               dashboard, drive, gchat, calendar, forms, socials, cpd, ai, digest, profile, places, pathway, directory, referral_map, dashboards, agts_dashboard):
     app.include_router(module.router)
 
 

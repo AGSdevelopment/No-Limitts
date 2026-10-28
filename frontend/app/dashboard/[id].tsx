@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { WebView } from "react-native-webview";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { api, openLink } from "@/src/api";
+import { API_URL, api, getApiToken, openLink } from "@/src/api";
 import { EmptyState, ErrorState, Ionicons, Loading } from "@/src/components/ui";
 import { makeStyles, useTheme } from "@/src/theme";
 
@@ -26,7 +26,8 @@ export default function Dashboard() {
       : <ErrorState message="Couldn't load the dashboard." onRetry={() => q.refetch()} />;
   }
   const d = q.data;
-  const host = new URL(d.url).host;
+  const src = d.embed === "agts" ? `${API_URL}/agts-dashboard/app?token=${encodeURIComponent(getApiToken() ?? "")}` : d.url;
+  const host = new URL(src).host;
 
   return (
     <View style={[styles.root, { paddingBottom: insets.bottom }]} testID="dashboard-screen">
@@ -41,11 +42,11 @@ export default function Dashboard() {
         }}
       />
       {Platform.OS === "web" ? (
-        createElement("iframe", { src: d.url, style: { width: "100%", height: "100%", border: 0 }, title: d.name, "data-testid": "dashboard-frame" })
+        createElement("iframe", { src, style: { width: "100%", height: "100%", border: 0 }, title: d.name, "data-testid": "dashboard-frame" })
       ) : (
         <View style={{ flex: 1 }}>
           <WebView
-            source={{ uri: d.url }}
+            source={{ uri: src }}
             style={{ flex: 1 }}
             onLoadEnd={() => setLoading(false)}
             setSupportMultipleWindows={false}
