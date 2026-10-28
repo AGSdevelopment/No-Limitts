@@ -49,7 +49,16 @@ export default function DirectoryNew() {
     }
   }, [existing.data]);
 
-  if (user?.role !== "admin") return <EmptyState icon="lock-closed-outline" title="Admins only" subtitle="Ask an admin to add this for you." />;
+  const isAdmin = user?.role === "admin";
+  const suggesting = !isAdmin && !params.edit;
+  useEffect(() => {
+    if (suggesting) {
+      setTarget("therapist");
+      setCategory("Trusted Referral Partner Organisations");
+    }
+  }, [suggesting]);
+
+  if (!isAdmin && !suggesting) return <EmptyState icon="lock-closed-outline" title="Admins only" subtitle="Ask an admin to add this for you." />;
 
   const pickTarget = (t: Target) => {
     if (t === "favourite") {
@@ -93,7 +102,7 @@ export default function DirectoryNew() {
       qc.invalidateQueries({ queryKey: ["directory"] });
       qc.invalidateQueries({ queryKey: ["directory-highlights"] });
       qc.invalidateQueries({ queryKey: ["directory-entry", params.edit] });
-      toast(failed ? `Saved, but ${failed} file${failed > 1 ? "s" : ""} couldn't upload` : `${f.name.trim()} saved to ${category}`, failed ? "info" : "success");
+      toast(failed ? `Saved, but ${failed} file${failed > 1 ? "s" : ""} couldn't upload` : suggesting ? `Thanks! ${f.name.trim()} was sent to an admin for approval` : `${f.name.trim()} saved to ${category}`, failed ? "info" : "success");
       router.back();
     } catch (e: any) {
       toast(e.message, "error");
@@ -104,8 +113,13 @@ export default function DirectoryNew() {
 
   return (
     <KeyboardAwareScrollView style={styles.root} contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 24 }} keyboardShouldPersistTaps="handled" bottomOffset={24} testID="directory-new-screen">
-      <Stack.Screen options={{ title: params.edit ? "Edit entry" : "Add to Company Drive" }} />
-      {!params.edit && (
+      <Stack.Screen options={{ title: params.edit ? "Edit entry" : suggesting ? "Suggest a referral partner" : "Add to Company Drive" }} />
+      {suggesting && (
+        <Text style={[styles.label, { marginBottom: 16 }]} testID="directory-suggest-intro">
+          Suggest a Trusted Referral Partner Organisation. An admin will check it before it goes live for the team.
+        </Text>
+      )}
+      {!params.edit && isAdmin && (
         <>
           <Text style={styles.label}>Add to</Text>
           <View style={styles.chips}>
@@ -117,12 +131,14 @@ export default function DirectoryNew() {
       )}
       {target !== "favourite" && (
         <>
-          <Text style={styles.label}>Category</Text>
+          {isAdmin && <Text style={styles.label}>Category</Text>}
+          {isAdmin && (
           <View style={styles.chips}>
             {CATEGORIES[target].map((c) => (
               <Chip key={c} label={c} selected={category === c} onPress={() => setCategory(c)} testID={`directory-category-${c}`} />
             ))}
           </View>
+          )}
           <Field label={isReferral ? "Company name" : "Name"} value={f.name} onChangeText={set("name")} placeholder={category === "Templates" ? "e.g. Session notes template" : isReferral ? "e.g. Perth Speech Pathology" : "e.g. Sensory Tools Australia"} testID="directory-name-input" />
           {isReferral && <Field label="Services offered" value={f.services} onChangeText={set("services")} placeholder="e.g. Speech therapy, feeding assessments" multiline testID="directory-services-input" />}
           {!isReferral && <Field label="Contact person (optional)" value={f.contact} onChangeText={set("contact")} placeholder="e.g. Sam Lee" testID="directory-contact-input" />}
@@ -153,7 +169,7 @@ export default function DirectoryNew() {
             </View>
           ))}
           <Button label="Attach files" icon="attach" variant="secondary" onPress={pickFiles} style={{ marginBottom: 16 }} testID="directory-attach-button" />
-          <Button label={params.edit ? "Save changes" : "Add"} icon="checkmark" loading={saving} onPress={save} testID="directory-save-button" />
+          <Button label={params.edit ? "Save changes" : suggesting ? "Send for approval" : "Add"} icon="checkmark" loading={saving} onPress={save} testID="directory-save-button" />
         </>
       )}
     </KeyboardAwareScrollView>

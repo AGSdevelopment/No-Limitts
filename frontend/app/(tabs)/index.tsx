@@ -29,6 +29,7 @@ export default function Home() {
   const starter = useQuery<any>({ queryKey: ["starter-checklist"], queryFn: () => api("/starter-checklist"), enabled: isStarter });
   const isEmerging = user?.staff_group === "emerging_therapist";
   const newStuff = useQuery<any[]>({ queryKey: ["directory-highlights"], queryFn: () => api("/directory/highlights") });
+  const reviews = useQuery<any[]>({ queryKey: ["directory-latest-reviews"], queryFn: () => api("/directory/reviews/latest") });
   const pathway = useQuery<any>({ queryKey: ["pathway"], queryFn: () => api("/pathway"), enabled: isEmerging });
   const d = q.data;
   const bottomChrome = usesNativeTabs ? insets.bottom : 0;
@@ -55,7 +56,7 @@ export default function Home() {
       ) : (
         <ScrollView
           contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: bottomChrome + 24 }}
-          refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => { q.refetch(); newStuff.refetch(); }} tintColor={colors.brandPrimary} />}
+          refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => { q.refetch(); newStuff.refetch(); reviews.refetch(); }} tintColor={colors.brandPrimary} />}
         >
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickRow} style={{ marginHorizontal: -16 }}>
             {actions.map((a) => (
@@ -227,6 +228,22 @@ export default function Home() {
             </>
           )}
 
+          {(reviews.data?.length ?? 0) > 0 && (
+            <>
+              <SectionHeader title="Fresh recommendations" testID="home-latest-reviews" />
+              <View style={{ gap: 8 }}>
+                {reviews.data!.map((r: any, i: number) => (
+                  <Card key={`${r.entry_id}${i}`} onPress={() => router.push({ pathname: "/directory", params: { space: r.space, category: r.category } })} testID={`home-review-${r.entry_id}-${i}`}>
+                    <Text style={styles.resTitle} numberOfLines={1}>{r.entry_name}</Text>
+                    <Text style={styles.reviewStars}>{"★".repeat(r.stars)}{"☆".repeat(5 - r.stars)}</Text>
+                    <Text style={styles.reviewText} numberOfLines={3}>“{r.text}”</Text>
+                    <Text style={styles.resSub} numberOfLines={1}>{r.name} · {r.category === "Activities" ? "Activity" : "Supplier"} · {timeAgo(r.at)}</Text>
+                  </Card>
+                ))}
+              </View>
+            </>
+          )}
+
           <SectionHeader title="Company updates" action="See all" onAction={() => router.push("/updates")} testID="home-updates-see-all" />
           {d.updates.length === 0 ? (
             <EmptyState icon="megaphone-outline" title="No updates yet" />
@@ -254,6 +271,8 @@ const useStyles = makeStyles((c) => ({
   root: { flex: 1, backgroundColor: c.surface },
   resTitle: { fontSize: 15, fontWeight: "700", color: c.onSurface },
   resSub: { fontSize: 13, color: c.muted },
+  reviewStars: { fontSize: 14, color: c.warning, marginTop: 2 },
+  reviewText: { fontSize: 14, color: c.onSurface, marginVertical: 4, fontStyle: "italic" },
   quickRow: { paddingHorizontal: 16, paddingVertical: 16, gap: 12 },
   quick: { width: 76, alignItems: "center", gap: 6, flexShrink: 0 },
   quickLabel: { fontSize: 12, fontWeight: "600", color: c.onSurfaceSecondary },

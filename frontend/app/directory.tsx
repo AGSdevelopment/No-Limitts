@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { API_URL, api, getApiToken, openLink } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { useToast } from "@/src/components/toast";
-import { Button, ConfirmSheet, EmptyState, ErrorState, Ionicons, Loading } from "@/src/components/ui";
+import { Button, Chip, ConfirmSheet, EmptyState, ErrorState, Ionicons, Loading, Pill } from "@/src/components/ui";
 import { CAT_ICON, DirSpace, SPACE_LABEL } from "@/src/directory";
 import { makeStyles, useTheme } from "@/src/theme";
 
@@ -33,10 +33,19 @@ export default function Directory() {
     queryFn: () => api(`/directory?space=${space}&category=${encodeURIComponent(category)}`),
   });
 
+  const [postcode, setPostcode] = useState("");
+  const [radius, setRadius] = useState<number | null>(10);
+  const pcOf = (e: any) => (`${e.address ?? ""}`.match(/\b(\d{4})\b/) ?? [])[1];
   const list = useMemo(() => {
     const s = search.trim().toLowerCase();
-    return (q.data ?? []).filter((e) => !s || `${e.name} ${e.services ?? ""} ${e.contact} ${e.address} ${e.note}`.toLowerCase().includes(s));
-  }, [q.data, search]);
+    let out = (q.data ?? []).filter((e) => !s || `${e.name} ${e.services ?? ""} ${e.contact} ${e.address} ${e.note}`.toLowerCase().includes(s));
+    if (/^\d{4}$/.test(postcode)) {
+      const target = Number(postcode);
+      const dist = (e: any) => (pcOf(e) ? Math.abs(Number(pcOf(e)) - target) : Infinity);
+      out = out.filter((e) => radius === null || dist(e) <= radius).sort((a, b) => dist(a) - dist(b));
+    }
+    return out;
+  }, [q.data, search, postcode, radius]);
 
   const remove = async () => {
     setBusy(true);
@@ -53,8 +62,18 @@ export default function Directory() {
     }
   };
 
-  const title = `${SPACE_LABEL[space] ?? ""} · ${category}`;
+  const approve = async (e: any) => {
+    try {
+      await api(`/directory/${e.entry_id}/approve`, { method: "POST" });
+      qc.invalidateQueries({ queryKey: ["directory", space, category] });
+      toast(`${e.name} approved`, "success");
+    } catch (err: any) {
+      toast(err.message, "error");
+    }
+  };
+
   const isReferral = category === "Trusted Referral Partner Organisations";
+  const title = isReferral ? "Referral Partners" : `${SPACE_LABEL[space] ?? ""} · ${category}`;
   const rateable = category === "Suppliers" || category === "Activities";
   const shareable = isReferral || rateable;
   const [picking, setPicking] = useState(false);
@@ -83,6 +102,7 @@ export default function Directory() {
     try {
       await api(`/directory/${review.item.entry_id}/rate`, { method: "POST", body: { stars: review.stars, comment: review.comment } });
       qc.invalidateQueries({ queryKey: ["directory", space, category] });
+      qc.invalidateQueries({ queryKey: ["directory-latest-reviews"] });
       toast("Thanks for your review", "success");
       setReview(null);
     } catch (err: any) {
@@ -106,11 +126,11 @@ export default function Directory() {
       <Stack.Screen
         options={{
           title,
-          headerRight: isAdmin
+          headerRight: isAdmin || isReferral
             ? () => (
-                <Pressable testID="directory-add-button" onPress={() => router.push({ pathname: "/directory-new", params: { space, category } })} hitSlop={10} style={styles.headerBtn} accessibilityLabel="Add">
+                <Pressable testID="directory-add-button" onPress={() => router.push({ pathname: "/directory-new", params: { space, category } })} hitSlop={10} style={styles.headerBtn} accessibilityLabel={isAdmin ? "Add" : "Suggest"}>
                   <Ionicons name="add-circle" size={24} color={colors.brandPrimary} />
-                  <Text style={styles.headerText}>Add</Text>
+                  <Text style={styles.headerText}>{isAdmin ? "Add" : "Suggest"}</Text>
                 </Pressable>
               )
             : undefined,
@@ -141,6 +161,32 @@ export default function Directory() {
                 </View>
               )}
               {rateable && (q.data?.length ?? 0) > 1 && <Text style={styles.sub}>Sorted by the team&apos;s star ratings</Text>}
+              {isReferral && (q.data?.length ?? 0) > 0 && (
+                <View style={{ gap: 8 }} testID="directory-postcode-filter">
+                  <TextInput
+                    value={postcode}
+                    onChangeText={(t) => setPostcode(t.replace(/\D/g, "").slice(0, 4))}
+                    placeholder="Participant's postcode, e.g. 6027"
+                    placeholderTextColor={colors.muted}
+                    keyboardType="number-pad"
+                    style={styles.search}
+                    testID="directory-postcode-input"
+                  />
+                  {postcode.length === 4 && (
+                    <View style={styles.actions}>
+                      {[
+                        { label: "Same postcode", v: 0 },
+                        { label: "Nearby (±10)", v: 10 },
+                        { label: "Wider (±50)", v: 50 },
+                        { label: "All, nearest first", v: null },
+                      ].map((r) => (
+                        <Chip key={r.label} label={r.label} selected={radius === r.v} onPress={() => setRadius(r.v)} testID={`directory-radius-${r.v ?? "all"}`} />
+                      ))}
+                    </View>
+                  )}
+                  {postcode.length === 4 && <Text style={styles.sub}>Matched on the postcode in each partner&apos;s location. Close postcode numbers are usually nearby areas.</Text>}
+                </View>
+              )}
               {(q.data?.length ?? 0) > 3 && (
                 <TextInput value={search} onChangeText={setSearch} placeholder={`Search ${category.toLowerCase()}`} placeholderTextColor={colors.muted} style={styles.search} testID="directory-search" />
               )}
@@ -150,7 +196,7 @@ export default function Directory() {
             <EmptyState
               icon={CAT_ICON[category] ?? "folder-open-outline"}
               title={search ? "No matches" : `No ${category.toLowerCase()} yet`}
-              subtitle={search ? undefined : isAdmin ? "Tap Add to put the first one here." : "Admins can add entries here."}
+              subtitle={search ? undefined : isAdmin ? "Tap Add to put the first one here." : isReferral ? "Tap Suggest to recommend one for an admin to approve." : "Admins can add entries here."}
               testID="directory-empty"
             />
           }
@@ -201,8 +247,28 @@ export default function Directory() {
                   )}
                 </View>
               )}
+              {item.status === "pending" && (
+                <View style={styles.pendingBox} testID={`directory-pending-${item.entry_id}`}>
+                  <Pill label="Waiting for admin approval" tone="accent" />
+                  <Text style={styles.sub}>Suggested by {item.created_by}</Text>
+                  {isAdmin && (
+                    <View style={{ flexDirection: "row", gap: 8 }}>
+                      <Button label="Approve" icon="checkmark" onPress={() => approve(item)} style={{ flex: 1 }} testID={`directory-approve-${item.entry_id}`} />
+                      <Button label="Reject" variant="ghost" onPress={() => setRemoving(item)} style={{ flex: 1 }} testID={`directory-reject-${item.entry_id}`} />
+                    </View>
+                  )}
+                </View>
+              )}
               <View style={styles.actions}>
-                {shareable && <Action icon="share-social-outline" label={sharing === item.entry_id ? "Sharing…" : "Share to chat"} onPress={() => share(item)} testID={`directory-share-${item.entry_id}`} />}
+                {shareable && item.status !== "pending" && <Action icon="share-social-outline" label={sharing === item.entry_id ? "Sharing…" : "Share to chat"} onPress={() => share(item)} testID={`directory-share-${item.entry_id}`} />}
+                {category === "Activities" && (
+                  <Action
+                    icon="calendar-outline"
+                    label="Make it a team event"
+                    onPress={() => router.push({ pathname: "/event-new", params: { title: item.name, location: item.address || "", description: [item.note, item.link].filter(Boolean).join("\n") } })}
+                    testID={`directory-event-${item.entry_id}`}
+                  />
+                )}
                 {!!item.phone && <Action icon="call-outline" label={item.phone} onPress={() => Linking.openURL(`tel:${item.phone.replace(/\s/g, "")}`)} testID={`directory-phone-${item.entry_id}`} />}
                 {!!item.email && <Action icon="mail-outline" label="Email" onPress={() => Linking.openURL(`mailto:${item.email}`)} testID={`directory-email-${item.entry_id}`} />}
                 {!!item.link && <Action icon="open-outline" label="Website" onPress={() => openLink(item.link)} testID={`directory-link-${item.entry_id}`} />}
@@ -309,6 +375,7 @@ const useStyles = makeStyles((c) => ({
   link: { fontSize: 14, fontWeight: "700", color: c.brandPrimary },
   stars: { flexDirection: "row" },
   bold: { fontWeight: "700" },
+  pendingBox: { gap: 6, padding: 10, borderRadius: 12, backgroundColor: c.surfaceSecondary },
   reviewInput: { minHeight: 88, textAlignVertical: "top", paddingTop: 10, borderWidth: 1, borderColor: c.borderStrong, backgroundColor: c.surfaceSecondary },
   review: { backgroundColor: c.surfaceSecondary, borderRadius: 10, padding: 10, gap: 2 },
   reviewHead: { fontSize: 12, fontWeight: "700", color: c.warningText },

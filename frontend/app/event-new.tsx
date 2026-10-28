@@ -21,13 +21,13 @@ const REPEATS = [
 
 export default function NewEvent() {
   const router = useRouter();
-  const { edit } = useLocalSearchParams<{ edit?: string }>();
+  const { edit, title: preTitle, location: preLocation, description: preDescription } = useLocalSearchParams<{ edit?: string; title?: string; location?: string; description?: string }>();
   const existing = useQuery<any>({ queryKey: ["event", edit], queryFn: () => api(`/events/${edit}`), enabled: !!edit });
   const insets = useSafeAreaInsets();
   const styles = useStyles();
   const toast = useToast();
   const qc = useQueryClient();
-  const [f, setF] = useState({ title: "", date: "", time: "", location: "", description: "", catering: "", conditions: "", capacity: "", repeat: "", occurrences: 4 });
+  const [f, setF] = useState({ title: preTitle ?? "", date: "", time: "", location: preLocation ?? "", description: preDescription ?? "", catering: "", conditions: "", capacity: "", repeat: "", occurrences: 4 });
   const [saving, setSaving] = useState(false);
   const set = (k: keyof typeof f) => (v: string) => setF({ ...f, [k]: v });
 

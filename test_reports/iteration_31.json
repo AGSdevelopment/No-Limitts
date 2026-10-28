@@ -1,0 +1,47 @@
+{
+  "summary": "Iteration 31: tested staff referral suggestions (pending, visibility, approve, reject, files, share block), the postcode filter, Home 'Fresh recommendations' and Activity -> event prefill. Backend: 18/18 pytest pass, using a temporary second employee session. Frontend: one CRITICAL blocker fixed. app/directory.tsx:271 had a stray '}' after the 'Make it a team event' block (')}}'), a JSX syntax error (TS1381) that would break the Metro bundle. After the fix, every requested UI flow passed at 390x844. No deprecated Expo packages detected.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/directory/{id}/files/{file_id}", "issue": "No pending-visibility check (visible_q is not applied). Another employee who knows the ids can download files attached to someone else's pending suggestion. Found by code review only, not tested."},
+      {"endpoint": "DELETE /api/directory/{id} (used as Reject)", "issue": "The suggester is not told when an admin rejects their suggestion. The entry just disappears. Optional: add a 'not approved' notification for pending entries."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "directory.tsx Activities card", "issue": "FIXED by testing agent: stray '}' at line 271 ('                )}}') caused a JSX syntax error (TS1381) and would break the bundle.", "testID": "directory-event-{id}", "priority": "CRITICAL"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Directory (employee, referral list)", "issues": ["Header title 'Therapist · Trusted Referral Partner…' runs into the headerRight 'Suggest' button. The add-circle icon overlaps the 'S' at 390px width; admin's shorter 'Add' label fits. Fix: set headerTitle numberOfLines/maxWidth or use a shorter title."]},
+      {"screen": "Directory empty state (employee, referral)", "issues": ["Subtitle says 'Admins can add entries here.' Employees can now suggest referral partners, so it should say 'Tap Suggest to recommend one.'"]},
+      {"screen": "Home", "issues": ["The 'Fresh recommendations' SectionHeader testID 'home-latest-reviews' isn't rendered because SectionHeader only uses testID on the action Pressable. Testing only, not visible to users."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter31_referral_suggest_reviews.py",
+    "/app/backend/tests/seed_iter31_ui.py",
+    "/app/test_reports/pytest/pytest_iter31.xml"
+  ],
+  "action_items": [
+    "Check the directory.tsx:271 fix (stray '}' removed). Run `npx tsc --noEmit` before handoff to catch JSX syntax errors.",
+    "Apply the pending-visibility check in GET /directory/{id}/files/{file_id} (admins and the suggester only while pending).",
+    "Fix the header title overlapping 'Suggest' on the referral list for employees.",
+    "Update the employee empty-state subtitle on the referral list to mention Suggest.",
+    "Optional: notify the suggester on reject. Optional: pass testID to the SectionHeader root View."
+  ],
+  "critical_code_review_comments": [
+    "directory.tsx:271 JSX syntax error ('}' as JSX text). Fixed.",
+    "get_file skips visible_q, so pending-entry files can leak to other employees.",
+    "share_entry/rate_entry use find_one without visible_q. This is safe today: share returns 400 for pending entries, and referrals can't be rated.",
+    "Admin notification targets admins with the same 'hidden' flag as the suggester. That's intentional test isolation (test users only notify the hidden test admin) and works."
+  ],
+  "updated_files": ["/app/frontend/app/directory.tsx (removed stray '}' at line 271)"],
+  "success_rate": {"backend": "100% (18/18)", "frontend": "100% of requested flows after the syntax fix"},
+  "seed_data_creation": "Temporary user_TEST_emp2 + session and TEST_ directory entries/notifications were created and then cleaned up. Settings 'referral_share_channel' is unchanged (conv_ab9e05c17d16). No events created. No shares sent.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Use `python tests/seed_iter31_ui.py seed|cleanup` for UI data: referral entries with postcodes 6027/6030/6065/6000/none, Activity dir_TEST_act31, Supplier dir_TEST_sup31 with a review. The pytest creates a second employee session (TEST_session_emp2_iter31) for the visibility tests. Run with -n 0. Verified: postcode radius 0->1, ±10->3, ±50->5, all->6 (no-postcode entries sorted last); event prefill passes title/location/description through URL params.",
+  "rca_of_issue": "Typo in the new Activities 'Make it a team event' block: an extra '}' after the closing ')}', which JSX parses as text and rejects."
+}

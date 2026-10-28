@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from pydantic import BaseModel
-from core import MAX_UPLOAD_BYTES, P, admin_user, bearer, current_user, db, logger, new_id, now_iso, user_from_token
+from core import MAX_UPLOAD_BYTES, P, admin_user, bearer, current_user, db, logger, new_id, notify, now_iso, user_from_token
 from storage import APP_NAME, get_object, put_object
 
 router = APIRouter(prefix="/api")
@@ -60,7 +60,15 @@ def shape(d: dict, user: dict) -> dict:
                                for uid, c in comments.items() if c.get("text")), key=lambda r: r["at"], reverse=True)
     d["files"] = [{k: v for k, v in f.items() if k != "storage_path"} for f in d.get("files") or []]
     d["can_edit"] = user["role"] == "admin"
+    d["status"] = d.get("status") or "approved"
     return d
+
+
+def visible_q(user: dict) -> dict:
+    """Pending suggestions are only visible to admins and the person who suggested them."""
+    if user["role"] == "admin":
+        return {}
+    return {"$or": [{"status": {"$ne": "pending"}}, {"created_by_id": user["user_id"]}]}
 
 
 @router.get("/directory/categories")
@@ -70,11 +78,28 @@ async def categories(user=Depends(current_user)):
 
 @router.get("/directory")
 async def list_entries(space: str, category: str, user=Depends(current_user)):
-    docs = await db.directory.find({"space": space, "category": category}, P).sort("name", 1).to_list(1000)
+    docs = await db.directory.find({"space": space, "category": category, **visible_q(user)}, P).sort("name", 1).to_list(1000)
     out = [shape(d, user) for d in docs]
     if category in RATEABLE:
         out.sort(key=lambda d: (-d["avg_rating"], -d["rating_count"]))
+    out.sort(key=lambda d: d["status"] != "pending")
     return out
+
+
+@router.get("/directory/reviews/latest")
+async def latest_reviews(user=Depends(current_user)):
+    """Newest written reviews on Suppliers and Activities (last 30 days), for the Home screen."""
+    since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    out = []
+    for d in await db.directory.find({"category": {"$in": list(RATEABLE)}, "comments": {"$exists": True},
+                                      "status": {"$ne": "pending"}}, P).to_list(1000):
+        ratings = d.get("ratings") or {}
+        for uid, c in (d.get("comments") or {}).items():
+            if c.get("text") and c.get("at", "") >= since:
+                out.append({"entry_id": d["entry_id"], "space": d["space"], "category": d["category"], "entry_name": d["name"],
+                            "name": c["name"], "text": c["text"], "at": c["at"], "stars": ratings.get(uid, 0)})
+    out.sort(key=lambda r: r["at"], reverse=True)
+    return out[:5]
 
 
 @router.get("/directory/highlights")
@@ -122,18 +147,42 @@ async def set_share_channel(body: ShareChannelIn, admin=Depends(admin_user)):
 
 @router.get("/directory/{entry_id}")
 async def get_entry(entry_id: str, user=Depends(current_user)):
-    d = await db.directory.find_one({"entry_id": entry_id}, P)
+    d = await db.directory.find_one({"entry_id": entry_id, **visible_q(user)}, P)
     if not d:
         raise HTTPException(404, "Entry not found")
     return shape(d, user)
 
 
 @router.post("/directory")
-async def add_entry(body: EntryIn, admin=Depends(admin_user)):
-    doc = {"entry_id": new_id("dir"), **clean(body), "files": [], "created_by": admin["name"],
-           "created_by_id": admin["user_id"], "created_at": now_iso()}
+async def add_entry(body: EntryIn, user=Depends(current_user)):
+    """Admins add straight away; other staff can suggest referral partners for an admin to approve."""
+    is_admin = user["role"] == "admin"
+    data = clean(body)
+    if not is_admin and data["category"] != REFERRAL:
+        raise HTTPException(403, "Admins only")
+    doc = {"entry_id": new_id("dir"), **data, "files": [], "status": "approved" if is_admin else "pending",
+           "created_by": user["name"], "created_by_id": user["user_id"], "created_at": now_iso()}
     await db.directory.insert_one(dict(doc))
-    return shape(doc, admin)
+    if not is_admin:
+        admins = await db.users.find({"role": "admin", "hidden": True if user.get("hidden") else {"$ne": True}},
+                                     {"_id": 0, "user_id": 1}).to_list(200)
+        await notify([a["user_id"] for a in admins], "directory", "New referral partner to approve",
+                     f"{user['name']} suggested {data['name']}",
+                     f"/directory?space={data['space']}&category={REFERRAL.replace(' ', '%20')}")
+    return shape(doc, user)
+
+
+@router.post("/directory/{entry_id}/approve")
+async def approve_entry(entry_id: str, admin=Depends(admin_user)):
+    d = await db.directory.find_one({"entry_id": entry_id, "status": "pending"}, P)
+    if not d:
+        raise HTTPException(404, "No pending suggestion found")
+    await db.directory.update_one({"entry_id": entry_id}, {"$set": {"status": "approved", "approved_by": admin["name"],
+                                                                     "approved_at": now_iso()}})
+    await notify([d["created_by_id"]], "directory", "Referral partner approved",
+                 f"{d['name']} is now listed for the team",
+                 f"/directory?space={d['space']}&category={d['category'].replace(' ', '%20')}")
+    return await get_entry(entry_id, admin)
 
 
 @router.put("/directory/{entry_id}")
@@ -146,8 +195,12 @@ async def edit_entry(entry_id: str, body: EntryIn, admin=Depends(admin_user)):
 
 @router.delete("/directory/{entry_id}")
 async def delete_entry(entry_id: str, admin=Depends(admin_user)):
-    if not (await db.directory.delete_one({"entry_id": entry_id})).deleted_count:
+    d = await db.directory.find_one({"entry_id": entry_id}, P)
+    if not d or not (await db.directory.delete_one({"entry_id": entry_id})).deleted_count:
         raise HTTPException(404, "Entry not found")
+    if d.get("status") == "pending" and d["created_by_id"] != admin["user_id"]:
+        await notify([d["created_by_id"]], "directory", "Referral suggestion not added",
+                     f"An admin didn't add {d['name']} this time. Ask them if you'd like to know why.", "")
     return {"ok": True}
 
 
@@ -178,6 +231,8 @@ async def share_entry(entry_id: str, user=Depends(current_user)):
     d = await db.directory.find_one({"entry_id": entry_id}, P)
     if not d:
         raise HTTPException(404, "Entry not found")
+    if d.get("status") == "pending":
+        raise HTTPException(400, "This suggestion hasn't been approved yet")
     if d["category"] not in SHAREABLE:
         raise HTTPException(400, "Only referral partners, suppliers and activities can be shared")
     conv = await share_channel()
@@ -192,10 +247,12 @@ async def share_entry(entry_id: str, user=Depends(current_user)):
 
 
 @router.post("/directory/{entry_id}/files")
-async def add_file(entry_id: str, file: UploadFile = File(...), admin=Depends(admin_user)):
+async def add_file(entry_id: str, file: UploadFile = File(...), admin=Depends(current_user)):
     d = await db.directory.find_one({"entry_id": entry_id}, P)
     if not d:
         raise HTTPException(404, "Entry not found")
+    if admin["role"] != "admin" and not (d.get("status") == "pending" and d["created_by_id"] == admin["user_id"]):
+        raise HTTPException(403, "Admins only")
     if len(d.get("files") or []) >= 30:
         raise HTTPException(400, "Up to 30 files per entry")
     data = await file.read()
@@ -221,9 +278,10 @@ async def add_file(entry_id: str, file: UploadFile = File(...), admin=Depends(ad
 
 @router.get("/directory/{entry_id}/files/{file_id}")
 async def get_file(entry_id: str, file_id: str, request: Request, token: Optional[str] = None):
-    if not await user_from_token(bearer(request) or token):
+    viewer = await user_from_token(bearer(request) or token)
+    if not viewer:
         raise HTTPException(401, "Not authenticated")
-    d = await db.directory.find_one({"entry_id": entry_id}, {"_id": 0, "files": 1})
+    d = await db.directory.find_one({"entry_id": entry_id, **visible_q(viewer)}, {"_id": 0, "files": 1})
     f = next((x for x in (d or {}).get("files") or [] if x["file_id"] == file_id), None)
     if not f:
         raise HTTPException(404, "File not found")
