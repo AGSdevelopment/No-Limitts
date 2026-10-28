@@ -92,7 +92,7 @@ export default function EventDetail() {
     <KeyboardAwareScrollView style={styles.root} contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: insets.bottom + 24 }} keyboardShouldPersistTaps="handled" bottomOffset={24} testID="event-detail-screen">
       <View style={styles.card}>
         <Text style={styles.title}>{ev.title}</Text>
-        <Detail icon="calendar-outline" text={`${formatDate(ev.date)}${ev.time ? ` at ${ev.time}` : ""}`} />
+        <Detail icon="calendar-outline" text={ev.date_tbd ? `Date to be confirmed (pencilled in for ${formatDate(ev.date)})` : `${formatDate(ev.date)}${ev.time ? ` at ${ev.time}` : ""}`} />
         {!!ev.location && <Detail icon="location-outline" text={ev.location} />}
         {!!ev.description && <Detail icon="flag-outline" text={ev.description} />}
         {!!ev.catering && <Detail icon="restaurant-outline" text={ev.catering} />}

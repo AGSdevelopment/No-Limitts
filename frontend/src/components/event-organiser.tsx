@@ -93,7 +93,7 @@ export function EventPoll({ ev, isOrganiser }: { ev: any; isOrganiser: boolean }
 
   return (
     <View style={styles.card} testID="event-poll">
-      <Text style={styles.section}>{poll.closed ? "Poll result" : `Vote on the ${poll.kind === "date" ? "date" : "venue"}`}</Text>
+      <Text style={styles.section}>{poll.closed ? "Poll result" : `Vote on the ${poll.kind === "date" ? "date" : poll.kind === "activity" ? "activity" : "venue"}`}</Text>
       {!poll.closed && <Text style={styles.meta}>Tap every option that works for you.</Text>}
       {poll.options.map((o: any) => {
         const winner = poll.closed && poll.locked_option_id === o.option_id;
@@ -106,7 +106,7 @@ export function EventPoll({ ev, isOrganiser }: { ev: any; isOrganiser: boolean }
               testID={`event-poll-vote-${o.option_id}`}
             >
               <Ionicons name={winner ? "trophy" : o.voted ? "checkbox" : "square-outline"} size={20} color={colors.brandPrimary} />
-              <Text style={styles.optionLabel}>{label(o)}</Text>
+              <Text style={styles.optionLabel}>{label(o)}{poll.kind === "activity" && o.location ? `\n📍 ${o.location}` : ""}</Text>
               <Text style={[styles.count, o.votes === top && top > 0 && { color: colors.brandPrimary }]}>{o.votes}</Text>
             </Pressable>
             {!!o.voters.length && <Text style={styles.meta}>{o.voters.join(", ")}</Text>}

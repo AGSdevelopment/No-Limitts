@@ -51,12 +51,14 @@ export default function DirectoryNew() {
 
   const isAdmin = user?.role === "admin";
   const suggesting = !isAdmin && !params.edit;
+  const SUGGESTABLE = ["Trusted Referral Partner Organisations", "Suppliers", "Activities"];
+  const suggestCategory = params.category && SUGGESTABLE.includes(params.category) ? params.category : "Trusted Referral Partner Organisations";
   useEffect(() => {
     if (suggesting) {
-      setTarget("therapist");
-      setCategory("Trusted Referral Partner Organisations");
+      setTarget(suggestCategory === "Trusted Referral Partner Organisations" ? "therapist" : (params.space ?? "therapist"));
+      setCategory(suggestCategory);
     }
-  }, [suggesting]);
+  }, [suggesting, suggestCategory, params.space]);
 
   if (!isAdmin && !suggesting) return <EmptyState icon="lock-closed-outline" title="Admins only" subtitle="Ask an admin to add this for you." />;
 
@@ -113,10 +115,10 @@ export default function DirectoryNew() {
 
   return (
     <KeyboardAwareScrollView style={styles.root} contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 24 }} keyboardShouldPersistTaps="handled" bottomOffset={24} testID="directory-new-screen">
-      <Stack.Screen options={{ title: params.edit ? "Edit entry" : suggesting ? "Suggest a referral partner" : "Add to Company Drive" }} />
+      <Stack.Screen options={{ title: params.edit ? "Edit entry" : suggesting ? `Suggest ${suggestCategory === "Trusted Referral Partner Organisations" ? "a referral partner" : suggestCategory === "Suppliers" ? "a supplier" : "an activity"}` : "Add to Company Drive" }} />
       {suggesting && (
         <Text style={[styles.label, { marginBottom: 16 }]} testID="directory-suggest-intro">
-          Suggest a Trusted Referral Partner Organisation. An admin will check it before it goes live for the team.
+          Suggest {suggestCategory === "Trusted Referral Partner Organisations" ? "a Trusted Referral Partner Organisation" : suggestCategory === "Suppliers" ? "a supplier" : "an activity"}. An admin will check it before it goes live for the team.
         </Text>
       )}
       {!params.edit && isAdmin && (

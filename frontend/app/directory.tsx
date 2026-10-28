@@ -7,7 +7,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { API_URL, api, getApiToken, openLink } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { useToast } from "@/src/components/toast";
-import { Button, Chip, ConfirmSheet, EmptyState, ErrorState, Ionicons, Loading, Pill } from "@/src/components/ui";
+import { Button, Chip, ConfirmSheet, EmptyState, ErrorState, Field, Ionicons, Loading, Pill, dmyToIso } from "@/src/components/ui";
+import { ReferralMap } from "@/src/components/referral-map";
 import { CAT_ICON, DirSpace, SPACE_LABEL } from "@/src/directory";
 import { makeStyles, useTheme } from "@/src/theme";
 
@@ -83,6 +84,38 @@ export default function Directory() {
   const channel = useQuery<any>({ queryKey: ["referral-share-channel"], queryFn: () => api("/directory/share-channel"), enabled: shareable });
   const channels = useQuery<any[]>({ queryKey: ["conversations"], queryFn: () => api("/conversations"), enabled: picking });
 
+  const [showMap, setShowMap] = useState(false);
+  const [voting, setVoting] = useState(false);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [voteSheet, setVoteSheet] = useState(false);
+  const [vote, setVote] = useState({ title: "Next team activity", date: "" });
+  const [voteBusy, setVoteBusy] = useState(false);
+  const togglePick = (id: string) => {
+    if (picked.includes(id)) setPicked(picked.filter((x) => x !== id));
+    else if (picked.length >= 6) toast("Up to 6 activities", "error");
+    else setPicked([...picked, id]);
+  };
+  const createVote = async () => {
+    let iso = "";
+    if (vote.date.trim()) {
+      iso = dmyToIso(vote.date) ?? "";
+      if (!iso) return toast("Enter the date as dd-mm-yyyy", "error");
+    }
+    setVoteBusy(true);
+    try {
+      const ev = await api("/events/activity-vote", { method: "POST", body: { entry_ids: picked, title: vote.title, date: iso } });
+      qc.invalidateQueries({ queryKey: ["events"] });
+      setVoteSheet(false);
+      setVoting(false);
+      setPicked([]);
+      toast("Vote created. The team has been told.", "success");
+      router.push(`/event/${ev.event_id}`);
+    } catch (err: any) {
+      toast(err.message, "error");
+    } finally {
+      setVoteBusy(false);
+    }
+  };
   const [sharing, setSharing] = useState<string | null>(null);
   const share = async (e: any) => {
     if (sharing) return;
@@ -126,7 +159,7 @@ export default function Directory() {
       <Stack.Screen
         options={{
           title,
-          headerRight: isAdmin || isReferral
+          headerRight: isAdmin || shareable
             ? () => (
                 <Pressable testID="directory-add-button" onPress={() => router.push({ pathname: "/directory-new", params: { space, category } })} hitSlop={10} style={styles.headerBtn} accessibilityLabel={isAdmin ? "Add" : "Suggest"}>
                   <Ionicons name="add-circle" size={24} color={colors.brandPrimary} />
@@ -142,7 +175,7 @@ export default function Directory() {
         <ErrorState message="Couldn't load this list." onRetry={() => q.refetch()} />
       ) : (
         <FlatList
-          data={list}
+          data={isReferral && showMap ? [] : list}
           keyExtractor={(e) => e.entry_id}
           contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: insets.bottom + 24, flexGrow: 1 }}
           keyboardShouldPersistTaps="handled"
@@ -161,6 +194,25 @@ export default function Directory() {
                 </View>
               )}
               {rateable && (q.data?.length ?? 0) > 1 && <Text style={styles.sub}>Sorted by the team&apos;s star ratings</Text>}
+              {category === "Activities" && (q.data?.filter((e) => e.status !== "pending").length ?? 0) >= 2 && (
+                <Button
+                  label={voting ? "Cancel team vote" : "Start a team vote"}
+                  icon={voting ? "close" : "stats-chart-outline"}
+                  variant={voting ? "ghost" : "secondary"}
+                  onPress={() => {
+                    setVoting(!voting);
+                    setPicked([]);
+                  }}
+                  testID="directory-vote-toggle"
+                />
+              )}
+              {voting && <Text style={styles.sub}>Tick 2 to 6 activities, then tap Create vote.</Text>}
+              {isReferral && (q.data?.length ?? 0) > 0 && (
+                <View style={styles.actions}>
+                  <Chip label="List" selected={!showMap} onPress={() => setShowMap(false)} testID="directory-view-list" />
+                  <Chip label="Map" selected={showMap} onPress={() => setShowMap(true)} testID="directory-view-map" />
+                </View>
+              )}
               {isReferral && (q.data?.length ?? 0) > 0 && (
                 <View style={{ gap: 8 }} testID="directory-postcode-filter">
                   <TextInput
@@ -187,22 +239,30 @@ export default function Directory() {
                   {postcode.length === 4 && <Text style={styles.sub}>Matched on the postcode in each partner&apos;s location. Close postcode numbers are usually nearby areas.</Text>}
                 </View>
               )}
+              {isReferral && showMap && <ReferralMap postcode={postcode} />}
               {(q.data?.length ?? 0) > 3 && (
                 <TextInput value={search} onChangeText={setSearch} placeholder={`Search ${category.toLowerCase()}`} placeholderTextColor={colors.muted} style={styles.search} testID="directory-search" />
               )}
             </View>
           }
           ListEmptyComponent={
+            isReferral && showMap ? undefined : (
             <EmptyState
               icon={CAT_ICON[category] ?? "folder-open-outline"}
-              title={search ? "No matches" : `No ${category.toLowerCase()} yet`}
-              subtitle={search ? undefined : isAdmin ? "Tap Add to put the first one here." : isReferral ? "Tap Suggest to recommend one for an admin to approve." : "Admins can add entries here."}
+              title={search || postcode.length === 4 ? "No matches" : `No ${category.toLowerCase()} yet`}
+              subtitle={search ? undefined : isAdmin ? "Tap Add to put the first one here." : shareable ? "Tap Suggest to recommend one for an admin to approve." : "Admins can add entries here."}
               testID="directory-empty"
             />
+            )
           }
           renderItem={({ item }) => (
             <View style={styles.card} testID={`directory-entry-${item.entry_id}`}>
               <View style={styles.row}>
+                {voting && item.status !== "pending" && (
+                  <Pressable onPress={() => togglePick(item.entry_id)} style={styles.iconBtn} accessibilityLabel={`Include ${item.name} in the vote`} testID={`directory-vote-pick-${item.entry_id}`}>
+                    <Ionicons name={picked.includes(item.entry_id) ? "checkbox" : "square-outline"} size={24} color={colors.brandPrimary} />
+                  </Pressable>
+                )}
                 <Ionicons name={CAT_ICON[category] ?? "folder-outline"} size={22} color={colors.brandPrimary} />
                 <Text style={[styles.name, { flex: 1 }]}>{item.name}</Text>
                 {isAdmin && (
@@ -220,7 +280,7 @@ export default function Directory() {
               {!!item.contact && <Text style={styles.sub}>Contact: {item.contact}</Text>}
               {!!item.address && <Text style={styles.sub}>📍 {item.address}</Text>}
               {!!item.note && <Text style={styles.note}>{item.note}</Text>}
-              {rateable && (
+              {rateable && item.status !== "pending" && (
                 <View style={styles.row} testID={`directory-rating-${item.entry_id}`}>
                   <View style={styles.stars}>
                     {[1, 2, 3, 4, 5].map((n) => (
@@ -261,7 +321,7 @@ export default function Directory() {
               )}
               <View style={styles.actions}>
                 {shareable && item.status !== "pending" && <Action icon="share-social-outline" label={sharing === item.entry_id ? "Sharing…" : "Share to chat"} onPress={() => share(item)} testID={`directory-share-${item.entry_id}`} />}
-                {category === "Activities" && (
+                {category === "Activities" && item.status !== "pending" && (
                   <Action
                     icon="calendar-outline"
                     label="Make it a team event"
@@ -284,6 +344,24 @@ export default function Directory() {
           )}
         />
       )}
+      {voting && picked.length >= 2 && (
+        <View style={[styles.voteBar, { paddingBottom: insets.bottom + 12 }]}>
+          <Button label={`Create vote (${picked.length})`} icon="stats-chart" onPress={() => setVoteSheet(true)} testID="directory-vote-create" />
+        </View>
+      )}
+      <Modal visible={voteSheet} transparent animationType="slide" onRequestClose={() => setVoteSheet(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
+          <Pressable style={styles.scrim} onPress={() => setVoteSheet(false)} />
+          <View style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]} testID="directory-vote-sheet">
+            <Text style={styles.name}>New team event with a vote</Text>
+            <Text style={styles.sub}>Everyone gets a notification to vote. Lock in the winner on the event page.</Text>
+            <Field label="Event name" value={vote.title} onChangeText={(t) => setVote({ ...vote, title: t })} testID="directory-vote-title" />
+            <Field label="Pencilled-in date (optional, dd-mm-yyyy)" value={vote.date} onChangeText={(t) => setVote({ ...vote, date: t })} placeholder="Leave blank for 2 weeks from today" keyboardType="numbers-and-punctuation" testID="directory-vote-date" />
+            <Button label="Create vote" icon="checkmark" loading={voteBusy} onPress={createVote} testID="directory-vote-submit" />
+            <Button label="Cancel" variant="ghost" onPress={() => setVoteSheet(false)} testID="directory-vote-cancel" />
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
       <Modal visible={!!review} transparent animationType="slide" onRequestClose={() => setReview(null)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
         <Pressable style={styles.scrim} onPress={() => setReview(null)} />
@@ -332,9 +410,9 @@ export default function Directory() {
       </Modal>
       <ConfirmSheet
         visible={!!removing}
-        title={`Remove ${removing?.name ?? ""}?`}
-        message="This removes the entry and its files for everyone."
-        confirmLabel="Remove"
+        title={removing?.status === "pending" ? `Reject ${removing?.name ?? ""}?` : `Remove ${removing?.name ?? ""}?`}
+        message={removing?.status === "pending" ? "The suggestion is removed and the person who suggested it is told." : "This removes the entry and its files for everyone."}
+        confirmLabel={removing?.status === "pending" ? "Reject" : "Remove"}
         loading={busy}
         onConfirm={remove}
         onClose={() => setRemoving(null)}
@@ -376,6 +454,7 @@ const useStyles = makeStyles((c) => ({
   stars: { flexDirection: "row" },
   bold: { fontWeight: "700" },
   pendingBox: { gap: 6, padding: 10, borderRadius: 12, backgroundColor: c.surfaceSecondary },
+  voteBar: { paddingHorizontal: 16, paddingTop: 12, backgroundColor: c.surface, borderTopWidth: 1, borderTopColor: c.border },
   reviewInput: { minHeight: 88, textAlignVertical: "top", paddingTop: 10, borderWidth: 1, borderColor: c.borderStrong, backgroundColor: c.surfaceSecondary },
   review: { backgroundColor: c.surfaceSecondary, borderRadius: 10, padding: 10, gap: 2 },
   reviewHead: { fontSize: 12, fontWeight: "700", color: c.warningText },

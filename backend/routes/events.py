@@ -133,7 +133,7 @@ def shape(d: dict, user: dict) -> dict:
         p.pop("likes", None)
         p["comments"] = p.get("comments") or []
     if d.get("poll"):
-        d["poll"] = {**d["poll"], "options": [{"option_id": o["option_id"], "label": o["label"],
+        d["poll"] = {**d["poll"], "options": [{"option_id": o["option_id"], "label": o["label"], "location": o.get("location", ""),
                                                "votes": len(o.get("votes") or []),
                                                "voted": user["user_id"] in (o.get("votes") or []),
                                                "voters": [v["name"] for v in o.get("voters") or []]} for o in d["poll"]["options"]]}
@@ -278,7 +278,7 @@ async def event_reminder_loop():
             local = datetime.now(DIGEST_TZ)
             if local.hour >= 9:
                 tomorrow = (local.date() + timedelta(days=1)).isoformat()
-                async for ev in db.events.find({"date": tomorrow, "checkin_for": {"$exists": False},
+                async for ev in db.events.find({"date": tomorrow, "checkin_for": {"$exists": False}, "date_tbd": {"$ne": True},
                                                 "reminded_for": {"$ne": tomorrow}}, P):
                     claim = await db.events.update_one({"event_id": ev["event_id"], "reminded_for": {"$ne": tomorrow}},
                                                        {"$set": {"reminded_for": tomorrow}})
@@ -483,6 +483,7 @@ async def edit_event(event_id: str, body: EventEditIn, user=Depends(current_user
         except ValueError:
             raise HTTPException(400, "Date must be YYYY-MM-DD")
         upd["date"] = body.date
+        upd["date_tbd"] = False
         if body.date != ev["date"]:
             upd["reminded_for"] = None
     if body.clear_capacity:
@@ -491,8 +492,9 @@ async def edit_event(event_id: str, body: EventEditIn, user=Depends(current_user
         if not (1 <= body.capacity <= 1000):
             raise HTTPException(400, "Places must be between 1 and 1000")
         upd["capacity"] = body.capacity
-    changed = [k for k, v in upd.items() if k != "reminded_for" and ev.get(k) != v]
-    if not changed:
+    changed = [k for k, v in upd.items() if k not in ("reminded_for", "date_tbd") and ev.get(k) != v]
+    confirming = bool(ev.get("date_tbd")) and upd.get("date_tbd") is False
+    if not changed and not confirming:
         return shape(ev, user)
     await db.events.update_one({"event_id": event_id}, {"$set": upd})
     if "capacity" in changed:
@@ -504,7 +506,7 @@ async def edit_event(event_id: str, body: EventEditIn, user=Depends(current_user
             await promote_waitlist(event_id)
     labels = {"title": "name", "description": "purpose", "location": "location", "date": "date", "time": "time",
               "catering": "food & drink", "conditions": "details", "capacity": "places"}
-    what = ", ".join(labels[k] for k in changed)
+    what = ", ".join(labels[k] for k in changed) or "date confirmed"
     ids = responders(ev, user["user_id"])
     if ids:
         title = upd.get("title") or ev["title"]
@@ -563,15 +565,57 @@ async def lock_poll(event_id: str, option_id: str, user=Depends(current_user)):
         raise HTTPException(404, "Poll option not found")
     if ev["poll"].get("closed"):
         raise HTTPException(400, "This poll is already locked in")
-    field = "date" if ev["poll"]["kind"] == "date" else "location"
+    field = {"date": "date", "venue": "location", "activity": "title"}[ev["poll"]["kind"]]
+    extra = {"reminded_for": None} if field == "date" else {}
+    if field == "title":
+        extra["location"] = opt.get("location") or ev.get("location", "")
+        if ev.get("description", "").startswith("Vote for what we do next:"):
+            extra["description"] = f"The team voted for {opt['label']}."
     await db.events.update_one({"event_id": event_id}, {"$set": {field: opt["label"], "poll.closed": True,
-                                                                "poll.locked_option_id": option_id,
-                                                                **({"reminded_for": None} if field == "date" else {})}})
+                                                                "poll.locked_option_id": option_id, **extra}})
     ids = list(set(responders(ev, user["user_id"])) | set(await all_user_ids(user["user_id"])))
     shown = dmy(opt["label"]) if field == "date" else opt["label"]
-    await notify(ids, "event", f"Locked in: {ev['title']}", f"The {'date' if field == 'date' else 'venue'} is {shown}",
+    noun = {"date": "date", "location": "venue", "title": "activity"}[field]
+    await notify(ids, "event", f"Locked in: {opt['label'] if field == 'title' else ev['title']}", f"The {noun} is {shown}",
                  f"/event/{event_id}")
     return shape(await db.events.find_one({"event_id": event_id}, event_fields(user)), user)
+
+
+class ActivityVoteIn(BaseModel):
+    entry_ids: List[str]
+    title: str = ""
+    date: str = ""
+
+
+@router.post("/events/activity-vote")
+async def activity_vote(body: ActivityVoteIn, user=Depends(current_user)):
+    """Turn 2–6 favourite Activities into a new team event whose activity is decided by a vote."""
+    ids = list(dict.fromkeys(body.entry_ids))
+    if not (2 <= len(ids) <= 6):
+        raise HTTPException(400, "Pick 2 to 6 activities")
+    acts = await db.directory.find({"entry_id": {"$in": ids}, "category": "Activities", "status": {"$ne": "pending"}}, P).to_list(6)
+    if len(acts) != len(ids):
+        raise HTTPException(404, "Some activities weren't found")
+    try:
+        day = date.fromisoformat(body.date) if body.date else datetime.now(DIGEST_TZ).date() + timedelta(days=14)
+    except ValueError:
+        raise HTTPException(400, "Date must be YYYY-MM-DD")
+    if day < datetime.now(DIGEST_TZ).date():
+        raise HTTPException(400, "Pick today or a future date")
+    acts.sort(key=lambda a: ids.index(a["entry_id"]))
+    names = ", ".join(a["name"] for a in acts)
+    doc = {"event_id": new_id("evt"), "title": (body.title.strip() or "Next team activity")[:200],
+           "description": f"Vote for what we do next: {names}.", "location": "", "date": day.isoformat(), "date_tbd": True,
+           "time": "", "catering": "", "conditions": "", "capacity": None, "series_id": None, "repeat": "",
+           "attendees": [], "rsvps": [], "comments": [], "created_by": user["name"], "created_by_id": user["user_id"],
+           "created_at": now_iso(),
+           "poll": {"kind": "activity", "closed": False, "created_at": now_iso(),
+                    "options": [{"option_id": new_id("opt"), "label": a["name"][:120], "location": a.get("address", ""),
+                                 "entry_id": a["entry_id"], "votes": [], "voters": []} for a in acts]}}
+    await db.events.insert_one(dict(doc))
+    await notify(await all_user_ids(user["user_id"]), "event", f"Vote: {doc['title']}",
+                 f"Help pick the activity: {names[:150]}. Tap to vote.", f"/event/{doc['event_id']}")
+    return shape(doc, user)
 
 
 # ---- Photo likes & comments

@@ -1,0 +1,39 @@
+{
+  "summary": "Tested the referral map's switch from Google Maps to Leaflet + OSM, plus the small activity/pending fixes. Backend: 11/11 pytest passed. Two TEST_ referral partners (Joondalup WA 6027, Fremantle WA 6160) were geocoded in the background on add, each correctly placed. /api/referral-map returns Leaflet + OSM tiles, X-Map-Pins>=2 and no Google script. postcode=6000 gives a 'Participant area 6000' centre. Missing or bogus token returns 401. An entry with no address shows 'Showing N of M partners'. Pending entries are excluded, a <script> name is escaped, editing an address re-geocodes, and the summary endpoint works. Locking an activity poll changes the description to 'The team voted for X.'. Frontend (390x844): employee Drive > Therapist > Referral Partners > Map loads OSM tiles with 2 markers in the iframe. Tapping a marker opens a popup with name/services/address/phone. Postcode 6000 adds the blue dot with a 'Participant area 6000' tooltip. Changing the postcode while on the map updates the iframe src. As admin, the pending Activity card has no 'Make it a team event' or Share button. The Reject sheet title is 'Reject TEST_Pending Activity?'. The event page shows 'The team voted for TEST_UIAct 0.' after Lock in. All TEST_ data was cleaned up (geocache kept). Live geocoder calls: about 3.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "geocode() in routes/referral_map.py:28-37", "issue": "Nominatim fallback runs only when Photon returns non-200. If Photon times out or throws, there is no fallback (the except path skips it). If Photon returns 200 with no AU feature, a failure is cached permanently without trying Nominatim."},
+      {"endpoint": "GET /api/referral-map", "issue": "Every map load starts a geocode_later task for each entry still needing geo (beyond the first 8), with no de-dup. Repeated loads queue duplicate tasks behind the lock. The asyncio.create_task results are not kept, so tasks may be garbage-collected."},
+      {"endpoint": "GET /api/referral-map", "issue": "The first load with many ungeocoded entries blocks for up to ~9s (8 lookups x 1.1s). Acceptable, but the UI has no loading indicator over the iframe."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Referral list empty state", "issue": "With postcode 6000 + Nearby (±10) giving no matches, the empty state says 'No trusted referral partner organisations yet / Tap Suggest…'. It should say 'No matches nearby'. Only `search` is checked for this message, not postcode (directory.tsx:252).", "testID": "directory-empty", "priority": "LOW"},
+      {"component": "Reject ConfirmSheet", "issue": "The title says 'Reject X?' but the confirm button still says 'Remove' (directory.tsx:415). Consider 'Reject' when the entry is pending.", "testID": "directory-reject-*", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Referral Partners map", "issues": ["The map ignores the radius chips (Same/Nearby/Wider): all partners are always pinned. This may be intended but could confuse users, since the chips stay visible in Map view."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter33_osm_referral_map.py", "/app/backend/tests/seed_iter33_ui.py", "/app/test_reports/pytest/pytest_iter33.xml"],
+  "action_items": [
+    "Optional: in geocode(), fall back to Nominatim when Photon throws or returns no AU result before caching a failure",
+    "Optional: de-dup background geocode tasks (in-flight set) and keep task references",
+    "Optional: empty-state message for postcode-filtered referral list; 'Reject' confirm label for pending entries",
+    "Update stale comments: referral-map.tsx:7 still says 'Google Map'; referral_map.py docstring mentions only Nominatim"
+  ],
+  "critical_code_review_comments": [
+    "The session token is passed in the iframe/WebView URL query (?token=). It may leak to access logs, history and the Referer header sent to unpkg/OSM tile servers. Consider a short-lived map-specific token.",
+    "XSS handling is good: json.dumps with '</' escaped and textContent for popup content; links are restricted to http(s)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "Created TEST_ referral partners, pending activity and activity vote events; all removed via seed_iter33_ui.py clean. Geocache now holds 4 real-address entries (left in place).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run pytest -n 0. Geocache already has joondalup wa 6027, fremantle wa 6160 and 6000, so reruns don't hit Photon. Seed/clean UI data with backend/tests/seed_iter33_ui.py [clean]. Directory URL: /directory?space=therapist&category=Trusted+Referral+Partner+Organisations. Map iframe: [data-testid=referral-map] iframe; markers .leaflet-marker-icon[title=NAME]; centre dot path.leaflet-interactive."
+}

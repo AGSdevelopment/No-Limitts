@@ -6,7 +6,7 @@ import json
 from core import HIDDEN_TEST_USERS, ROOT_DIR, client, db, logger, new_id, now_iso
 from storage import init_storage
 from routes import (auth, users, notifications, certificates, chat, updates, policies, compliance, events, tasks,
-                    dashboard, drive, gchat, calendar, forms, socials, cpd, ai, digest, profile, places, pathway, directory)
+                    dashboard, drive, gchat, calendar, forms, socials, cpd, ai, digest, profile, places, pathway, directory, referral_map)
 from routes.places import migrate_place_kinds
 from routes.directory import ensure_share_channel
 from routes.certificates import expiry_loop
@@ -30,7 +30,7 @@ async def health():
 
 
 for module in (auth, users, notifications, certificates, chat, updates, policies, compliance, events, tasks,
-               dashboard, drive, gchat, calendar, forms, socials, cpd, ai, digest, profile, places, pathway, directory):
+               dashboard, drive, gchat, calendar, forms, socials, cpd, ai, digest, profile, places, pathway, directory, referral_map):
     app.include_router(module.router)
 
 

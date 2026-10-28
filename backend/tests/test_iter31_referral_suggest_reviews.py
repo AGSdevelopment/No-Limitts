@@ -70,8 +70,7 @@ class TestSuggest:
         r = requests.get(f"{API}/notifications", headers=ADMIN)
         assert r.status_code == 200
 
-    @pytest.mark.parametrize("space,cat", [("therapist", "Suppliers"), ("therapist", "Templates"),
-                                           ("participant", "Activities"), ("participant", "Resources")])
+    @pytest.mark.parametrize("space,cat", [("therapist", "Templates"), ("participant", "Resources")])  # iter32: Suppliers/Activities now suggestable
     def test_employee_other_categories_403(self, space, cat):
         r = requests.post(f"{API}/directory", json={"space": space, "category": cat, "name": "TEST_x"}, headers=EMP)
         assert r.status_code == 403

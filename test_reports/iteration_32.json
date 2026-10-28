@@ -1,0 +1,46 @@
+{
+  "summary": "Iteration 32: Suggest Suppliers/Activities (pending + admin approve/reject), Activity Event Poll (activity-vote, lock, date_tbd), Referral Map not-configured state. Backend 19/19 new tests pass after fixing a CRITICAL 500 in PATCH /api/events/{id} (KeyError 'date_tbd'), which broke the edit-date flow and every edit that sent a date (the frontend always sends one). Regression suites iter30/iter31 pass 44/44 after updating stale expectations (Suppliers/Activities are now suggestable). Frontend (375x667, employee + admin) fully verified: Suggest header button + 'Suggest an activity' title, Start a team vote -> tick 2 -> 'Create vote (2)' -> sheet (default 'Next team activity', past-date and bad-format toasts) -> /event/{id} showing 'Date to be confirmed (pencilled in for 11 Nov 2026)' + 'Vote on the activity' with locations; Lock in sets title + location; editing the date clears TBD; Referral Partners List/Map chips show iframe with 'The map isn't set up yet...' message; admin inline Approve/Reject; rating+review regression OK; exactly one share to #Allied Health (message deleted).",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "PATCH /api/events/{event_id}", "issue": "FIXED BY T1: 500 KeyError 'date_tbd' in labels[k]. upd always set date_tbd=False when a date was sent, so 'date_tbd' ended up in `changed` for EVERY event (ev.get('date_tbd') None != False), and every edit from event-new.tsx (which always sends date) returned 500. The DB update had already run, but the client got an error and change notifications weren't sent. Fix: leave date_tbd out of `changed`, still save when only date_tbd is cleared (confirming), and fall back to the 'date confirmed' label.", "priority": "CRITICAL"}
+    ],
+    "minor": [
+      {"endpoint": "PATCH /api/events/{event_id}", "issue": "Any edit of a date_tbd event, even just changing the time or name, clears date_tbd because event-new.tsx always sends the date. Consider only confirming when the date actually changes, or adding an explicit 'Confirm date' action."},
+      {"endpoint": "POST /api/events/{id}/poll/{option}/lock (activity)", "issue": "Description 'Vote for what we do next: A, B.' stays on the event after the activity is locked in (stale text)."},
+      {"endpoint": "tests/test_iter26 TestPlaces", "issue": "2 old Places tests fail (403 vs 400, missing 'link' key). They look stale after Places changed in iteration 30. Not part of this round, so not changed."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "directory.tsx pending card", "issue": "FIXED BY T1: star rating row showed on pending suggestions (tapping opened the review sheet, then the backend returned 400). Now hidden when status === 'pending' (line 283).", "testID": "directory-rating-{id}", "priority": "MEDIUM"},
+      {"component": "directory.tsx pending Activity", "issue": "'Make it a team event' action still shows on pending activities.", "testID": "directory-event-{id}", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Directory reject confirm", "issues": ["Reject on a pending suggestion opens 'Remove X? This removes the entry and its files for everyone.' Wording should say 'Reject suggestion'."]},
+      {"screen": "Event detail after Save changes", "issues": ["After editing the event, the header has no back arrow (screen was replaced)."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter32_suggest_activity_vote_map.py", "/app/backend/tests/seed_iter32_ui.py", "/app/test_reports/pytest/pytest_iter32.xml"],
+  "action_items": [
+    "Review T1's fix in routes/events.py edit_event (date_tbd excluded from changed labels; 'confirming' path).",
+    "Hide 'Make it a team event' on pending activities.",
+    "Decide whether non-date edits should keep date_tbd (event-new.tsx always sends date).",
+    "Optionally update the activity-vote description after lock-in and reword the Reject confirm sheet.",
+    "Update/remove the stale iter26 Places tests."
+  ],
+  "critical_code_review_comments": [
+    "referral-map.tsx passes the session token in the iframe/WebView query string, so it can leak into server logs and history. Acceptable for an internal app, but a short-lived map token would be safer.",
+    "react-native-webview 14.0.1 is imported on web but only rendered natively. Fine.",
+    "activity_vote correctly excludes pending activities (404) and de-dupes ids (2 same ids -> 400).",
+    "event_reminder_loop correctly filters date_tbd != True."
+  ],
+  "updated_files": ["/app/backend/routes/events.py", "/app/frontend/app/directory.tsx", "/app/backend/tests/test_iter30_reviews_share_places_digest.py", "/app/backend/tests/test_iter31_referral_suggest_reviews.py", "/app/backend/tests/test_iter32_suggest_activity_vote_map.py", "/app/backend/tests/seed_iter32_ui.py"],
+  "success_rate": {"backend": "100% (19/19 new, 44/44 with iter30/31) after fix; 89% before fix", "frontend": "100% of requested flows"},
+  "seed_data_creation": "TEST_ activities, suppliers and referral partners plus activity-vote events were created and all cleaned up (directory TEST_ = 0, Allied Health TEST_ messages = 0, notifications since the run = 0).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run pytest with -n 0. seed_iter32_ui.py seeds 3 approved TEST_UI activities (dir_TEST_ui32_0..2); 'clean <iso_since>' removes them. Server clock is around 2026-10-28. No Google Maps key, so the map shows the not-set-up message.",
+  "rca_of_issue": "edit_event computed changed = [k for k in upd if ev.get(k) != v], and the new upd['date_tbd']=False was always different from the missing/None value on normal events. labels has no 'date_tbd' key, so the code raised KeyError after the DB write and the endpoint returned 500. Reproduced with PATCH {date} on an activity-vote event; fixed and re-verified via API and the UI edit flow."
+}

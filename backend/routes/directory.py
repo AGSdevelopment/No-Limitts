@@ -1,5 +1,6 @@
 """Company Drive directories (Suppliers, Templates, Referral Partners, Activities, Resources) with file attachments.
 Everyone can view; admins add, edit and remove."""
+import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -21,6 +22,7 @@ HIGHLIGHT = (("therapist", "Templates"), ("participant", "Resources"))
 REFERRAL = "Trusted Referral Partner Organisations"
 SHARE_KEY = "referral_share_channel"
 SHAREABLE = {REFERRAL: "🤝 Referral partner", "Suppliers": "🛒 Supplier", "Activities": "🎯 Activity"}
+SUGGESTABLE = (REFERRAL, "Suppliers", "Activities")
 FIELDS = ("name", "services", "contact", "phone", "email", "address", "link", "note")
 
 
@@ -158,17 +160,20 @@ async def add_entry(body: EntryIn, user=Depends(current_user)):
     """Admins add straight away; other staff can suggest referral partners for an admin to approve."""
     is_admin = user["role"] == "admin"
     data = clean(body)
-    if not is_admin and data["category"] != REFERRAL:
+    if not is_admin and data["category"] not in SUGGESTABLE:
         raise HTTPException(403, "Admins only")
     doc = {"entry_id": new_id("dir"), **data, "files": [], "status": "approved" if is_admin else "pending",
            "created_by": user["name"], "created_by_id": user["user_id"], "created_at": now_iso()}
     await db.directory.insert_one(dict(doc))
+    if data["category"] == REFERRAL and data["address"]:
+        from routes.referral_map import geocode_later
+        asyncio.create_task(geocode_later(doc["entry_id"]))
     if not is_admin:
         admins = await db.users.find({"role": "admin", "hidden": True if user.get("hidden") else {"$ne": True}},
                                      {"_id": 0, "user_id": 1}).to_list(200)
-        await notify([a["user_id"] for a in admins], "directory", "New referral partner to approve",
+        await notify([a["user_id"] for a in admins], "directory", f"New {data['category'].lower()} suggestion to approve",
                      f"{user['name']} suggested {data['name']}",
-                     f"/directory?space={data['space']}&category={REFERRAL.replace(' ', '%20')}")
+                     f"/directory?space={data['space']}&category={data['category'].replace(' ', '%20')}")
     return shape(doc, user)
 
 
@@ -179,7 +184,7 @@ async def approve_entry(entry_id: str, admin=Depends(admin_user)):
         raise HTTPException(404, "No pending suggestion found")
     await db.directory.update_one({"entry_id": entry_id}, {"$set": {"status": "approved", "approved_by": admin["name"],
                                                                      "approved_at": now_iso()}})
-    await notify([d["created_by_id"]], "directory", "Referral partner approved",
+    await notify([d["created_by_id"]], "directory", "Suggestion approved",
                  f"{d['name']} is now listed for the team",
                  f"/directory?space={d['space']}&category={d['category'].replace(' ', '%20')}")
     return await get_entry(entry_id, admin)
@@ -190,6 +195,9 @@ async def edit_entry(entry_id: str, body: EntryIn, admin=Depends(admin_user)):
     res = await db.directory.update_one({"entry_id": entry_id}, {"$set": {**clean(body), "updated_at": now_iso()}})
     if not res.matched_count:
         raise HTTPException(404, "Entry not found")
+    if body.category == REFERRAL:
+        from routes.referral_map import geocode_later
+        asyncio.create_task(geocode_later(entry_id))
     return await get_entry(entry_id, admin)
 
 
@@ -199,7 +207,7 @@ async def delete_entry(entry_id: str, admin=Depends(admin_user)):
     if not d or not (await db.directory.delete_one({"entry_id": entry_id})).deleted_count:
         raise HTTPException(404, "Entry not found")
     if d.get("status") == "pending" and d["created_by_id"] != admin["user_id"]:
-        await notify([d["created_by_id"]], "directory", "Referral suggestion not added",
+        await notify([d["created_by_id"]], "directory", "Suggestion not added",
                      f"An admin didn't add {d['name']} this time. Ask them if you'd like to know why.", "")
     return {"ok": True}
 
@@ -211,9 +219,11 @@ class RateIn(BaseModel):
 
 @router.post("/directory/{entry_id}/rate")
 async def rate_entry(entry_id: str, body: RateIn, user=Depends(current_user)):
-    d = await db.directory.find_one({"entry_id": entry_id}, {"_id": 0, "category": 1})
+    d = await db.directory.find_one({"entry_id": entry_id}, {"_id": 0, "category": 1, "status": 1})
     if not d:
         raise HTTPException(404, "Entry not found")
+    if d.get("status") == "pending":
+        raise HTTPException(400, "This suggestion hasn't been approved yet")
     if d["category"] not in RATEABLE:
         raise HTTPException(400, "Only suppliers and activities can be rated")
     if not 1 <= body.stars <= 5:

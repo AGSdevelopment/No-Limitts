@@ -132,7 +132,7 @@ class TestServices:
         assert r.status_code == 200 and r.json()["services"] == "Physio"
         g = requests.get(f"{BASE}/directory/{e['entry_id']}", headers=EMP).json()
         assert g["services"] == "Physio"
-        r = requests.post(f"{BASE}/directory", headers=EMP, json={"space": "therapist", "category": "Suppliers", "name": "TEST_x"})
+        r = requests.post(f"{BASE}/directory", headers=EMP, json={"space": "therapist", "category": "Templates", "name": "TEST_x"})
         assert r.status_code == 403
 
 
