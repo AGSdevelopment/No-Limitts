@@ -45,6 +45,8 @@ function RootStack() {
         <Stack.Screen name="policies" options={{ ...header, title: "Policies & procedures" }} />
         <Stack.Screen name="policy/[id]" options={{ ...header, title: "Policy" }} />
         <Stack.Screen name="events" options={{ ...header, title: "Events" }} />
+        <Stack.Screen name="event-new" options={{ ...header, title: "New event" }} />
+        <Stack.Screen name="event/[id]" options={{ ...header, title: "Event" }} />
         <Stack.Screen name="tasks" options={{ ...header, title: "Tasks" }} />
         <Stack.Screen name="notifications" options={{ ...header, title: "Notifications" }} />
         <Stack.Screen name="team" options={{ ...header, title: "Team directory" }} />

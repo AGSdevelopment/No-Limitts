@@ -1,0 +1,46 @@
+{
+  "summary": "Tested iteration 22 features: Profile PDF export, the Probation Tracker (PATCH, new-starter defaults, reminder loop run in-process with notify/send_email mocked), Starter Buddy and the Compliance search/filters. Backend: 17 of 18 pytest cases pass. The one failure is an edge case: an end-date-only PATCH is accepted even when it falls before the stored start_date. PDF is a single A4 page for the test user and for 15 real staff (read-only GETs). Employee token or no token gets 403, unknown user 404. Frontend at 390x844 as admin: Probation card edit/save in dd-mm-yyyy works (start-only save recalculates +12 months, explicit end overrides, bad format shows a toast), the PDF header button exists, Check-in history renders before Policies, and Buddy assign/already-buddy/remove toasts work. The test admin user_testadmin01 does NOT appear in the buddy picker, because GET /api/users filters out hidden users. The pick flow was verified only by injecting the test admin into the /api/users response through Playwright; no real staff member was picked. Compliance: group chips, CPD chips, search and their combinations give correct 'N staff shown' counts, and the empty state appears. No deprecated Expo packages were detected. All test data was cleaned up.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PATCH /api/staff/{id}/probation", "issue": "End-before-start is only checked when both dates are in the body. Sending {probation_end:'2025-01-01'} to a user whose stored start_date is 2025-11-10 returns 200 and saves an end date earlier than the start. Compare against u.get('start_date') when start_date is not in the body."},
+      {"endpoint": "PUT /api/staff/{id}/buddy", "issue": "Changing or removing a buddy leaves the previous buddy's 3 open tasks in place, and the previous buddy gets no notification. Consider closing or deleting those tasks, or at least flagging them."},
+      {"endpoint": "default_probation (routes/profile.py:104)", "issue": "If start_date is set but probation_end is empty, start_date is overwritten with today. Consider only filling the fields that are missing, or computing the end from the existing start_date."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "BuddyCard picker", "issue": "The picker loads GET /api/users, which excludes hidden users (routes/users.py:13). The hidden test admin user_testadmin01 can never be picked as a buddy from the UI, so admins and testers cannot run the buddy flow without using a real staff member.", "testID": "buddy-pick-user_testadmin01", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Buddy picker sheet (probation-buddy.tsx:119-144)", "issues": [
+        "The sheet is anchored to the bottom and sized by its content. When a search narrows the list, the sheet shrinks and the search field jumps from about y=354 down to near the bottom of the screen.",
+        "The sheet has no KeyboardAvoidingView. On native, the keyboard will cover the search input and the short filtered list. Give the sheet a fixed or min height (for example 70%) and wrap it in a KeyboardAvoidingView."
+      ]},
+      {"screen": "Compliance", "issues": ["On web, the search TextInput shows a black rectangular focus outline inside the rounded search container. Cosmetic only; add outlineStyle 'none' for web."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter22_probation_buddy_pdf.py", "/app/test_reports/pytest/pytest_iter22.xml"],
+  "action_items": [
+    "PATCH /staff/{id}/probation: when only probation_end is sent, validate it against the stored start_date and return 400 if it is on or before that date.",
+    "Make the hidden test admin selectable in the buddy picker for hidden admins. For example, GET /users could include hidden users when the requester is hidden, or the picker could use an admin endpoint. This lets the buddy flow be tested without picking real staff.",
+    "Buddy picker sheet: give it a stable height and wrap it in a KeyboardAvoidingView so the search field does not jump and is not covered by the keyboard.",
+    "Optional: when a buddy is changed or removed, close the previous buddy's open buddy tasks.",
+    "Optional: default_probation should not overwrite an existing start_date."
+  ],
+  "critical_code_review_comments": [
+    "build_profile_pdf uses Story.place on a single page and silently cuts any overflow. This keeps it to 1 page, but long certificate or check-in lists will be cut off without an 'and N more' marker. Policies already have one.",
+    "build_profile_pdf uses date.today() for the 'Generated' date rather than perth_today(), which is inconsistent with the rest of the module.",
+    "probation_reminder_loop checks every hour, and the probation_reminded_for claim correctly prevents duplicate reminders. Hidden users notify only hidden admins and send no email (verified).",
+    "The PDF auth token is passed in the query string (?token=). This is needed for openLink, but the session token will end up in proxy and server logs."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter22_probation_buddy_pdf.py"],
+  "success_rate": {"backend": "94% (17/18)", "frontend": "95% (all requested flows work; the buddy pick of the test admin was only possible with an injected /api/users response)"},
+  "seed_data_creation": "None kept. Cleanup removed 3 UI-created buddy tasks, the buddy and welcome notifications, and the probation/buddy/welcome fields on both test users. user_testemp001.staff_group is back to null.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run with: pytest tests/test_iter22_probation_buddy_pdf.py -n 0. The reminder-loop test runs probation_reminder_loop in-process with notify, send_email and asyncio.sleep patched; it skips itself if any real staff member has a probation_end within 14 days. The server clock is about 2026-10-28. For UI buddy tests, inject user_testadmin01 into the /api/users response with page.route, because hidden users are filtered out. Wait about 2s after opening the sheet (slide animation) and use dispatch_event('click') on buddy-pick-*.",
+  "rca_of_issue": "Buddy picker missing the test admin: BuddyCard queries /api/users, and list_users filters {'hidden': {'$ne': True}}. Probation end-before-start: set_probation only compares upd['start_date'] with upd['probation_end'], so a stored start_date is never checked."
+}

@@ -313,3 +313,23 @@ async def delete_cpd_resource(resource_id: str, admin=Depends(admin_user)):
         raise HTTPException(404, "Resource not found")
     await db.cpd_logs.update_many({"shared_resource_id": resource_id}, {"$unset": {"shared_resource_id": ""}})
     return {"ok": True}
+
+
+
+LOG_CATEGORY = {"Courses": "Course", "Webinars": "Webinar", "Case Studies": "Case Study",
+                "Resource Links": "Resource link"}
+
+
+async def share_file_to_resources(cert: dict, category: str, user: dict) -> str:
+    """Add an uploaded certificate/document to the shared CPD Resource Library."""
+    desc = " · ".join(x for x in (cert.get("issuer"), f"Shared by {user['name']}") if x)
+    doc = {"resource_id": new_id("cpdr"), "title": cert["title"], "description": desc[:2000], "url": "",
+           "category": cpd_section(category), "created_by": user["name"], "created_by_id": user["user_id"],
+           "storage_path": cert["storage_path"], "file_name": cert["file_name"], "content_type": cert["content_type"],
+           "source_cert_id": cert["cert_id"], "created_at": now_iso()}
+    await db.cpd_resources.insert_one(doc)
+    if cert.get("cpd_log_id"):
+        await db.cpd_logs.update_one({"log_id": cert["cpd_log_id"]}, {"$set": {
+            "shared_resource_id": doc["resource_id"], "category": LOG_CATEGORY[doc["category"]]}})
+    await notify(await all_user_ids(user["user_id"]), "update", "New CPD resource", doc["title"], "/cpd")
+    return doc["resource_id"]

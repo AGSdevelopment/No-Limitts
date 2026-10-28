@@ -1,0 +1,40 @@
+{
+  "summary": "Iteration 23 tested sharing from the upload screen (CPD Resources and the Drive Therapist/Participant spaces), team social events with Going/Maybe/Can't go RSVPs, the hidden private check-ins and the probation end-only guard. Backend: 16 of 16 pytest cases pass. CPD sharing maps Course, Webinar, Case Study and Resource link to the right library sections. has_file is true and the file downloads. The CPD log category becomes the singular (e.g. 'Webinar'). Drive IS connected in preview. drive_spaces was tested ONCE and returned {therapist: 'not_set_up', participant: 'added'}. Events: any employee can create one; bad catering, past dates, bad date formats and blank titles all give 400. RSVPs are upserted, visible to everyone, and the counts, my_rsvp, removal and legacy toggle all work. Delete is allowed for the organiser or an admin; another user gets 403 and check-ins give 404. Private check-ins stay hidden from employees (list, GET 404, RSVP 404). The probation end-only update before the saved start now gives 400. Frontend at 375x667: the employee created an event from /events, header + then /event-new with BYO, and landed on /event/{id}. Maybe plus a comment shows in the response list. The admin saw the employee's response, RSVP'd Going, and the counts became '1 going · 1 maybe'. The Going button in the list toggles without opening the event. On /upload-certificate the share box has the CPD switch with 4 type chips and the Therapist and Participant switches. Sharing to CPD with no type shows an error. A UI upload with share=Webinar created a Webinars resource and wrote nothing to the Drive spaces. All test data was cleaned up, including the Drive files (see context). No deprecated Expo packages were detected.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/certificates", "issue": "An unknown share_cpd value (e.g. 'foo') is silently filed under 'Resource Links' by cpd_section() instead of returning 400. Reference: /app/backend/routes/cpd.py:226"},
+      {"endpoint": "POST /api/certificates (drive_spaces)", "issue": "In preview only the Participant space is configured; therapist returns 'not_set_up'. Any employee can write files into the company Therapist/Participant Drive folders. Confirm this permission is intended."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "events.tsx list card", "issue": "`{(item.time || item.location) && (...)}` renders an empty string inside a View when an event has no time and no location (both optional). On native this throws 'Unexpected text node / Text strings must be rendered within <Text>' and can crash the Events list. Use `!!(item.time || item.location) &&`. Reference: /app/frontend/app/events.tsx:69", "testID": "events-screen", "priority": "HIGH"},
+      {"component": "event/[id].tsx delete", "issue": "After deleting, router.back() runs with no history when the event was opened directly (e.g. a deep link from a notification on a cold start). The console logs 'GO_BACK was not handled' and the user stays on the deleted event. Use `router.canGoBack() ? router.back() : router.replace('/events')`. Reference: /app/frontend/app/event/[id].tsx:67", "testID": "event-delete", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "event/[id]", "issues": ["The RSVP chips (Going/Maybe/Can't go) are 36px tall, below the 44px touch target.", "There's no way to withdraw an RSVP on the detail screen. Only the list toggle removes it, and that also drops the comment without asking.", "When one toast replaces another, the two overlap for a moment and the text can't be read."]},
+      {"screen": "upload-certificate", "issues": ["The Therapist and Participant switches show even when that Drive space isn't set up (therapist in preview). The user only finds out after uploading ('couldn't add it...'). Consider disabling or hiding the switch based on GET /api/integrations/google-drive/status spaces.", "The expiry date is still required when sharing a non-certificate item (webinar, case study, resource link)."]},
+      {"screen": "events", "issues": ["The 'upcoming' filter uses the UTC date (new Date().toISOString()), so for Perth users the cut-off runs 8h behind the local date."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter23_upload_share_events_rsvp.py", "/app/test_reports/pytest/pytest_iter23.xml"],
+  "action_items": [
+    "Fix events.tsx:69 to `!!(item.time || item.location) &&` so the native Events list doesn't crash when an event has no time and no location.",
+    "event/[id].tsx remove(): fall back to router.replace('/events') when router.canGoBack() is false.",
+    "Make the RSVP chips at least 44px tall, and consider adding a 'Remove my RSVP' option on the detail screen.",
+    "Optional: validate share_cpd against the 4 types (400 for anything else), and hide or disable Drive space switches that aren't set up."
+  ],
+  "critical_code_review_comments": [
+    "Every certificate upload also copies the file to the company Drive cert folder (copy_cert_to_drive, existing behaviour). Tests must clean Drive afterwards.",
+    "A legacy toggle RSVP (no body) that removes 'going' also discards the stored comment."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter23_upload_share_events_rsvp.py"],
+  "success_rate": {"backend": "100% (16/16)", "frontend": "100% of requested flows (2 issues found by code review / edge cases)"},
+  "seed_data_creation": "None persisted. Test certs, CPD logs and resources, events, an inserted private check-in, 'New event'/'New CPD resource'/'Event cancelled' notifications, drive_docs index entries and 7 Drive files (6 cert-folder copies + 1 'TEST_upload.pdf' in Participant Resources) were all deleted through the Drive API. The employee probation fields were restored to null.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run: pytest tests/test_iter23_upload_share_events_rsvp.py -n 0. Drive is connected in preview (hello@aspireandgrow.com.au); only the participant space is configured. EVERY cert upload writes a copy to the Drive cert folder. The test teardown deletes all Drive files named 'TEST_upload*' through the Drive API, plus the drive_docs entries. The server clock is about 2026-10-28. Use test titles prefixed TEST_upload / TEST_evt so cleanup catches them. Creating an event or a CPD resource notifies all users in-app, so delete notifications whose body matches the TEST_ prefix."
+}

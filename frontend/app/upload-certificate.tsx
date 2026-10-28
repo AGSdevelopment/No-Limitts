@@ -4,11 +4,11 @@ import { useRouter } from "expo-router";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import * as Haptics from "expo-haptics";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { API_URL, authHeaders } from "@/src/api";
+import { API_URL, api, authHeaders } from "@/src/api";
 import { useToast } from "@/src/components/toast";
 import { Button, Chip, Field, IconBox, Ionicons, dmyDate, dmyToIso, isoToDmy } from "@/src/components/ui";
 import { makeStyles, useTheme } from "@/src/theme";
@@ -16,6 +16,11 @@ import { uploadForm } from "@/src/utils/upload";
 
 type Picked = { uri: string; name: string; mimeType?: string };
 const DMY_HINT = "DD-MM-YYYY";
+const CPD_TYPES = ["Course", "Webinar", "Case Study", "Resource link"];
+const SPACES = [
+  { key: "therapist", label: "Therapist Resources" },
+  { key: "participant", label: "Participant Resources" },
+];
 
 function addYears(n: number) {
   const d = new Date();
@@ -42,6 +47,11 @@ export default function UploadCertificate() {
   const [camSheet, setCamSheet] = useState<null | "ask" | "settings">(null);
   const [countCpd, setCountCpd] = useState(false);
   const [cpdHours, setCpdHours] = useState("");
+  const [shareCpd, setShareCpd] = useState(false);
+  const [shareType, setShareType] = useState("");
+  const [spaces, setSpaces] = useState<string[]>([]);
+  const toggleSpace = (k: string) => setSpaces((s) => (s.includes(k) ? s.filter((x) => x !== k) : [...s, k]));
+  const drive = useQuery<any>({ queryKey: ["drive-status"], queryFn: () => api("/integrations/google-drive/status") });
 
   const autoFill = async (target: Picked | null = file) => {
     if (!target) return;
@@ -111,22 +121,35 @@ export default function UploadCertificate() {
     if (issueIso === null) return setError(`Issue date must be in ${DMY_HINT} format.`);
     const h = parseFloat(cpdHours.replace(",", "."));
     if (countCpd && (!h || h <= 0)) return setError("Enter how many CPD hours were completed.");
+    if (shareCpd && !shareType) return setError("Choose whether it's a Course, Webinar, Case Study or Resource link.");
     setSaving(true);
     try {
       const res = await uploadForm(`${API_URL}/certificates`, {
         headers: authHeaders(),
-        fields: { title: title.trim(), issuer: issuer.trim(), issue_date: issueIso, expiry_date: expiryIso, cpd_hours: countCpd ? String(h) : "" },
+        fields: {
+          title: title.trim(), issuer: issuer.trim(), issue_date: issueIso, expiry_date: expiryIso, cpd_hours: countCpd ? String(h) : "",
+          share_cpd: shareCpd ? shareType : "", drive_spaces: spaces.join(","),
+        },
         files: { file },
       });
+      const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
         throw new Error(typeof body.detail === "string" ? body.detail : "Upload failed");
       }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       qc.invalidateQueries({ queryKey: ["certificates"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
       qc.invalidateQueries({ queryKey: ["cpd"] });
-      toast(countCpd ? "Certificate uploaded and added to My CPD" : "Certificate uploaded");
+      qc.invalidateQueries({ queryKey: ["cpd-resources"] });
+      const done = [countCpd && "My CPD", body.cpd_resource_id && "CPD Resources",
+        ...Object.entries(body.drive ?? {}).filter(([, v]) => v === "added").map(([k]) => SPACES.find((x) => x.key === k)?.label)].filter(Boolean);
+      const failed = Object.entries(body.drive ?? {}).filter(([, v]) => v !== "added").map(([k]) => SPACES.find((x) => x.key === k)?.label);
+      toast(
+        failed.length
+          ? `Uploaded, but couldn't add it to ${failed.join(" and ")}. Ask an admin to check the Drive connection.`
+          : done.length ? `Certificate uploaded and added to ${done.join(", ")}` : "Certificate uploaded",
+        failed.length ? "info" : "success",
+      );
       if (router.canGoBack()) router.back();
       else router.replace("/(tabs)/certificates");
     } catch (e: any) {
@@ -212,6 +235,32 @@ export default function UploadCertificate() {
           <Field label="Hours completed" value={cpdHours} onChangeText={setCpdHours} keyboardType="decimal-pad" placeholder="e.g. 3" testID="upload-cpd-hours-input" style={{ marginBottom: 0 }} />
         )}
       </View>
+      <View style={styles.cpdBox} testID="upload-share-box">
+        <Text style={styles.cpdTitle}>Also share it with the team</Text>
+        <View style={styles.cpdRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.shareTitle}>Add to CPD Resources</Text>
+            <Text style={styles.pickSub}>Everyone can open it from the CPD Resource Library</Text>
+          </View>
+          <Switch testID="upload-share-cpd-switch" value={shareCpd} onValueChange={setShareCpd} trackColor={{ true: colors.brandPrimary, false: colors.surfaceTertiary }} />
+        </View>
+        {shareCpd && (
+          <View style={styles.typeRow}>
+            {CPD_TYPES.map((t) => (
+              <Chip key={t} label={t} selected={shareType === t} onPress={() => setShareType(t)} testID={`upload-share-type-${t}`} />
+            ))}
+          </View>
+        )}
+        {SPACES.filter((s) => drive.data?.spaces?.[s.key]?.folder_id).map((s) => (
+          <View key={s.key} style={styles.cpdRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.shareTitle}>Add to {s.label}</Text>
+              <Text style={styles.pickSub}>Saves a copy in the Company Drive folder</Text>
+            </View>
+            <Switch testID={`upload-share-${s.key}-switch`} value={spaces.includes(s.key)} onValueChange={() => toggleSpace(s.key)} trackColor={{ true: colors.brandPrimary, false: colors.surfaceTertiary }} />
+          </View>
+        ))}
+      </View>
       {error && <Text style={styles.error} testID="upload-error">{error}</Text>}
       <Button label="Upload certificate" icon="cloud-upload-outline" loading={saving} onPress={submit} testID="upload-submit-button" />
       <Modal visible={!!camSheet} transparent animationType="fade" onRequestClose={() => setCamSheet(null)}>
@@ -256,5 +305,7 @@ const useStyles = makeStyles((c) => ({
   cpdBox: { backgroundColor: c.brandTertiary, borderRadius: 14, padding: 12, gap: 10, marginBottom: 16 },
   cpdRow: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 44 },
   cpdTitle: { fontSize: 15, fontWeight: "600", color: c.onSurface },
+  shareTitle: { fontSize: 14, fontWeight: "600", color: c.onSurface },
+  typeRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   error: { fontSize: 14, color: c.errorText, marginBottom: 12 },
 }));

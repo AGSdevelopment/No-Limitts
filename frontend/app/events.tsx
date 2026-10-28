@@ -18,7 +18,7 @@ export default function Events() {
   const toast = useToast();
   const qc = useQueryClient();
   const q = useQuery<any[]>({ queryKey: ["events"], queryFn: () => api("/events") });
-  const today = new Date().toISOString().slice(0, 10);
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Australia/Perth" });
   const events = (q.data ?? []).filter((e) => e.date >= today);
 
   const rsvp = async (e: any) => {
@@ -35,14 +35,11 @@ export default function Events() {
     <View style={styles.root} testID="events-screen">
       <Stack.Screen
         options={{
-          headerRight:
-            user?.role === "admin"
-              ? () => (
-                  <Pressable testID="events-new-button" onPress={() => router.push("/compose?type=event")} hitSlop={10}>
-                    <Ionicons name="add-circle" size={30} color={colors.brandPrimary} style={{ marginRight: 8 }} />
-                  </Pressable>
-                )
-              : undefined,
+          headerRight: () => (
+            <Pressable testID="events-new-button" onPress={() => router.push("/event-new")} hitSlop={10} accessibilityLabel="Create event">
+              <Ionicons name="add-circle" size={30} color={colors.brandPrimary} style={{ marginRight: 8 }} />
+            </Pressable>
+          ),
         }}
       />
       {q.isLoading ? (
@@ -55,10 +52,12 @@ export default function Events() {
           keyExtractor={(e) => e.event_id}
           contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: insets.bottom + 24, flexGrow: 1 }}
           refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => q.refetch()} tintColor={colors.brandPrimary} />}
-          ListEmptyComponent={<EmptyState icon="calendar-outline" title="No upcoming events" />}
+          ListEmptyComponent={<EmptyState icon="calendar-outline" title="No upcoming events" subtitle="Tap + to create one for the team." />}
           renderItem={({ item }) => {
             const dt = new Date(`${item.date}T00:00:00`);
+            const mine = item.my_rsvp?.status;
             return (
+              <Pressable onPress={() => router.push(`/event/${item.event_id}`)} testID={`event-open-${item.event_id}`}>
               <Card testID={`event-${item.event_id}`} style={styles.card}>
                 <View style={styles.dateBox}>
                   <Text style={styles.month}>{dt.toLocaleDateString(undefined, { month: "short" }).toUpperCase()}</Text>
@@ -67,21 +66,29 @@ export default function Events() {
                 </View>
                 <View style={{ flex: 1, gap: 4 }}>
                   <Text style={styles.title}>{item.title}</Text>
-                  {(item.time || item.location) && (
+                  {!!(item.time || item.location) && (
                     <Text style={styles.sub}>{[item.time, item.location].filter(Boolean).join(" · ")}</Text>
                   )}
-                  {!!item.description && <Text style={styles.desc}>{item.description}</Text>}
-                  <Text style={styles.sub}>{item.attendee_count} going</Text>
-                  <Button
-                    label={item.going ? "Going" : "RSVP"}
-                    icon={item.going ? "checkmark-circle" : "add"}
-                    variant={item.going ? "secondary" : "primary"}
-                    onPress={() => rsvp(item)}
-                    style={styles.rsvp}
-                    testID={`event-rsvp-${item.event_id}`}
-                  />
+                  {!!item.description && <Text style={styles.desc} numberOfLines={2}>{item.description}</Text>}
+                  {!!item.catering && <Text style={styles.sub}>🍽 {item.catering}</Text>}
+                  <Text style={styles.sub}>
+                    {item.counts?.going ?? item.attendee_count} going{item.counts?.maybe ? ` · ${item.counts.maybe} maybe` : ""}
+                  </Text>
+                  {item.checkin_for ? null : mine && mine !== "going" ? (
+                    <Text style={styles.myRsvp}>You said: {mine === "maybe" ? "Maybe" : "Can't go"} · tap to change</Text>
+                  ) : (
+                    <Button
+                      label={mine === "going" ? "Going" : "RSVP"}
+                      icon={mine === "going" ? "checkmark-circle" : "add"}
+                      variant={mine === "going" ? "secondary" : "primary"}
+                      onPress={() => rsvp(item)}
+                      style={styles.rsvp}
+                      testID={`event-rsvp-${item.event_id}`}
+                    />
+                  )}
                 </View>
               </Card>
+              </Pressable>
             );
           }}
         />
@@ -99,5 +106,6 @@ const useStyles = makeStyles((c) => ({
   title: { fontSize: 17, fontWeight: "700", color: c.onSurface },
   sub: { fontSize: 13, color: c.muted },
   desc: { fontSize: 14, color: c.onSurfaceSecondary, lineHeight: 20 },
-  rsvp: { alignSelf: "flex-start", minHeight: 40, marginTop: 6 },
+  rsvp: { alignSelf: "flex-start", minHeight: 44, marginTop: 6 },
+  myRsvp: { fontSize: 13, fontWeight: "600", color: c.brandPrimary, marginTop: 6 },
 }));

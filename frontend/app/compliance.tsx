@@ -8,10 +8,17 @@ import { API_URL, api, getApiToken, openLink } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { useToast } from "@/src/components/toast";
 import { Avatar, Button, Chip, ConfirmSheet, EmptyState, ErrorState, Ionicons, Loading, formatDate } from "@/src/components/ui";
-import { groupLabel } from "@/src/groups";
+import { STAFF_GROUPS, groupLabel } from "@/src/groups";
 import { makeStyles, useTheme } from "@/src/theme";
 
 type Filter = "all" | "attention" | "policies" | "certs";
+type CpdBand = "any" | "low" | "mid" | "high";
+const CPD_BANDS: { key: CpdBand; label: string; test: (h: number) => boolean }[] = [
+  { key: "any", label: "Any CPD", test: () => true },
+  { key: "low", label: "Under 5h", test: (h) => h < 5 },
+  { key: "mid", label: "5–20h", test: (h) => h >= 5 && h < 20 },
+  { key: "high", label: "20h+", test: (h) => h >= 20 },
+];
 
 export default function Compliance() {
   const { user } = useAuth();
@@ -20,6 +27,8 @@ export default function Compliance() {
   const { colors } = useTheme();
   const [filter, setFilter] = useState<Filter>("attention");
   const [search, setSearch] = useState("");
+  const [group, setGroup] = useState<string>("any");
+  const [cpdBand, setCpdBand] = useState<CpdBand>("any");
   const [open, setOpen] = useState<string | null>(null);
   const router = useRouter();
   const toast = useToast();
@@ -53,14 +62,17 @@ export default function Compliance() {
   const rows = useMemo(() => {
     const all: any[] = q.data?.rows ?? [];
     const s = search.trim().toLowerCase();
+    const band = CPD_BANDS.find((b) => b.key === cpdBand)!;
     return all.filter((r) => {
       if (s && !r.name.toLowerCase().includes(s)) return false;
+      if (group !== "any" && (r.staff_group ?? "none") !== group) return false;
+      if (!band.test(r.cpd_hours)) return false;
       if (filter === "attention") return r.needs_attention;
       if (filter === "policies") return r.policies_pending.length > 0;
       if (filter === "certs") return r.no_certs || r.missing_required.length > 0 || r.certs_expired.length + r.certs_expiring.length > 0;
       return true;
     });
-  }, [q.data, filter, search]);
+  }, [q.data, filter, search, group, cpdBand]);
 
   if (user?.role !== "admin") return <EmptyState icon="lock-closed-outline" title="Admins only" />;
   if (q.isLoading) return <Loading />;
@@ -95,6 +107,19 @@ export default function Compliance() {
         <Chip label="Certificates" selected={filter === "certs"} onPress={() => setFilter("certs")} testID="compliance-filter-certs" />
         <Chip label="Everyone" selected={filter === "all"} onPress={() => setFilter("all")} testID="compliance-filter-all" />
       </ScrollView>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+        <Chip label="All groups" selected={group === "any"} onPress={() => setGroup("any")} testID="compliance-group-any" />
+        {STAFF_GROUPS.map((g) => (
+          <Chip key={g.key} label={g.label} selected={group === g.key} onPress={() => setGroup(g.key)} testID={`compliance-group-${g.key}`} />
+        ))}
+        <Chip label="No group" selected={group === "none"} onPress={() => setGroup("none")} testID="compliance-group-none" />
+      </ScrollView>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+        {CPD_BANDS.map((b) => (
+          <Chip key={b.key} label={b.label} selected={cpdBand === b.key} onPress={() => setCpdBand(b.key)} testID={`compliance-cpd-${b.key}`} />
+        ))}
+      </ScrollView>
+      <Text style={styles.sub} testID="compliance-count">{rows.length} staff shown</Text>
     </View>
   );
 

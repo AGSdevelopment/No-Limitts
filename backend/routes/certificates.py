@@ -8,7 +8,7 @@ from typing import Optional
 import asyncio
 import uuid
 from core import EXPIRY_WARNING_DAYS, MAX_UPLOAD_BYTES, P, bearer, current_user, db, dmy, logger, new_id, notify, now_iso, spawn, user_from_token
-from routes.drive import copy_cert_to_drive
+from routes.drive import copy_cert_to_drive, upload_to_spaces
 from email_service import EMAIL_FROM_NAME, send_email
 from storage import APP_NAME, get_object, put_object
 
@@ -121,10 +121,12 @@ async def list_certificates(scope: str = "mine", user=Depends(current_user)):
 @router.post("/certificates")
 async def upload_certificate(title: str = Form(...), expiry_date: str = Form(...), issuer: str = Form(""),
                              issue_date: str = Form(""), cpd_hours: str = Form(""), file: UploadFile = File(...),
-                             user=Depends(current_user)):
+                             share_cpd: str = Form(""), drive_spaces: str = Form(""), user=Depends(current_user)):
     title = title.strip()
     if not title:
         raise HTTPException(400, "Title is required")
+    if share_cpd.strip() and share_cpd.strip().lower() not in ("course", "webinar", "case study", "resource link"):
+        raise HTTPException(400, "Choose Course, Webinar, Case Study or Resource link")
     hours = None
     if cpd_hours.strip():
         try:
@@ -169,11 +171,18 @@ async def upload_certificate(title: str = Form(...), expiry_date: str = Form(...
                                                                                 "cpd_hours": hours}})
         cert["cpd_hours"] = hours
     spawn(copy_cert_to_drive(cert, data))
+    shared = {}
+    if share_cpd.strip():
+        from routes.cpd import share_file_to_resources  # local import: cpd is a sibling module
+        shared["cpd_resource_id"] = await share_file_to_resources(cert, share_cpd, user)
+    spaces = [x.strip() for x in drive_spaces.split(",") if x.strip()]
+    if spaces:
+        shared["drive"] = await upload_to_spaces(cert, data, spaces, user)
     await check_certificate(cert)
     cert["notified_stage"] = cert_status(expiry_date)["status"]
     from routes.compliance import check_starter_complete  # local import: compliance imports this module
     spawn(check_starter_complete(user))
-    return with_status(cert)
+    return {**with_status(cert), **shared}
 
 
 @router.delete("/certificates/{cert_id}")

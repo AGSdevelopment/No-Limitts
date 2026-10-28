@@ -408,3 +408,30 @@ async def shared_file(file_id: str, request: Request, token: Optional[str] = Non
         raise HTTPException(502, "Could not open this file")
     safe = re.sub(r'[^A-Za-z0-9 ._()-]', "_", name)
     return Response(content=data, media_type=mime, headers={"Content-Disposition": f'inline; filename="{safe}"'})
+
+
+
+async def upload_to_spaces(cert: dict, data: bytes, spaces: list, user: dict) -> dict:
+    """Copy an uploaded file into Therapist / Participants Resources. Returns space -> 'added' | reason."""
+    out = {}
+    roots = await current_roots()
+    conn = await drive_conn()
+    for space in spaces:
+        if space not in DRIVE_SPACES:
+            out[space] = "unknown"
+            continue
+        if not conn or space not in roots:
+            out[space] = "not_set_up"
+            continue
+        try:
+            svc = await run_in_threadpool(gs.drive_service, conn["refresh_token"])
+            ext = cert["file_name"].rsplit(".", 1)[-1] if "." in cert["file_name"] else ""
+            name = f"{cert['title']}.{ext}" if ext else cert["title"]
+            await run_in_threadpool(gs.drive_upload, svc, roots[space], name, data, cert["content_type"])
+            out[space] = "added"
+        except Exception as e:
+            logger.error(f"Drive space upload failed ({space}): {e}")
+            out[space] = "failed"
+    if "added" in out.values():
+        spawn(index_drive())
+    return out

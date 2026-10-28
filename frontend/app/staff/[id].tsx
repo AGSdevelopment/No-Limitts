@@ -1,10 +1,11 @@
-import { RefreshControl, ScrollView, Text, View } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { RefreshControl, ScrollView, Pressable, Text, View } from "react-native";
+import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { api } from "@/src/api";
+import { API_URL, api, getApiToken, openLink } from "@/src/api";
 import { useAuth } from "@/src/auth";
+import { BuddyCard, ProbationCard } from "@/src/components/probation-buddy";
 import { Avatar, Button, EmptyState, ErrorState, Ionicons, Loading, Pill, formatDate } from "@/src/components/ui";
 import { groupLabel } from "@/src/groups";
 import { makeStyles, useTheme } from "@/src/theme";
@@ -32,6 +33,22 @@ export default function StaffProfile() {
       refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => q.refetch()} />}
       testID="staff-profile-screen"
     >
+      <Stack.Screen
+        options={{
+          headerRight: () => (
+            <Pressable
+              testID="profile-pdf-button"
+              onPress={() => openLink(`${API_URL}/staff/${s.user_id}/profile/pdf?token=${encodeURIComponent(getApiToken() ?? "")}`)}
+              hitSlop={10}
+              style={styles.pdfBtn}
+              accessibilityLabel="Download profile PDF"
+            >
+              <Ionicons name="document-text-outline" size={20} color={colors.brandPrimary} />
+              <Text style={styles.pdfText}>PDF</Text>
+            </Pressable>
+          ),
+        }}
+      />
       <View style={styles.hero}>
         <Avatar name={s.name} picture={s.picture} size={56} />
         <View style={{ flex: 1, gap: 4 }}>
@@ -50,6 +67,9 @@ export default function StaffProfile() {
         <Stat label="Policies" value={`${acked}/${policies.length}`} />
         <Stat label="Open tasks" value={`${open_tasks}`} />
       </View>
+
+      <ProbationCard key={`p${s.start_date}${s.probation_end}`} s={s} onSaved={() => q.refetch()} />
+      <BuddyCard s={s} onSaved={() => q.refetch()} />
 
       {starter && (
         <Button label={`New Starter checklist · ${starter.done}/${starter.total} done`} icon="list-outline" variant="secondary" onPress={() => router.push(`/starter/${s.user_id}`)} testID="profile-starter-button" />
@@ -73,13 +93,6 @@ export default function StaffProfile() {
         {cpd.total_logs > cpd.logs.length && <Text style={styles.empty}>Showing the latest {cpd.logs.length} of {cpd.total_logs}.</Text>}
       </Section>
 
-      <Section title={`Policies · ${acked} of ${policies.length} acknowledged`} styles={styles}>
-        {policies.length === 0 && <Text style={styles.empty}>No policies yet.</Text>}
-        {[...policies].sort((a: any, b: any) => Number(a.acknowledged) - Number(b.acknowledged)).map((p: any) => (
-          <Row key={p.policy_id} icon={p.acknowledged ? "checkmark-circle" : "time-outline"} color={p.acknowledged ? colors.success : colors.warningText} title={p.title} sub={p.acknowledged ? "Acknowledged" : "Not acknowledged yet"} styles={styles} />
-        ))}
-      </Section>
-
       <Section title="Check-in history" styles={styles}>
         {checkins.length === 0 && <Text style={styles.empty}>No check-ins yet.</Text>}
         {checkins.map((c: any) => (
@@ -92,6 +105,13 @@ export default function StaffProfile() {
             {!!c.notes && <Text style={styles.notes}>{c.notes}</Text>}
             {!c.outcome && !c.notes && <Text style={styles.empty}>No notes recorded.</Text>}
           </View>
+        ))}
+      </Section>
+
+      <Section title={`Policies · ${acked} of ${policies.length} acknowledged`} styles={styles}>
+        {policies.length === 0 && <Text style={styles.empty}>No policies yet.</Text>}
+        {[...policies].sort((a: any, b: any) => Number(a.acknowledged) - Number(b.acknowledged)).map((p: any) => (
+          <Row key={p.policy_id} icon={p.acknowledged ? "checkmark-circle" : "time-outline"} color={p.acknowledged ? colors.success : colors.warningText} title={p.title} sub={p.acknowledged ? "Acknowledged" : "Not acknowledged yet"} styles={styles} />
         ))}
       </Section>
     </ScrollView>
@@ -131,6 +151,8 @@ function Row({ icon, color, title, sub, styles }: { icon: any; color: string; ti
 
 const useStyles = makeStyles((c) => ({
   root: { flex: 1, backgroundColor: c.surfaceSecondary },
+  pdfBtn: { flexDirection: "row", alignItems: "center", gap: 4, minHeight: 44, paddingHorizontal: 8 },
+  pdfText: { fontSize: 15, fontWeight: "600", color: c.brandPrimary },
   hero: { flexDirection: "row", gap: 12, alignItems: "center", backgroundColor: c.surface, borderRadius: 16, padding: 16 },
   name: { fontSize: 18, fontWeight: "700", color: c.onSurface },
   sub: { fontSize: 13, color: c.muted },

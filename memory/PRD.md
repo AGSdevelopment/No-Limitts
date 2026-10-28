@@ -120,3 +120,6 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - "Follow-up needed" check-in outcome -> one shared task (starter + admin) due in 7 days (Perth date, atomic once)
 - Reminder history (/reminder-history, db.cert_reminder_log)
 - Welcome email + in-app note when someone is put into a New Starter group (once, atomic)
+- Probation tracker (12 months default, editable; admin reminder 14 days before), Starter buddy (3 standard tasks), Profile one-page PDF, Compliance filters by group/CPD band
+- Upload screen: also share to CPD Resources (Course/Webinar/Case Study/Resource link) and/or Therapist/Participant Resources Drive folders
+- Events: any staff can create (purpose, food & drink option, conditions); RSVP Going/Maybe/Can't go with a comment visible to all; event detail /event/[id]; organiser/admin delete

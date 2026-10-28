@@ -39,7 +39,7 @@ export default function Library() {
     { icon: "stats-chart-outline", label: "Compliance dashboard", to: "/compliance", id: "compliance" },
     { icon: "create-outline", label: "Post company update", to: "/compose?type=update", id: "post-update" },
     { icon: "document-attach-outline", label: "Add policy or procedure", to: "/compose?type=policy", id: "post-policy" },
-    { icon: "calendar-number-outline", label: "Create event", to: "/compose?type=event", id: "post-event" },
+    { icon: "calendar-number-outline", label: "Create event", to: "/event-new", id: "post-event" },
     { icon: "person-add-outline", label: "Assign task", to: "/compose?type=task", id: "post-task" },
     { icon: "chatbubbles-outline", label: "New chat channel", to: "/compose?type=channel", id: "post-channel" },
     { icon: "extension-puzzle-outline", label: "Integrations", to: "/integrations", id: "integrations" },

@@ -399,6 +399,8 @@ async def send_starter_welcome(user_id: str):
         u = await db.users.find_one({"user_id": user_id}, P)
         if not u or u.get("staff_group") not in NEW_STARTER_GROUPS:
             return
+        from routes.profile import default_probation  # local import: profile imports this module
+        await default_probation(user_id)
         claim = await db.users.update_one({"user_id": user_id, "welcome_sent_at": {"$exists": False}},
                                           {"$set": {"welcome_sent_at": now_iso()}})
         if not claim.modified_count:
