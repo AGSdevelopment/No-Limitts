@@ -1,6 +1,6 @@
 """Admin compliance dashboard, Excel export and New Starter checklist."""
 import io
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import asyncio
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
@@ -228,10 +228,14 @@ async def remind_certificates(preview: bool = False, admin=Depends(admin_user)):
     rows = [r for r in (await compliance_data())["rows"] if r["no_certs"] or r["missing_required"]]
     if preview:
         return {"reminded": 0, "would_remind": len(rows)}
-    return {"reminded": await send_cert_reminders(rows)}
+    return {"reminded": await send_cert_reminders(rows, "manual", admin["name"])}
 
 
-async def send_cert_reminders(rows: list) -> int:
+async def send_cert_reminders(rows: list, trigger: str, by: str = "") -> int:
+    await db.cert_reminder_log.insert_one({
+        "log_id": new_id("rem"), "sent_at": now_iso(), "trigger": trigger, "by": by,
+        "recipients": [{"user_id": r["user_id"], "name": r["name"], "email": r.get("email", ""),
+                        "missing": r["missing_required"], "no_certs": r["no_certs"]} for r in rows]})
     for r in rows:
         need = ", ".join(r["missing_required"]) or "your training certificates"
         await notify([r["user_id"]], "certificate", "Please upload your certificates", f"Still needed: {need}",
@@ -258,7 +262,7 @@ async def cert_reminder_loop():
                 claim = await db.meta.update_one({"key": key}, {"$setOnInsert": {"created_at": now_iso()}}, upsert=True)
                 if claim.upserted_id:  # only the first backend to claim this month sends
                     rows = [r for r in (await compliance_data())["rows"] if r["no_certs"] or r["missing_required"]]
-                    n = await send_cert_reminders(rows)
+                    n = await send_cert_reminders(rows, "monthly")
                     await db.meta.update_one({"key": key}, {"$set": {"reminded": n}})
                     logger.info(f"Monthly certificate reminders sent to {n} staff")
         except Exception as e:
@@ -353,4 +357,66 @@ async def checkin_notes(user_id: str, event_id: str, body: CheckinNotesIn, admin
         "notes_at": now_iso()}})
     if not res.matched_count:
         raise HTTPException(404, "Check-in not found")
-    return await db.events.find_one({"event_id": event_id}, {"_id": 0, "attendees": 0})
+    ev = await db.events.find_one({"event_id": event_id}, {"_id": 0, "attendees": 0})
+    if await create_followup(ev, admin):
+        ev = await db.events.find_one({"event_id": event_id}, {"_id": 0, "attendees": 0})
+        ev["followup_created"] = True
+    return ev
+
+
+
+@router.get("/compliance/reminder-history")
+async def reminder_history(admin=Depends(admin_user)):
+    return await db.cert_reminder_log.find({}, P).sort("sent_at", -1).to_list(100)
+
+
+# ---- Follow-up tasks from check-ins
+async def create_followup(ev: dict, admin: dict) -> Optional[str]:
+    """'Follow-up needed' -> one shared task for the starter and the admin, due in 7 days (created once)."""
+    if ev.get("outcome") != "Follow-up needed" or ev.get("followup_group_id"):
+        return None
+    claim = await db.events.update_one({"event_id": ev["event_id"], "followup_group_id": {"$exists": False}},
+                                       {"$set": {"followup_group_id": "pending"}})
+    if not claim.modified_count:
+        return None
+    from routes.tasks import TaskIn, create_task  # local import: tasks is a sibling module
+    starter = await db.users.find_one({"user_id": ev["checkin_for"]}, P)
+    if not starter:
+        return None
+    ids = list(dict.fromkeys([ev["checkin_for"], admin["user_id"]]))
+    body = TaskIn(title=f"Follow up: check-in with {starter['name']}",
+                  description=(ev.get("notes") or "Follow-up agreed at the check-in.")[:2000],
+                  due_date=(datetime.now(DIGEST_TZ).date() + timedelta(days=7)).isoformat(), assignee_ids=ids)
+    res = await create_task(body, admin)
+    gid = res.get("group_id") or res.get("task_id")
+    await db.events.update_one({"event_id": ev["event_id"]}, {"$set": {"followup_group_id": gid}})
+    return gid
+
+
+# ---- Welcome email when someone is made a New Starter
+async def send_starter_welcome(user_id: str):
+    try:
+        u = await db.users.find_one({"user_id": user_id}, P)
+        if not u or u.get("staff_group") not in NEW_STARTER_GROUPS:
+            return
+        claim = await db.users.update_one({"user_id": user_id, "welcome_sent_at": {"$exists": False}},
+                                          {"$set": {"welcome_sent_at": now_iso()}})
+        if not claim.modified_count:
+            return
+        items = await starter_checklist(u)
+        await notify([user_id], "starter", "Welcome to the team!",
+                     f"Your New Starter checklist has {len(items)} steps to get you set up.", "/starter-checklist")
+        if u.get("hidden") or not u.get("email") or u["email"].endswith("@example.com"):
+            return
+        steps = "".join(f"<li>{escape(i['title'])}</li>" for i in items)
+        await send_email(to=u["email"], subject="Welcome to Aspire & Grow! Your New Starter checklist", html=(
+            "<div style='font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px'>"
+            f"<h2 style='color:#205890'>Welcome aboard, {escape(u['name'].split(' ')[0])}!</h2>"
+            "<p>We're so glad you're joining us. To help you settle in, we've put together a short checklist "
+            "in StaffHub:</p>"
+            f"<ol>{steps}</ol>"
+            "<p>Open the StaffHub app and tap <b>New Starter checklist</b> on the Home screen to get started. "
+            "Forms tick off as you go, and policies and certificates update automatically.</p>"
+            "<p>If you have any questions, message the team in StaffHub chat. We're here to help!</p></div>"))
+    except Exception as e:
+        logger.error(f"Starter welcome failed: {e}")

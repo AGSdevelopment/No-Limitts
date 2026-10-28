@@ -116,3 +116,7 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Monthly certificate reminders: first Monday 9am Perth (cert_reminder_loop, atomic monthly claim)
 - Google Calendar invites per admin (routes/calendar.py, calendar.events scope); needs Calendar API enabled + redirect URI .../api/integrations/google-calendar/callback in Google Cloud
 - Expiry warnings mention "required for your role" for required certificates
+- Staff profile (/staff/[id], GET /api/staff/{id}/profile): certs, CPD, policies, check-ins, starter progress
+- "Follow-up needed" check-in outcome -> one shared task (starter + admin) due in 7 days (Perth date, atomic once)
+- Reminder history (/reminder-history, db.cert_reminder_log)
+- Welcome email + in-app note when someone is put into a New Starter group (once, atomic)

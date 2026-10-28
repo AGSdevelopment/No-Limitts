@@ -56,6 +56,8 @@ function RootStack() {
         <Stack.Screen name="starter-checklist" options={{ ...header, title: "New Starter checklist" }} />
         <Stack.Screen name="starter/[id]" options={{ ...header, title: "Starter progress" }} />
         <Stack.Screen name="cert-requirements" options={{ ...header, title: "Required certificates" }} />
+        <Stack.Screen name="staff/[id]" options={{ ...header, title: "Staff profile" }} />
+        <Stack.Screen name="reminder-history" options={{ ...header, title: "Reminder history" }} />
         <Stack.Screen name="integrations" options={{ ...header, title: "Integrations" }} />
       </Stack.Protected>
       <Stack.Protected guard={!user}>

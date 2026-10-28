@@ -26,7 +26,7 @@ def event_fields(user: dict) -> dict:
     """Check-in notes/outcomes are admin-only."""
     hidden = {"_id": 0}
     if user.get("role") != "admin":
-        hidden.update({"notes": 0, "outcome": 0, "notes_by": 0, "notes_at": 0})
+        hidden.update({"notes": 0, "outcome": 0, "notes_by": 0, "notes_at": 0, "followup_group_id": 0})
     return hidden
 
 

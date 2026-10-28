@@ -21,8 +21,8 @@ export function CheckinCard({ c, userId, onChanged, onCancel }: { c: any; userId
   const save = async () => {
     setSaving(true);
     try {
-      await api(`/starter-checklist/user/${userId}/checkin/${c.event_id}/notes`, { method: "PUT", body: { notes, outcome } });
-      toast("Check-in notes saved", "success");
+      const r = await api(`/starter-checklist/user/${userId}/checkin/${c.event_id}/notes`, { method: "PUT", body: { notes, outcome } });
+      toast(r.followup_created ? "Notes saved. A follow-up task due in 7 days was added for you both." : "Check-in notes saved", "success");
       setEditing(false);
       onChanged();
     } catch (e: any) {

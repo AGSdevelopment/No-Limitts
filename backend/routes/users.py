@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
-from core import P, admin_user, current_user, db
+from core import P, admin_user, current_user, db, spawn
 from routes.forms import STAFF_GROUPS
 
 router = APIRouter(prefix="/api")
@@ -28,6 +28,8 @@ async def set_staff_group(user_id: str, body: StaffGroupIn, admin=Depends(admin_
     res = await db.users.update_one({"user_id": user_id}, {"$set": {"staff_group": body.staff_group}})
     if not res.matched_count:
         raise HTTPException(404, "User not found")
+    from routes.compliance import send_starter_welcome  # local import avoids a circular import
+    spawn(send_starter_welcome(user_id))
     return await db.users.find_one({"user_id": user_id}, P)
 
 

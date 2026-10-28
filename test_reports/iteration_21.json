@@ -1,0 +1,42 @@
+{
+  "summary": "Iteration 21: tested the staff profile, check-in follow-up tasks, certificate reminder history and the starter welcome. Backend: all 16 pytest checks passed. GET /api/staff/{id}/profile returns 403 for employees, 404 for unknown users, and the full shape for admins (starter is null for groups that are not New Starter). 'Follow-up needed' creates exactly two tasks that share one group_id (starter and admin), due today+7, with the notes as the description. Saving again, or changing the outcome away and back, does not create another; 4 saves sent at the same moment also produced only one group. Other outcomes create no task. send_cert_reminders was called in-process with notify and send_email mocked; the log has the right shape and is returned newest first without _id. PATCH group to new_starter_employee sets welcome_sent_at and creates one 'Welcome to the team!' notification. Switching groups again does not re-send. The in-process welcome email (mocked) has the right recipient, subject, escaped name and the ordered checklist. Frontend at 390x844 as admin: Team 'Profile' opens /staff/{id} with the stats and all four sections. The Compliance 'Reminder history' link opens the empty state. Expanding a compliance row shows 'View profile', which navigates correctly. On /starter/user_testemp001, booking a check-in and saving 'Follow-up needed' notes shows the toast 'Notes saved. A follow-up task due in 7 days was added for you both.' A re-save shows 'Check-in notes saved'. The profile check-in history shows the outcome and notes, and the starter button navigates. No page errors. No deprecated Expo packages in the reviewed files.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "create_followup", "issue": "The task due date uses date.today(), which is the server date in UTC, not DIGEST_TZ (Perth). Before 8am Perth time the due date is one day earlier than the admin expects. Reference: /app/backend/routes/compliance.py:385"},
+      {"endpoint": "create_followup / send_starter_welcome", "issue": "Both check a flag and then write it, which is not atomic. In practice a 4-way concurrent save still made only one group. An atomic claim (update_one with followup_group_id/welcome_sent_at $exists:false, then check modified_count) would make the single-send guarantee robust. Reference: /app/backend/routes/compliance.py:376,396-398"},
+      {"endpoint": "GET /api/events (employee)", "issue": "notes, outcome and notes_by are now stripped (the iteration 20 fix is verified). followup_group_id is still returned to the employee. This is harmless but inconsistent; consider stripping it too."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "staff/[id]", "issues": ["With 30 policies the Policies section is very long, which pushes Check-in history far down. Consider showing only pending policies, or collapsing the section with a 'Show all' toggle.", "Reminder history rows show only the date (formatDate) and not the time it went out."]},
+      {"screen": "team", "issues": ["The 'Profile', 'Set group' and role buttons (smallBtn) are 36px tall, below the 44px touch target (team.tsx:145)."]},
+      {"screen": "starter/[id] CheckinCard", "issues": ["The outcome chips are still 36px tall (below 44px).", "The cancel check-in trash icon still deletes straight away with no confirmation (carried over from iteration 20)."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter21_profile_followup_reminders_welcome.py", "/app/test_reports/pytest/pytest_iter21.xml"],
+  "action_items": [
+    "Optional: compute the follow-up due date in DIGEST_TZ (datetime.now(DIGEST_TZ).date() + 7 days).",
+    "Optional: make the follow-up and welcome single-send claims atomic (conditional update_one, then check modified_count).",
+    "Optional: strip followup_group_id from employee GET /api/events.",
+    "Design: 44px touch targets for the Team small buttons and the outcome chips; add a confirm before cancelling a check-in; consider collapsing long policy lists on the staff profile.",
+    "Data: leftover seed user user_TEST_third01 (TEST_third@example.com, not hidden) shows in the Team and Compliance lists. Delete it or set hidden=true."
+  ],
+  "critical_code_review_comments": [
+    "profile.py: admin_user guard, 404 and projection P are correct. Check-ins include admin notes, which is fine because the endpoint is admin-only.",
+    "create_followup uses a local import of create_task with the admin as creator. Notifications go only to the non-creator (the starter). Correct.",
+    "send_cert_reminders now logs before sending, so a log is written even if sending fails partway. This is acceptable.",
+    "set_staff_group calls spawn(send_starter_welcome) on every group change. This is cheap because the function returns early, but it could be skipped when the new group is not a New Starter group."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter21_profile_followup_reminders_welcome.py"],
+  "success_rate": {"backend": "100% (16/16)", "frontend": "100%"},
+  "seed_data_creation": "None kept. Cleanup done: follow-up tasks, test check-ins, notifications for the test emp/admin since the test start, and TEST_ reminder logs deleted (the reminder log collection is empty). The in-process fake user was deleted. user_testemp001 was set back to staff_group null and hidden=true, and welcome_sent_at/starter_completed_at were unset.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run pytest with -n 0. Never call POST /compliance/remind-certificates without preview=true. Test in-process with motor (a fresh AsyncIOMotorClient per asyncio.run) and patch rc.db/rcert.db/notify/send_email. The team list hides user_testemp001 (hidden), so use /starter/user_testemp001 and /staff/user_testemp001 directly. The check-in date field is dd-mm-yyyy. The server date is in Oct 2026.",
+  "rca_of_issue": ""
+}

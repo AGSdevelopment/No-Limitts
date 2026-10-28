@@ -81,6 +81,10 @@ export default function Compliance() {
         <Button label="Required certs" icon="ribbon-outline" variant="secondary" onPress={() => router.push("/cert-requirements")} style={{ flex: 1, paddingHorizontal: 8 }} testID="compliance-requirements-button" />
         <Button label="Remind staff" icon="mail-outline" variant="secondary" onPress={previewRemind} style={{ flex: 1, paddingHorizontal: 8 }} testID="compliance-remind-button" />
       </View>
+      <Pressable onPress={() => router.push("/reminder-history")} style={styles.historyLink} testID="compliance-history-link">
+        <Ionicons name="time-outline" size={16} color={colors.brandPrimary} />
+        <Text style={styles.historyText}>Reminder history</Text>
+      </Pressable>
       <View style={styles.searchBox}>
         <Ionicons name="search" size={18} color={colors.muted} />
         <TextInput value={search} onChangeText={setSearch} placeholder="Search staff" placeholderTextColor={colors.muted} style={styles.searchInput} testID="compliance-search" />
@@ -162,6 +166,7 @@ export default function Compliance() {
                     <Text key={t} style={styles.detail} numberOfLines={1}>• {t}</Text>
                   ))}
                   {pend === 0 && certIssues === 0 && <Text style={styles.detail}>Fully compliant.</Text>}
+                  <Button label="View profile" icon="person-outline" variant="secondary" onPress={() => router.push(`/staff/${item.user_id}`)} style={{ marginTop: 8 }} testID={`compliance-profile-${item.user_id}`} />
                   {!!item.starter && (
                     <Button label="View starter checklist" icon="list-outline" variant="secondary" onPress={() => router.push(`/starter/${item.user_id}`)} style={{ marginTop: 8 }} testID={`compliance-starter-${item.user_id}`} />
                   )}
@@ -224,6 +229,8 @@ const useStyles = makeStyles((c) => ({
   exportBtn: { flexDirection: "row", alignItems: "center", gap: 4, minHeight: 44, paddingHorizontal: 8 },
   exportText: { fontSize: 15, fontWeight: "600", color: c.brandPrimary },
   statsRow: { flexDirection: "row", gap: 10 },
+  historyLink: { flexDirection: "row", alignItems: "center", alignSelf: "flex-start", gap: 6, minHeight: 44, paddingHorizontal: 4 },
+  historyText: { fontSize: 14, fontWeight: "600", color: c.brandPrimary },
   stat: { flex: 1, borderRadius: 16, padding: 14, gap: 2 },
   statValue: { fontSize: 28, fontWeight: "800" },
   statLabel: { fontSize: 13, fontWeight: "700", color: c.onSurface },

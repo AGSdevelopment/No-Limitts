@@ -98,6 +98,9 @@ export default function Team() {
                     >
                       <Text style={styles.smallBtnText}>{item.staff_group ? "Change group" : "Set group"}</Text>
                     </Pressable>
+                    <Pressable testID={`team-profile-${item.user_id}`} onPress={() => router.push(`/staff/${item.user_id}`)} style={styles.smallBtn}>
+                      <Text style={styles.smallBtnText}>Profile</Text>
+                    </Pressable>
                     {item.user_id !== user?.user_id && (
                       <Pressable testID={`team-role-toggle-${item.user_id}`} disabled={busy === item.user_id} onPress={() => toggleRole(item)} style={styles.smallBtn}>
                         <Text style={styles.smallBtnText}>{item.role === "admin" ? "Make employee" : "Make admin"}</Text>
@@ -139,6 +142,6 @@ const useStyles = makeStyles((c) => ({
   email: { fontSize: 13, color: c.muted },
   iconBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: c.brandTertiary, alignItems: "center", justifyContent: "center" },
   actions: { flexDirection: "row", gap: 8, flexWrap: "wrap", marginTop: 4 },
-  smallBtn: { minHeight: 36, paddingHorizontal: 12, borderRadius: 18, backgroundColor: c.brandTertiary, justifyContent: "center" },
+  smallBtn: { minHeight: 44, paddingHorizontal: 12, borderRadius: 22, backgroundColor: c.brandTertiary, justifyContent: "center" },
   smallBtnText: { fontSize: 13, fontWeight: "600", color: c.onBrandTertiary },
 }));
