@@ -32,8 +32,7 @@ async def list_places(user=Depends(current_user)):
     return docs
 
 
-@router.post("/places")
-async def add_place(body: PlaceIn, user=Depends(admin_user)):
+def clean_place(body: PlaceIn) -> dict:
     name = body.name.strip()[:120]
     if not name:
         raise HTTPException(400, "Add the place's name")
@@ -42,14 +41,35 @@ async def add_place(body: PlaceIn, user=Depends(admin_user)):
     link = body.link.strip()[:500]
     if link and not link.startswith(("http://", "https://")):
         link = "https://" + link
-    if await db.places.find_one({"name": {"$regex": f"^{re.escape(name)}$", "$options": "i"}}):
-        raise HTTPException(409, f"{name} is already on the list")
-    doc = {"place_id": new_id("plc"), "name": name, "kind": body.kind, "address": body.address.strip()[:300],
-           "link": link, "note": body.note.strip()[:500], "likes": [], "created_by": user["name"],
+    return {"name": name, "kind": body.kind, "address": body.address.strip()[:300], "link": link,
+            "note": body.note.strip()[:500]}
+
+
+async def name_taken(name: str, exclude: str = "") -> bool:
+    return bool(await db.places.find_one({"name": {"$regex": f"^{re.escape(name)}$", "$options": "i"},
+                                          "place_id": {"$ne": exclude}}))
+
+
+@router.post("/places")
+async def add_place(body: PlaceIn, user=Depends(admin_user)):
+    d = clean_place(body)
+    if await name_taken(d["name"]):
+        raise HTTPException(409, f"{d['name']} is already on the list")
+    doc = {"place_id": new_id("plc"), **d, "likes": [], "created_by": user["name"],
            "created_by_id": user["user_id"], "created_at": now_iso()}
     await db.places.insert_one(dict(doc))
     doc.pop("_id", None)
     return {**{k: v for k, v in doc.items() if k != "likes"}, "liked": False, "like_count": 0, "can_delete": True}
+
+
+@router.put("/places/{place_id}")
+async def edit_place(place_id: str, body: PlaceIn, user=Depends(admin_user)):
+    d = clean_place(body)
+    if await name_taken(d["name"], place_id):
+        raise HTTPException(409, f"{d['name']} is already on the list")
+    if not (await db.places.update_one({"place_id": place_id}, {"$set": {**d, "updated_at": now_iso()}})).matched_count:
+        raise HTTPException(404, "Place not found")
+    return {"ok": True, **d}
 
 
 @router.post("/places/{place_id}/like")

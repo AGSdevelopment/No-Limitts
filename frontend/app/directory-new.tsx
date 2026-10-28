@@ -20,7 +20,7 @@ const TARGETS: { key: Target; label: string }[] = [
   { key: "participant", label: "Participant" },
   { key: "favourite", label: "AGTS Favourite" },
 ];
-const EMPTY = { name: "", contact: "", phone: "", email: "", address: "", link: "", note: "" };
+const EMPTY = { name: "", services: "", contact: "", phone: "", email: "", address: "", link: "", note: "" };
 
 export default function DirectoryNew() {
   const params = useLocalSearchParams<{ space?: DirSpace; category?: string; edit?: string }>();
@@ -37,6 +37,7 @@ export default function DirectoryNew() {
   const [f, setF] = useState(EMPTY);
   const [files, setFiles] = useState<LocalFile[]>([]);
   const [saving, setSaving] = useState(false);
+  const isReferral = category === "Trusted Referral Partner Organisations";
   const set = (k: keyof typeof EMPTY) => (v: string) => setF({ ...f, [k]: v });
 
   useEffect(() => {
@@ -44,7 +45,7 @@ export default function DirectoryNew() {
     if (e) {
       setTarget(e.space);
       setCategory(e.category);
-      setF({ name: e.name, contact: e.contact, phone: e.phone, email: e.email, address: e.address, link: e.link, note: e.note });
+      setF({ name: e.name, services: e.services ?? "", contact: e.contact, phone: e.phone, email: e.email, address: e.address, link: e.link, note: e.note });
     }
   }, [existing.data]);
 
@@ -122,12 +123,14 @@ export default function DirectoryNew() {
               <Chip key={c} label={c} selected={category === c} onPress={() => setCategory(c)} testID={`directory-category-${c}`} />
             ))}
           </View>
-          <Field label="Name" value={f.name} onChangeText={set("name")} placeholder={category === "Templates" ? "e.g. Session notes template" : "e.g. Sensory Tools Australia"} testID="directory-name-input" />
-          <Field label="Contact person (optional)" value={f.contact} onChangeText={set("contact")} placeholder="e.g. Sam Lee" testID="directory-contact-input" />
-          <Field label="Phone (optional)" value={f.phone} onChangeText={set("phone")} placeholder="e.g. 08 9123 4567" keyboardType="phone-pad" testID="directory-phone-input" />
-          <Field label="Email (optional)" value={f.email} onChangeText={set("email")} placeholder="name@example.com" keyboardType="email-address" autoCapitalize="none" testID="directory-email-input" />
-          <Field label="Address or area (optional)" value={f.address} onChangeText={set("address")} placeholder="e.g. Osborne Park" testID="directory-address-input" />
-          <Field label="Website or link (optional)" value={f.link} onChangeText={set("link")} placeholder="https://" keyboardType="url" autoCapitalize="none" testID="directory-link-input" />
+          <Field label={isReferral ? "Company name" : "Name"} value={f.name} onChangeText={set("name")} placeholder={category === "Templates" ? "e.g. Session notes template" : isReferral ? "e.g. Perth Speech Pathology" : "e.g. Sensory Tools Australia"} testID="directory-name-input" />
+          {isReferral && <Field label="Services offered" value={f.services} onChangeText={set("services")} placeholder="e.g. Speech therapy, feeding assessments" multiline testID="directory-services-input" />}
+          {!isReferral && <Field label="Contact person (optional)" value={f.contact} onChangeText={set("contact")} placeholder="e.g. Sam Lee" testID="directory-contact-input" />}
+          <Field label={isReferral ? "Phone number" : "Phone (optional)"} value={f.phone} onChangeText={set("phone")} placeholder="e.g. 08 9123 4567" keyboardType="phone-pad" testID="directory-phone-input" />
+          {isReferral && <Field label="Website" value={f.link} onChangeText={set("link")} placeholder="https://" keyboardType="url" autoCapitalize="none" testID="directory-link-input" />}
+          <Field label={isReferral ? "Email" : "Email (optional)"} value={f.email} onChangeText={set("email")} placeholder="name@example.com" keyboardType="email-address" autoCapitalize="none" testID="directory-email-input" />
+          <Field label={isReferral ? "Location / postcode" : "Address or area (optional)"} value={f.address} onChangeText={set("address")} placeholder={isReferral ? "e.g. Joondalup WA 6027" : "e.g. Osborne Park"} testID="directory-address-input" />
+          {!isReferral && <Field label="Website or link (optional)" value={f.link} onChangeText={set("link")} placeholder="https://" keyboardType="url" autoCapitalize="none" testID="directory-link-input" />}
           <Field label="Notes (optional)" value={f.note} onChangeText={set("note")} placeholder="What it's for, prices, how to refer…" multiline testID="directory-note-input" />
 
           <Text style={styles.label}>Files (optional)</Text>

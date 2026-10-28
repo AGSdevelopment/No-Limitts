@@ -74,6 +74,18 @@ export default function Integrations() {
       toast(e.message, "error");
     }
   };
+  const [resBusy, setResBusy] = useState(false);
+  const testResDigest = async () => {
+    setResBusy(true);
+    try {
+      const r = await api("/digest/resources/test", { method: "POST" });
+      toast(r.sent ? `Preview sent to ${r.email}` : `Preview built but no email sent to ${r.email}`, r.sent ? "success" : "info");
+    } catch (e: any) {
+      toast(e.message, "error");
+    } finally {
+      setResBusy(false);
+    }
+  };
   const testDigest = async () => {
     setDigestBusy(true);
     try {
@@ -416,6 +428,11 @@ export default function Integrations() {
           <Text style={styles.twoWayTitle}>Weekly chat digest</Text>
           <Text style={styles.note}>Every Monday at 8am Perth time, everyone gets an email recap of last week&apos;s team channels.</Text>
           <Button label="Email me a preview" variant="ghost" icon="mail-outline" loading={digestBusy} onPress={testDigest} testID="digest-test-button" />
+        </View>
+        <View style={styles.twoWayBox} testID="resource-digest-box">
+          <Text style={styles.twoWayTitle}>Weekly Company Drive digest</Text>
+          <Text style={styles.note}>Every Monday at 8am Perth time, everyone gets an email of new templates, resources and the top-rated suppliers.</Text>
+          <Button label="Email me a preview" variant="ghost" icon="mail-outline" loading={resBusy} onPress={testResDigest} testID="resource-digest-test-button" />
         </View>
       </View>
       <ConfirmSheet visible={confirmDrive} title="Disconnect Google Drive?" message="New certificates will no longer be copied to Drive. Existing files stay in Drive." confirmLabel="Disconnect" onConfirm={disconnectDrive} onClose={() => setConfirmDrive(false)} />

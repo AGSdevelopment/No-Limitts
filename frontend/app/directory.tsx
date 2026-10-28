@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { FlatList, Linking, Modal, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from "react-native";
+import { FlatList, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from "react-native";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -35,7 +35,7 @@ export default function Directory() {
 
   const list = useMemo(() => {
     const s = search.trim().toLowerCase();
-    return (q.data ?? []).filter((e) => !s || `${e.name} ${e.contact} ${e.address} ${e.note}`.toLowerCase().includes(s));
+    return (q.data ?? []).filter((e) => !s || `${e.name} ${e.services ?? ""} ${e.contact} ${e.address} ${e.note}`.toLowerCase().includes(s));
   }, [q.data, search]);
 
   const remove = async () => {
@@ -56,8 +56,12 @@ export default function Directory() {
   const title = `${SPACE_LABEL[space] ?? ""} · ${category}`;
   const isReferral = category === "Trusted Referral Partner Organisations";
   const rateable = category === "Suppliers" || category === "Activities";
+  const shareable = isReferral || rateable;
   const [picking, setPicking] = useState(false);
-  const channel = useQuery<any>({ queryKey: ["referral-share-channel"], queryFn: () => api("/directory/share-channel"), enabled: isReferral });
+  const [review, setReview] = useState<{ item: any; stars: number; comment: string } | null>(null);
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const channel = useQuery<any>({ queryKey: ["referral-share-channel"], queryFn: () => api("/directory/share-channel"), enabled: shareable });
   const channels = useQuery<any[]>({ queryKey: ["conversations"], queryFn: () => api("/conversations"), enabled: picking });
 
   const [sharing, setSharing] = useState<string | null>(null);
@@ -73,12 +77,18 @@ export default function Directory() {
       setSharing(null);
     }
   };
-  const rate = async (e: any, stars: number) => {
+  const saveReview = async () => {
+    if (!review) return;
+    setReviewBusy(true);
     try {
-      await api(`/directory/${e.entry_id}/rate`, { method: "POST", body: { stars } });
+      await api(`/directory/${review.item.entry_id}/rate`, { method: "POST", body: { stars: review.stars, comment: review.comment } });
       qc.invalidateQueries({ queryKey: ["directory", space, category] });
+      toast("Thanks for your review", "success");
+      setReview(null);
     } catch (err: any) {
       toast(err.message, "error");
+    } finally {
+      setReviewBusy(false);
     }
   };
   const chooseChannel = async (id: string) => {
@@ -119,10 +129,10 @@ export default function Directory() {
           refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => q.refetch()} tintColor={colors.brandPrimary} />}
           ListHeaderComponent={
             <View style={{ gap: 10 }}>
-              {isReferral && !channel.isLoading && (
+              {shareable && !channel.isLoading && (
                 <View style={styles.shareBar} testID="directory-share-channel">
                   <Ionicons name="chatbubbles-outline" size={18} color={colors.brandPrimary} />
-                  <Text style={[styles.sub, { flex: 1 }]}>{channel.data ? `Shares go to #${channel.data.name}` : isAdmin ? "Choose the channel referrals are shared to" : "An admin needs to choose the sharing channel"}</Text>
+                  <Text style={[styles.sub, { flex: 1 }]}>{channel.data ? `Shares go to #${channel.data.name}` : isAdmin ? "Choose the channel shares go to" : "An admin needs to choose the sharing channel"}</Text>
                   {isAdmin && (
                     <Pressable onPress={() => setPicking(true)} style={styles.linkBtn} testID="directory-share-channel-change">
                       <Text style={styles.link}>{channel.data ? "Change" : "Choose"}</Text>
@@ -160,14 +170,15 @@ export default function Directory() {
                   </>
                 )}
               </View>
+              {!!item.services && <Text style={styles.note}><Text style={styles.bold}>Services: </Text>{item.services}</Text>}
               {!!item.contact && <Text style={styles.sub}>Contact: {item.contact}</Text>}
-              {!!item.address && <Text style={styles.sub}>{item.address}</Text>}
+              {!!item.address && <Text style={styles.sub}>📍 {item.address}</Text>}
               {!!item.note && <Text style={styles.note}>{item.note}</Text>}
               {rateable && (
                 <View style={styles.row} testID={`directory-rating-${item.entry_id}`}>
                   <View style={styles.stars}>
                     {[1, 2, 3, 4, 5].map((n) => (
-                      <Pressable key={n} onPress={() => rate(item, n)} style={styles.star} accessibilityLabel={`Rate ${n} star${n > 1 ? "s" : ""}`} testID={`directory-star-${item.entry_id}-${n}`}>
+                      <Pressable key={n} onPress={() => setReview({ item, stars: n, comment: item.my_comment ?? "" })} style={styles.star} accessibilityLabel={`Rate ${n} star${n > 1 ? "s" : ""}`} testID={`directory-star-${item.entry_id}-${n}`}>
                         <Ionicons name={n <= item.my_rating ? "star" : "star-outline"} size={24} color={colors.warning} />
                       </Pressable>
                     ))}
@@ -175,8 +186,23 @@ export default function Directory() {
                   <Text style={styles.sub}>{item.rating_count ? `${item.avg_rating} ★ · ${item.rating_count} rating${item.rating_count > 1 ? "s" : ""}` : "Be the first to rate"}</Text>
                 </View>
               )}
+              {rateable && item.reviews?.length > 0 && (
+                <View style={{ gap: 6 }} testID={`directory-reviews-${item.entry_id}`}>
+                  {(expanded === item.entry_id ? item.reviews : item.reviews.slice(0, 2)).map((r: any, i: number) => (
+                    <View key={`${r.name}${i}`} style={styles.review}>
+                      <Text style={styles.reviewHead}>{"★".repeat(r.stars)} {r.name}</Text>
+                      <Text style={styles.note}>{r.text}</Text>
+                    </View>
+                  ))}
+                  {item.reviews.length > 2 && (
+                    <Pressable onPress={() => setExpanded(expanded === item.entry_id ? null : item.entry_id)} style={styles.linkBtn} testID={`directory-reviews-toggle-${item.entry_id}`}>
+                      <Text style={styles.link}>{expanded === item.entry_id ? "Show fewer" : `See all ${item.reviews.length} reviews`}</Text>
+                    </Pressable>
+                  )}
+                </View>
+              )}
               <View style={styles.actions}>
-                {isReferral && <Action icon="share-social-outline" label={sharing === item.entry_id ? "Sharing…" : "Share to chat"} onPress={() => share(item)} testID={`directory-share-${item.entry_id}`} />}
+                {shareable && <Action icon="share-social-outline" label={sharing === item.entry_id ? "Sharing…" : "Share to chat"} onPress={() => share(item)} testID={`directory-share-${item.entry_id}`} />}
                 {!!item.phone && <Action icon="call-outline" label={item.phone} onPress={() => Linking.openURL(`tel:${item.phone.replace(/\s/g, "")}`)} testID={`directory-phone-${item.entry_id}`} />}
                 {!!item.email && <Action icon="mail-outline" label="Email" onPress={() => Linking.openURL(`mailto:${item.email}`)} testID={`directory-email-${item.entry_id}`} />}
                 {!!item.link && <Action icon="open-outline" label="Website" onPress={() => openLink(item.link)} testID={`directory-link-${item.entry_id}`} />}
@@ -192,10 +218,37 @@ export default function Directory() {
           )}
         />
       )}
+      <Modal visible={!!review} transparent animationType="slide" onRequestClose={() => setReview(null)}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
+        <Pressable style={styles.scrim} onPress={() => setReview(null)} />
+        <View style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]} testID="directory-review-sheet">
+          <Text style={styles.name}>Rate {review?.item.name}</Text>
+          <View style={styles.stars}>
+            {[1, 2, 3, 4, 5].map((n) => (
+              <Pressable key={n} onPress={() => review && setReview({ ...review, stars: n })} style={styles.star} accessibilityLabel={`${n} star${n > 1 ? "s" : ""}`} testID={`directory-review-star-${n}`}>
+                <Ionicons name={review && n <= review.stars ? "star" : "star-outline"} size={30} color={colors.warning} />
+              </Pressable>
+            ))}
+          </View>
+          <TextInput
+            value={review?.comment ?? ""}
+            onChangeText={(t) => review && setReview({ ...review, comment: t.slice(0, 300) })}
+            placeholder="Why is it great? (optional)"
+            placeholderTextColor={colors.muted}
+            multiline
+            style={[styles.search, styles.reviewInput]}
+            testID="directory-review-comment"
+          />
+          <Text style={styles.sub}>{(review?.comment ?? "").length}/300</Text>
+          <Button label="Save review" icon="checkmark" loading={reviewBusy} onPress={saveReview} testID="directory-review-save" />
+          <Button label="Cancel" variant="ghost" onPress={() => setReview(null)} testID="directory-review-cancel" />
+        </View>
+        </KeyboardAvoidingView>
+      </Modal>
       <Modal visible={picking} transparent animationType="slide" onRequestClose={() => setPicking(false)}>
         <Pressable style={styles.scrim} onPress={() => setPicking(false)} />
         <View style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]} testID="directory-channel-sheet">
-          <Text style={styles.name}>Share referrals to</Text>
+          <Text style={styles.name}>Share to</Text>
           <Button label="Close" variant="ghost" onPress={() => setPicking(false)} testID="directory-channel-close" />
           {channels.isLoading ? (
             <Loading />
@@ -247,7 +300,7 @@ const useStyles = makeStyles((c) => ({
   note: { fontSize: 14, color: c.onSurface, lineHeight: 20 },
   iconBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  action: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 40, paddingHorizontal: 12, borderRadius: 20, backgroundColor: c.brandTertiary, maxWidth: 220 },
+  action: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 44, paddingHorizontal: 12, borderRadius: 20, backgroundColor: c.brandTertiary, maxWidth: 220 },
   actionText: { fontSize: 13, fontWeight: "600", color: c.brandPrimary, flexShrink: 1 },
   file: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44, paddingHorizontal: 10, borderRadius: 10, backgroundColor: c.surfaceSecondary },
   fileName: { flex: 1, fontSize: 14, color: c.onSurface },
@@ -255,6 +308,10 @@ const useStyles = makeStyles((c) => ({
   linkBtn: { minHeight: 44, paddingHorizontal: 12, justifyContent: "center" },
   link: { fontSize: 14, fontWeight: "700", color: c.brandPrimary },
   stars: { flexDirection: "row" },
+  bold: { fontWeight: "700" },
+  reviewInput: { minHeight: 88, textAlignVertical: "top", paddingTop: 10, borderWidth: 1, borderColor: c.borderStrong, backgroundColor: c.surfaceSecondary },
+  review: { backgroundColor: c.surfaceSecondary, borderRadius: 10, padding: 10, gap: 2 },
+  reviewHead: { fontSize: 12, fontWeight: "700", color: c.warningText },
   star: { width: 40, height: 44, alignItems: "center", justifyContent: "center" },
   scrim: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)" },
   sheet: { backgroundColor: c.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 16, gap: 8 },

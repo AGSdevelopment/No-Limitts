@@ -20,13 +20,15 @@ RATEABLE = ("Suppliers", "Activities")
 HIGHLIGHT = (("therapist", "Templates"), ("participant", "Resources"))
 REFERRAL = "Trusted Referral Partner Organisations"
 SHARE_KEY = "referral_share_channel"
-FIELDS = ("name", "contact", "phone", "email", "address", "link", "note")
+SHAREABLE = {REFERRAL: "🤝 Referral partner", "Suppliers": "🛒 Supplier", "Activities": "🎯 Activity"}
+FIELDS = ("name", "services", "contact", "phone", "email", "address", "link", "note")
 
 
 class EntryIn(BaseModel):
     space: str
     category: str
     name: str
+    services: str = ""
     contact: str = ""
     phone: str = ""
     email: str = ""
@@ -38,7 +40,7 @@ class EntryIn(BaseModel):
 def clean(body: EntryIn) -> dict:
     if body.category not in CATEGORIES.get(body.space, []):
         raise HTTPException(400, "Choose a section and category")
-    d = {k: (getattr(body, k) or "").strip()[:1000 if k == "note" else 300] for k in FIELDS}
+    d = {k: (getattr(body, k) or "").strip()[:1000 if k in ("note", "services") else 300] for k in FIELDS}
     if not d["name"]:
         raise HTTPException(400, "Add a name")
     if d["link"] and not d["link"].startswith(("http://", "https://")):
@@ -48,10 +50,14 @@ def clean(body: EntryIn) -> dict:
 
 def shape(d: dict, user: dict) -> dict:
     ratings = d.pop("ratings", None) or {}
+    comments = d.pop("comments", None) or {}
     if d["category"] in RATEABLE:
         d["rating_count"] = len(ratings)
         d["avg_rating"] = round(sum(ratings.values()) / len(ratings), 1) if ratings else 0
         d["my_rating"] = ratings.get(user["user_id"], 0)
+        d["my_comment"] = (comments.get(user["user_id"]) or {}).get("text", "")
+        d["reviews"] = sorted(({"name": c["name"], "text": c["text"], "at": c["at"], "stars": ratings.get(uid, 0)}
+                               for uid, c in comments.items() if c.get("text")), key=lambda r: r["at"], reverse=True)
     d["files"] = [{k: v for k, v in f.items() if k != "storage_path"} for f in d.get("files") or []]
     d["can_edit"] = user["role"] == "admin"
     return d
@@ -83,6 +89,15 @@ async def highlights(user=Depends(current_user)):
 
 class ShareChannelIn(BaseModel):
     conversation_id: str
+
+
+async def ensure_share_channel():
+    """Shares go to #Allied Health unless an admin picked another channel."""
+    if await db.settings.find_one({"key": SHARE_KEY}):
+        return
+    conv = await db.conversations.find_one({"type": "channel", "name": {"$regex": "^allied[- ]health$", "$options": "i"}}, P)
+    if conv:
+        await db.settings.insert_one({"key": SHARE_KEY, "conversation_id": conv["conversation_id"]})
 
 
 async def share_channel():
@@ -138,6 +153,7 @@ async def delete_entry(entry_id: str, admin=Depends(admin_user)):
 
 class RateIn(BaseModel):
     stars: int
+    comment: Optional[str] = None
 
 
 @router.post("/directory/{entry_id}/rate")
@@ -149,7 +165,10 @@ async def rate_entry(entry_id: str, body: RateIn, user=Depends(current_user)):
         raise HTTPException(400, "Only suppliers and activities can be rated")
     if not 1 <= body.stars <= 5:
         raise HTTPException(400, "Rate from 1 to 5 stars")
-    await db.directory.update_one({"entry_id": entry_id}, {"$set": {f"ratings.{user['user_id']}": body.stars}})
+    upd = {f"ratings.{user['user_id']}": body.stars}
+    if body.comment is not None:
+        upd[f"comments.{user['user_id']}"] = {"text": body.comment.strip()[:300], "name": user["name"], "at": now_iso()}
+    await db.directory.update_one({"entry_id": entry_id}, {"$set": upd})
     return await get_entry(entry_id, user)
 
 
@@ -159,13 +178,13 @@ async def share_entry(entry_id: str, user=Depends(current_user)):
     d = await db.directory.find_one({"entry_id": entry_id}, P)
     if not d:
         raise HTTPException(404, "Entry not found")
-    if d["category"] != REFERRAL:
-        raise HTTPException(400, "Only referral partners can be shared")
+    if d["category"] not in SHAREABLE:
+        raise HTTPException(400, "Only referral partners, suppliers and activities can be shared")
     conv = await share_channel()
     if not conv:
-        raise HTTPException(400, "An admin needs to choose the referral sharing channel first")
-    lines = [f"🤝 Referral partner: {d['name']}"]
-    for label, k in (("Contact", "contact"), ("Phone", "phone"), ("Email", "email"), ("Address", "address"), ("Website", "link"), ("Notes", "note")):
+        raise HTTPException(400, "An admin needs to choose the sharing channel first")
+    lines = [f"{SHAREABLE[d['category']]}: {d['name']}"]
+    for label, k in (("Services", "services"), ("Contact", "contact"), ("Phone", "phone"), ("Email", "email"), ("Location", "address"), ("Website", "link"), ("Notes", "note")):
         if d.get(k):
             lines.append(f"{label}: {d[k]}")
     await send_message(conv["conversation_id"], MessageIn(text="\n".join(lines)), user)

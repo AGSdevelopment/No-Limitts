@@ -8,6 +8,7 @@ from storage import init_storage
 from routes import (auth, users, notifications, certificates, chat, updates, policies, compliance, events, tasks,
                     dashboard, drive, gchat, calendar, forms, socials, cpd, ai, digest, profile, places, pathway, directory)
 from routes.places import migrate_place_kinds
+from routes.directory import ensure_share_channel
 from routes.certificates import expiry_loop
 from routes.policies import policy_reminder_loop
 from routes.compliance import cert_reminder_loop
@@ -17,7 +18,7 @@ from routes.tasks import task_reminder_loop
 from routes.drive import drive_index_loop
 from routes.gchat import gchat_loop
 from routes.socials import socials_loop
-from routes.digest import digest_loop
+from routes.digest import digest_loop, resource_digest_loop
 
 app = FastAPI()
 
@@ -150,6 +151,7 @@ async def startup():
     await migrate_forms_v3()
     await restore_staff()
     await migrate_place_kinds()
+    await ensure_share_channel()
     # internal test accounts stay usable but are hidden from staff everywhere
     await db.users.update_many({"user_id": {"$in": HIDDEN_TEST_USERS}}, {"$set": {"hidden": True}})
     # migrate the old single Support Office flag / audience to staff groups
@@ -169,6 +171,7 @@ async def startup():
     asyncio.create_task(gchat_loop())
     asyncio.create_task(drive_index_loop())
     asyncio.create_task(digest_loop())
+    asyncio.create_task(resource_digest_loop())
     asyncio.create_task(socials_loop())
     asyncio.create_task(task_reminder_loop())
     asyncio.create_task(policy_reminder_loop())

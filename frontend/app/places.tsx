@@ -46,14 +46,29 @@ export default function Places() {
       .sort((a, b) => b.like_count - a.like_count || a.name.localeCompare(b.name));
   }, [q.data, filter, search]);
 
+  const [editing, setEditing] = useState<string | null>(null);
+  const startEdit = (p: any) => {
+    setF({ name: p.name, kind: p.kind, address: p.address, link: p.link, note: p.note });
+    setEditing(p.place_id);
+    setAdding(true);
+  };
+  const closeForm = () => {
+    setAdding(false);
+    setEditing(null);
+    setF({ name: "", kind: "Eat & Drink", address: "", link: "", note: "" });
+  };
   const add = async () => {
     if (!f.name.trim()) return toast("Add the place's name", "error");
     setSaving(true);
     try {
-      await api("/places", { method: "POST", body: f });
-      toast(`${f.name.trim()} added. Thanks!`, "success");
-      setF({ name: "", kind: "Eat & Drink", address: "", link: "", note: "" });
-      setAdding(false);
+      if (editing) {
+        await api(`/places/${editing}`, { method: "PUT", body: f });
+        toast(`${f.name.trim()} updated`, "success");
+      } else {
+        await api("/places", { method: "POST", body: f });
+        toast(`${f.name.trim()} added. Thanks!`, "success");
+      }
+      closeForm();
       qc.invalidateQueries({ queryKey: ["places"] });
     } catch (e: any) {
       toast(e.message, "error");
@@ -99,8 +114,8 @@ export default function Places() {
         <Field label="Website or Google Maps link (optional)" value={f.link} onChangeText={(v) => setF({ ...f, link: v })} placeholder="https://" autoCapitalize="none" keyboardType="url" testID="place-link-input" />
         <Field label="Why we love it (optional)" value={f.note} onChangeText={(v) => setF({ ...f, note: v })} placeholder="e.g. Best flat white, great for team lunches" multiline testID="place-note-input" />
         <View style={{ flexDirection: "row", gap: 8 }}>
-          <Button label="Cancel" variant="ghost" onPress={() => setAdding(false)} style={{ flex: 1 }} testID="place-cancel" />
-          <Button label="Add favourite" icon="add" loading={saving} onPress={add} style={{ flex: 1 }} testID="place-save" />
+          <Button label="Cancel" variant="ghost" onPress={closeForm} style={{ flex: 1 }} testID="place-cancel" />
+          <Button label={editing ? "Save" : "Add favourite"} icon={editing ? "checkmark" : "add"} loading={saving} onPress={add} style={{ flex: 1 }} testID="place-save" />
         </View>
       </KeyboardAwareScrollView>
     );
@@ -168,6 +183,11 @@ export default function Places() {
             {!!item.link && (
               <Pressable onPress={() => openLink(item.link)} style={styles.linkBtn} testID={`place-open-${item.place_id}`}>
                 <Text style={styles.link}>Open</Text>
+              </Pressable>
+            )}
+            {item.can_delete && (
+              <Pressable onPress={() => startEdit(item)} style={styles.likeBtn} accessibilityLabel="Edit place" testID={`place-edit-${item.place_id}`}>
+                <Ionicons name="create-outline" size={18} color={colors.muted} />
               </Pressable>
             )}
             {item.can_delete && (

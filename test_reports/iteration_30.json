@@ -1,0 +1,42 @@
+{
+  "summary": "Iteration 30: Tested rating comments/reviews, share for Suppliers/Activities/Referral partners (default #Allied Health share channel, set on startup), the 'services' field, admin editing of AGTS places, and the weekly Company Drive (resource) digest admin preview. Backend: 9/9 pytest pass. Frontend (375x667, public URL): review sheet with stars and comment saves, and the review shows in directory-reviews-{id}. When reopened, the comment is prefilled. The share header shows '#Allied Health' by default. Share to chat shows a 'Shared to #<channel>' toast, tested against a TEMP TEST channel. The referral form shows Company name, Services offered, Phone number, Website, Email and Location / postcode with no Contact person field. The saved card shows 'Services:' and '📍 location', and edit prefills services. place-edit opens a prefilled form; 'Save changes' updates the card and shows a toast. resource-digest-test-button shows the toast 'Preview sent to admin.test@example.com'. All features work. Only minor UX/design notes remain.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/directory/{id}/share", "issue": "Shared message labels the location as 'Address:'. The referral form now calls this field 'Location / postcode'. Consider 'Location:' for referral partners."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/directory review sheet", "issues": [
+        "directory-review-comment TextInput reuses styles.search (backgroundColor c.surface), which is the same white as the sheet. The input has no visible border or fill, so it is hard to tell there is a field (see screenshot: only the placeholder shows).",
+        "The review Modal has no KeyboardAvoidingView or keyboard-aware wrapper. On native, the keyboard will cover the bottom-sheet comment field and the Save button."
+      ]},
+      {"screen": "/directory channel picker", "issues": ["The sheet title still says 'Share referrals to'. Shares now include Suppliers and Activities, so use something like 'Share to channel'."]},
+      {"screen": "/directory", "issues": ["The search filter matches name, contact, address and note but not the new 'services' field.", "Action chips (Share/Phone/Email/Website) have minHeight 40, below the 44pt touch target."]},
+      {"screen": "/places edit form", "issues": ["The 'Save changes' button label wraps to two lines at 375px width.", "The header title stays 'AGTS favourites' while editing, with no 'Edit favourite' title."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter30_reviews_share_places_digest.py", "/app/backend/tests/seed_iter30_ui.py", "/app/test_reports/pytest/iter30.xml"],
+  "action_items": [
+    "Give directory-review-comment a visible fill or border, e.g. backgroundColor surfaceSecondary or a border, inside the white sheet.",
+    "Wrap the review sheet content in KeyboardAvoidingView (or the keyboard-controller equivalent) so the keyboard does not hide the comment field and Save button.",
+    "Rename the channel-picker title 'Share referrals to' to a general label.",
+    "Optional: include 'services' in the directory search filter, and raise action chip minHeight to 44.",
+    "Optional: use the 'Location:' label in referral share messages, and stop the 'Save changes' label wrapping on the places form."
+  ],
+  "critical_code_review_comments": [
+    "directory.shape() correctly pops raw ratings/comments. Reviews are sorted newest first and the stars come from the current rating.",
+    "When editing a referral entry, a legacy 'contact' value stays hidden in the form but is still re-sent. It shows on the card ('Contact:') and in shares, even though the form no longer exposes it. This is acceptable but may confuse admins.",
+    "resource_digest_loop stores its weekly meta key before sending. A failed send is never retried that week, which matches the existing digest_loop pattern."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter30_reviews_share_places_digest.py", "/app/backend/tests/seed_iter30_ui.py"],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "100% of requested flows (minor design notes)"},
+  "seed_data_creation": "Temporary TEST_ entries, places, channels conv_TEST_share30/conv_TEST_ui30 and their messages were all deleted. referral_share_channel was restored to conv_ab9e05c17d16 (Allied Health). The startup default was also verified by deleting the key and restarting the backend: it was recreated as Allied Health. No messages were posted to #Allied Health (its message count is still 2).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run pytest with -n 0. The frontend .env key is EXPO_PUBLIC_BACKEND_URL. For share tests, use the seed_iter30_ui.py modes: seed / share_test (switches the share channel to a TEST channel) / cleanup (restores Allied Health). Review sheet modal: wait about 1s after opening for the slide animation before clicking inside. The resource digest test endpoint emails admin.test@example.com through the email integration (202 Accepted). One run had a transient 'Failed to load font Ionicons' network toast."
+}

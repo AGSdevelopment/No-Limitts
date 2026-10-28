@@ -129,7 +129,8 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Edit events (PATCH, notifies responders, capacity change promotes waitlist), date/venue polls with lock-in, photo likes & comments, attendance ticking (profile shows events attended)
 - AGTS favourites (/places, button on Company Drive): kinds Eat & Drink / Coffee / WiFi-Meet; admins add/remove, all like; Friday lunch random picker
 - Company Drive directories (/directory): Therapist (Suppliers, Templates, Trusted Referral Partner Organisations), Participants (Suppliers, Activities, Resources); entries with contact/link/notes + file attachments (object storage); admin-only add/edit/remove; Drive header 'Add' (Therapist / Participant / AGTS Favourite)
-- Directory extras: 1–5 star ratings on Suppliers/Activities (sorted by rating); 'Share to chat' on Referral Partners posts to one admin-chosen channel (settings key referral_share_channel); Home 'New templates & resources' (last 14 days); confirm sheet before removing a favourite
+- Directory extras: 1–5 star ratings + short review comments (≤300) on Suppliers/Activities (sorted by rating); 'Share to chat' on Referral Partners, Suppliers & Activities posts to one channel (default #Allied Health, settings key referral_share_channel, admin can change); Referral Partner fields: Company name, Services offered, Phone, Website, Email, Location/postcode; Home 'New templates & resources' (last 14 days); confirm sheet before removing a favourite; admins can edit favourites
+- Weekly Company Drive digest email (Mondays 8am Perth): new Templates/Resources + top-rated Suppliers; admin preview on Integrations
 - Emerging Therapist Pathway (/pathway): 9 supervision steps + self-set CPD goals; admin sees it on staff profile
 - Places on Events: favourite place chips for event location + venue poll options
 - Participation leaderboard (/leaderboard): admins + Support Office
