@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.concurrency import run_in_threadpool
 import re
 import secrets
-from core import DIGEST_TZ, P, admin_user, db, logger, now, now_iso, result_page
+from core import DIGEST_TZ, P, admin_user, current_user, db, logger, now, now_iso, result_page
 import google_services as gs
 
 router = APIRouter(prefix="/api")
@@ -17,14 +17,14 @@ def cal_key(user_id: str) -> str:
 
 
 @router.get("/integrations/google-calendar/status")
-async def calendar_status(admin=Depends(admin_user)):
+async def calendar_status(admin=Depends(current_user)):
     conn = await db.integrations.find_one({"key": cal_key(admin["user_id"])}, P)
     return {"configured": bool(gs.drive_client_config()), "connected": bool(conn),
             "email": (conn or {}).get("email", ""), "redirect_uri": gs.redirect_uri(KIND)}
 
 
 @router.post("/integrations/google-calendar/start")
-async def calendar_start(admin=Depends(admin_user)):
+async def calendar_start(admin=Depends(current_user)):
     if not gs.drive_client_config():
         raise HTTPException(409, "Google sign-in credentials are not set up yet")
     state = secrets.token_urlsafe(32)
@@ -59,12 +59,13 @@ async def calendar_callback(state: str = "", code: str = "", error: str = ""):
     await db.integrations.update_one({"key": key}, {"$set": {
         "key": key, "refresh_token": enc, "email": admin.get("email", ""), "user_id": st["user_id"],
         "updated_at": now_iso()}}, upsert=True)
-    return result_page("Google Calendar connected", "Check-ins you book will now be sent as Google Calendar invites.")
+    return result_page("Google Calendar connected", "StaffHub can now add dates to your Google Calendar. You can close this page.")
 
 
 @router.delete("/integrations/google-calendar")
-async def calendar_disconnect(admin=Depends(admin_user)):
+async def calendar_disconnect(admin=Depends(current_user)):
     await db.integrations.delete_one({"key": cal_key(admin["user_id"])})
+    await db.plan_cal_events.delete_many({"user_id": admin["user_id"]})
     return {"ok": True}
 
 

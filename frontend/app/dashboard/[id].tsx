@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { API_URL, api, getApiToken, openLink } from "@/src/api";
 import { EmptyState, ErrorState, Ionicons, Loading } from "@/src/components/ui";
+import { PlanCalendarBar } from "@/src/components/plan-calendar-bar";
 import { makeStyles, useTheme } from "@/src/theme";
 
 // Shows an external dashboard inside the app. The server only returns the address to allowed roles.
@@ -41,6 +42,7 @@ export default function Dashboard() {
           ) : null),
         }}
       />
+      {d.embed === "agts-nk" && <PlanCalendarBar page={d.dashboard_id} />}
       {Platform.OS === "web" ? (
         createElement("iframe", { src, style: { width: "100%", height: "100%", border: 0 }, title: d.name, "data-testid": "dashboard-frame" })
       ) : (

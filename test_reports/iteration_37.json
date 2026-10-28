@@ -1,0 +1,43 @@
+{
+  "summary": "Tested the 4 participant-plans features: missing/not-completed/out-of-date form alerts, Review booked tick, Monday plans email and plan dates in Google Calendar. Backend: 54/54 pytest pass (21 new in test_iter37_plans_features.py plus 33 in iter36). The iter36 FakeDB is updated with the new collections, $in, $addToSet and delete_one/delete_many, and existing alert tests now pass ok forms. The unit tests use fake notify, email, Google Calendar and db. The real POST /plans-email/test was called ONCE and returned {sent:1, nothing_due:0, to: emp.test@example.com}; the email service answered 202. Frontend (390x844 web preview): employee /dashboard/plans-test and admin /dashboard/participant-plans both show the native bar. Mark review booked works there: status changes to 'Review booked', the chip is removed, the overdue tile drops from 4 to 3, the state survives a reload, and Undo restores it. The admin /dashboard/therapist-dashboard has no bar. All bookings were reverted; plan_reviews_booked is empty. Two minor UI issues: the booked-by note is hidden by CSS, and the bar labels are cut off on a phone.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/agts-dashboard/review-booked", "issue": "Every toggle starts a full sync_plan_calendar() for all users. Two quick toggles (or a toggle during the hourly loop) can run two syncs at once. Both see the event key as missing, so both insert it and Google Calendar gets duplicate events. Fix: wrap sync_plan_calendar in a module-level asyncio.Lock (or debounce it)."},
+      {"endpoint": "plans_email()", "issue": "A plan ending this month whose review is overdue (and not booked) is listed both in 'Plan reviews overdue' and in 'Plans ending this month'. It is also counted twice in the subject number n."},
+      {"endpoint": "booked ticks (plan_reviews_booked)", "issue": "Ticks are keyed globally by name|end, not per page. Booking on any page (including the test page plans-test, which shows real participants) clears the overdue alert, email line and calendar event for Nikki's and Saraya's pages too. This is probably intended because it is the same participant, but confirm it."},
+      {"endpoint": "BookIn.end:int", "issue": "If a Wix plan end serial is ever fractional (an Excel datetime), Pydantic rejects it with a 422 and the button shows 'Could not save'. Current live data is all whole numbers."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "therapist-dashboard.html nk card (.nkbk)", "issue": "The 'Booked by <name> · <date>' line uses class 'note'. The nk-view injection in agts_dashboard.py:570 (and :509) sets .note{display:none!important}, so users never see who booked a review or when. Give it its own class (e.g. nkbkNote).", "testID": ".nkBook", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "dashboard/[id] PlanCalendarBar", "issues": ["At 390px wide both labels are cut off: 'Add dates to my c…' and 'Email me a summ…'. Use shorter labels (e.g. 'Add to calendar' / 'Email summary') or let the text wrap to 2 lines."]},
+      {"screen": "PlanCalendarBar", "issues": ["On web, the calendar status is only refreshed by useFocusEffect. After finishing Google sign-in in another tab, the button keeps saying 'Add dates to my calendar' until the user navigates away and back. Refetch on window focus / AppState change."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter37_plans_features.py", "/app/backend/tests/test_iter36_plans_dashboard.py", "/app/test_reports/pytest/pytest_iter37.xml"],
+  "action_items": [
+    "Show the booked-by/at note in the nk view: rename its class from 'note' or exclude it from the .note{display:none} injection (agts_dashboard.py:509/570).",
+    "Shorten or wrap the PlanCalendarBar button labels so they are not cut off on phones.",
+    "Add an asyncio.Lock around sync_plan_calendar() to prevent duplicate Google events when syncs run at the same time.",
+    "Optional: in plans_email, leave plans ending this month out of the overdue list (or vice versa) so a participant is not listed twice."
+  ],
+  "critical_code_review_comments": [
+    "plan_alerts: form alerts are sent once per participant per page with correct keys (missing: no date; incomplete: includes form date, so a new incomplete form alerts again; old: same RA key as before). Expired and archived participants are skipped. The booked review-overdue skip works.",
+    "On live data, 9 missing/not-completed alerts have already been sent to real page owners (db.meta keys). Volume is reasonable.",
+    "calendar-sync returns 409 'Connect your Google Calendar first' as expected. google-calendar/status works for employees. A real Google Calendar write was NOT tested (nothing connected); only fakes were used.",
+    "/data nikki.booked is limited to the page's participants (verified on plans-test)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter36_plans_dashboard.py", "/app/backend/tests/test_iter37_plans_features.py"],
+  "success_rate": {"backend": "100% (54/54)", "frontend": "100% of flows tested; 1 minor UI bug, 2 design issues"},
+  "seed_data_creation": "None. Booking was toggled on/off for 'Tanya Smith|46380' (employee on plans-test, admin on participant-plans) and reverted. One real summary email was sent to emp.test@example.com.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Env date is Oct 2026 (serial ~46323). Live overdue participants on plans-test: Tanya Smith (end 46380) and Rafael Gonzalez. Chip selector in the engine iframe: .nkPick[data-n=\"Name\"]; book button: .nkBook. Do not re-run the real plans-email send; the pytest file only checks its guards. Editing files under /app/backend triggers a uvicorn reload.",
+  "rca_of_issue": "The booked note is hidden because the nk-view CSS injection hides every .note element."
+}

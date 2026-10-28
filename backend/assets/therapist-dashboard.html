@@ -51,6 +51,7 @@ td{padding:7px 8px;border-top:1px solid var(--border);text-align:right;white-spa
 td.l,th.l{text-align:left}
 tr.tot td{background:var(--tint-sky);font-weight:700;color:var(--navy)}
 td.wrap{white-space:normal;min-width:220px;text-align:left}
+.nkbk{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:10px}.nkbk .btn{min-height:44px}.nkbkby{font-size:12.5px;color:var(--ink-3)}
 .cal{margin-top:8px;padding:12px;border-radius:12px;background:#fff;border:1px solid #e3e7ee}
 .cal-top{display:flex;align-items:center;gap:8px;margin-bottom:8px}.cal-top b{flex:1;text-align:center;font-size:15px}.cal-top .btn{min-width:44px;min-height:44px}
 .cal-g{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}.cal-h{font-size:11px;font-weight:700;color:#6b7280;text-align:center;padding:2px 0}
@@ -1114,19 +1115,20 @@ function renderNikki(){
     const fstat=f=>{ if(!f) return ['Missing','p-bad']; const age=T-(f.u||f.c||T); if(!/complete/i.test(f.st)||/incomplete/i.test(f.st)) return [f.st||'Not complete','p-warn']; if(age>cfg.formAge*30.4) return [`Completed – over ${cfg.formAge} months old`,'p-warn']; return ['Completed','p-good']; };
     const ra=latest(c,'ra'), pep=latest(c,'pep');
     return {c,rev,dRev,dEnd,st,ra,pep,raS:fstat(ra),pepS:fstat(pep)}; });
-  const live=r=>r.dRev!=null&&r.dEnd>=0; const over=rows.filter(r=>live(r)&&r.dRev<=0).length, due30=rows.filter(r=>live(r)&&r.dRev>0&&r.dRev<=30).length, due90=rows.filter(r=>live(r)&&r.dRev>0&&r.dRev<=90).length, expired=rows.filter(r=>r.dEnd!=null&&r.dEnd<0).length;
+  const BK=NK.booked||{}; rows.forEach(r=>{ r.bk=r.c.end!=null?BK[String(r.c.name).trim().toLowerCase()+'|'+r.c.end]||null:null; if(r.bk&&r.st[2]>=1&&r.st[2]<=3) r.st=['Review booked','p-good',3.5]; });
+  const live=r=>r.dRev!=null&&r.dEnd>=0; const over=rows.filter(r=>live(r)&&r.dRev<=0&&!r.bk).length, due30=rows.filter(r=>live(r)&&r.dRev>0&&r.dRev<=30&&!r.bk).length, due90=rows.filter(r=>live(r)&&r.dRev>0&&r.dRev<=90&&!r.bk).length, expired=rows.filter(r=>r.dEnd!=null&&r.dEnd<0).length;
   const raMiss=rows.filter(r=>r.raS[1]!=='p-good').length, pepMiss=rows.filter(r=>r.pepS[1]!=='p-good').length;
   const fcell=(f,s)=>`<span class="pill ${s[1]}">${esc(s[0])}</span>${f&&(f.u||f.c)?`<br><span style="font-size:11px;color:var(--ink-3)">${esc(f.title)} · ${fmtY(f.u||f.c)}</span>`:''}`;
   const win=$('nkWin')?$('nkWin').value:'90';
   const soon=rows.filter(r=>r.dEnd!=null&&r.dEnd>=0&&r.dEnd<=30).sort((a,b)=>a.dEnd-b.dEnd);
-  const revOver=rows.filter(r=>r.dEnd!=null&&r.dEnd>30&&r.dRev<=0).sort((a,b)=>a.dEnd-b.dEnd);
+  const revOver=rows.filter(r=>r.dEnd!=null&&r.dEnd>30&&r.dRev<=0&&!r.bk).sort((a,b)=>a.dEnd-b.dEnd);
   const selN=window.NK_SEL||null;
   const shown=rows.filter(r=>win==='all'||(win==='exp'?r.dEnd!=null&&r.dEnd<0:(r.dRev!=null&&r.dEnd>=0&&r.dRev<=+win))).sort((a,b)=>a.st[2]-b.st[2]||(a.rev??9e9)-(b.rev??9e9));
   let h=`<div class="controls">${ups}<button class="btn sec" id="nkXl">Download Excel</button><span class="note xlFallback" style="display:none"></span></div><div class="note" id="nkMsg">${esc(NK.clFile||'')}${NK.foFile?' · '+esc(NK.foFile):' · forms report not uploaded yet'} – participants tagged "<b>${esc(cfg.tag)}</b>" (${mine.length}). Plan review date = plan end date − ${cfg.months} months.</div>
   ${soon.length||revOver.length||selN?`<div class="alertbox"><h3>⚠ Needs attention now</h3>
    ${soon.length?`<div class="grp"><b>Plan ending within 30 days (${soon.length})</b>${soon.map(r=>`<button class="chipbtn red nkPick ${selN===r.c.name?'on':''}" data-n="${esc(r.c.name)}">${esc(r.c.name)}<small>ends ${fmt(r.c.end)} · ${r.dEnd===0?'today':r.dEnd+' day'+(r.dEnd===1?'':'s')}</small></button>`).join('')}</div>`:''}
    ${revOver.length?`<div class="grp"><b>Plan review overdue (${revOver.length})</b>${revOver.map(r=>`<button class="chipbtn amb nkPick ${selN===r.c.name?'on':''}" data-n="${esc(r.c.name)}">${esc(r.c.name)}<small>review was ${fmt(r.rev)} · plan ends ${fmt(r.c.end)}</small></button>`).join('')}</div>`:''}
-   ${(()=>{ const r=rows.find(x=>x.c.name===selN); if(!r) return '<div class="note">Click a name to see their details.</div>'; return `<div class="nkcard"><b style="font-size:14px">${esc(r.c.name)}</b> <span class="pill ${r.st[1]}">${r.st[0]}</span><br>Funding: ${esc(r.c.fund||'–')}${r.c.sc?` · Support coordinator: ${esc(r.c.sc)}`:''}<br>Plan: ${r.c.start!=null?fmtY(r.c.start):'?'} – <b>${fmtY(r.c.end)}</b> (${r.dEnd<0?'expired '+(-r.dEnd)+' days ago':r.dEnd+' days left'}) · Review date: <b>${fmtY(r.rev)}</b><br>Risk assessment: ${fcell(r.ra,r.raS)} &nbsp; Personal emergency plan: ${fcell(r.pep,r.pepS)}</div>`; })()}
+   ${(()=>{ const r=rows.find(x=>x.c.name===selN); if(!r) return '<div class="note">Click a name to see their details.</div>'; return `<div class="nkcard"><b style="font-size:14px">${esc(r.c.name)}</b> <span class="pill ${r.st[1]}">${r.st[0]}</span><br>Funding: ${esc(r.c.fund||'–')}${r.c.sc?` · Support coordinator: ${esc(r.c.sc)}`:''}<br>Plan: ${r.c.start!=null?fmtY(r.c.start):'?'} – <b>${fmtY(r.c.end)}</b> (${r.dEnd<0?'expired '+(-r.dEnd)+' days ago':r.dEnd+' days left'}) · Review date: <b>${fmtY(r.rev)}</b><br>Risk assessment: ${fcell(r.ra,r.raS)} &nbsp; Personal emergency plan: ${fcell(r.pep,r.pepS)}${r.c.end!=null&&r.dEnd>=0?`<div class="nkbk"><button class="btn ${r.bk?'sec':''} nkBook" data-n="${esc(r.c.name)}" data-e="${r.c.end}">${r.bk?'Undo review booked':'✓ Mark review booked'}</button>${r.bk?`<span class="nkbkby">Booked${r.bk.by?' by '+esc(r.bk.by):''}${r.bk.at?' · '+new Date(r.bk.at).toLocaleDateString('en-AU',{day:'numeric',month:'short'}):''}</span>`:''}</div>`:''}</div>`; })()}
   </div>`:''}
   <div class="tiles" style="margin-top:12px">
    <div class="tile"><div class="l">Nikki's participants</div><div class="v">${mine.length}</div></div>
@@ -1148,6 +1150,12 @@ function renderNikki(){
   <h2>Settings</h2><div class="controls"><label class="f">Participant tag<input class="in" id="nkTag" value="${esc(cfg.tag)}"></label><label class="f">Review months before plan end<input class="in y num" id="nkMo" type="number" min="1" max="12" value="${cfg.months}"></label><label class="f">Forms need redoing after (months)<input class="in y num" id="nkFa" type="number" min="1" max="36" value="${cfg.formAge}"></label></div>`;
   killCharts(v); v.innerHTML=h; wireNikki();
   $('nkWin').onchange=renderNikki;
+  v.querySelectorAll('.nkBook').forEach(b=>b.onclick=async e=>{ const el=e.currentTarget, n=el.dataset.n, end=+el.dataset.e, key=n.trim().toLowerCase()+'|'+end, on=!(PREV.nikki.booked||{})[key];
+    el.disabled=true; el.textContent='Saving…';
+    try{ const r=await fetch('review-booked'+location.search,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n,end,booked:on})});
+      const j=await r.json().catch(()=>({})); if(!r.ok) throw new Error(j.detail||('Error '+r.status)); PREV.nikki.booked=j.booked; }
+    catch(err){ alert('Could not save: '+err.message); }
+    renderNikki(); const c=document.querySelector('#v-nk .nkcard'); if(c) c.scrollIntoView({block:'center'}); });
   v.querySelectorAll('.nkCalNav').forEach(b=>b.onclick=e=>{ const d=+e.currentTarget.dataset.d; window.NK_MON=d===0?0:(window.NK_MON||0)+d; renderNikki(); });
   v.querySelectorAll('.nkPick').forEach(b=>b.onclick=e=>{ const n=e.currentTarget.dataset.n; window.NK_SEL=window.NK_SEL===n?null:n; renderNikki(); const c=document.querySelector('#v-nk .nkcard'); if(c) c.scrollIntoView({behavior:'smooth',block:'center'}); });
   const setCfg=(k,val)=>{ PREV.nikki.cfg=Object.assign({},cfg,{[k]:val}); savePrev(); renderNikki(); };

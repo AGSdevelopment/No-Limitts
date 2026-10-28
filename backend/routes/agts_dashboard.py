@@ -14,7 +14,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
-from core import P, bearer, db, logger, now_iso, user_from_token
+from core import P, bearer, db, logger, now_iso, spawn, user_from_token
 
 router = APIRouter(prefix="/api")
 COLLECTION = "TherapistDashboard"
@@ -91,6 +91,7 @@ async def dashboard_data(request: Request, token: Optional[str] = None, view: st
             nk = (json.loads(prev["data"]).get("nikki") if prev and prev.get("data") else None) or {}
             if user.get("_plans_tag"):  # a therapist's own page: send only participants (and their forms) with their tag
                 nk = own_participants(nk, user["_plans_tag"])
+            nk = {**nk, "booked": await booked_map(nk.get("clients") or [])}
             out.update({p: None for p in PARTS})
             out["preview"] = {"data": json.dumps({"weeks": {}, "nikki": nk or {}}), "updatedBy": (prev or {}).get("updatedBy"),
                               "updated": (prev or {}).get("updated")}
@@ -122,6 +123,7 @@ async def dashboard_save(body: SaveIn, request: Request, view: str = "", page: s
             prev = await read_part(client, "preview")
         full = json.loads(prev["data"]) if prev and prev.get("data") else {}
         full["nikki"] = json.loads(body.json).get("nikki") or {}
+        full["nikki"].pop("booked", None)  # booked ticks live in StaffHub, not in the shared Wix record
         return await write_part("preview", json.dumps(full, separators=(",", ":")), user["email"])
     return await write_part(body.part, body.json, user["email"])
 
@@ -193,6 +195,7 @@ async def plan_alerts():
     forms = {}
     for f in nk.get("forms") or []:
         forms.setdefault(str(f.get("p", "")).strip().lower(), []).append(f)
+    booked = await booked_map()
     pages = await db.dashboards.find({"embed": "agts-nk"}, P).to_list(100)
     for pg in pages:
         ids, tag = pg.get("users") or [], (pg.get("tag") or cfg["tag"]).lower()
@@ -218,19 +221,263 @@ async def plan_alerts():
                            f"Plan ending soon: {name}", f"Their plan ends {_fmt(end)} ({d_end} day{'s' if d_end != 1 else ''}). Time to check the plan review.")
             else:
                 rev = _addmonths(end, -int(cfg["months"]))
-                if rev <= today:
+                if rev <= today and _bkey(name, end) not in booked:
                     await once(f"agts_review_{k}_{rev}", f"Plan review overdue: {name}",
                                f"The plan review was due {_fmt(rev)} (plan ends {_fmt(end)}).")
-            last = (c.get("name", "").split(" ") or [""])[-1]
-            mine = forms.get(name.strip().lower(), []) + (forms.get(f"{c['pref']} {last}".strip().lower(), []) if c.get("pref") else [])
-            ra = sorted([f for f in mine if f.get("t") == "ra"], key=lambda f: f.get("u") or f.get("c") or 0, reverse=True)
-            if ra:
-                f = ra[0]
-                done = f.get("u") or f.get("c") or today
-                complete = "complete" in str(f.get("st", "")).lower() and "incomplete" not in str(f.get("st", "")).lower()
-                if complete and today - done > float(cfg["formAge"]) * 30.4:
-                    await once(f"agts_ra_{k}_{done}", f"Risk assessment out of date: {name}",
+            for t, (st, f) in form_status(c, forms, cfg, today).items():
+                lab = FORM_LABEL[t]
+                if st == "missing":
+                    await once(f"agts_{t}_missing_{k}", f"{lab} missing: {name}",
+                               f"There's no {lab.lower()} on file for {name}. Please complete one.")
+                elif st == "incomplete":
+                    await once(f"agts_{t}_incomplete_{k}_{f.get('c') or f.get('u') or 0}", f"{lab} not completed: {name}",
+                               f"The latest {lab.lower()} is marked \"{f.get('st') or 'not complete'}\". Please finish it.")
+                elif st == "old":
+                    done = f.get("u") or f.get("c")
+                    await once(f"agts_ra_{k}_{done}" if t == "ra" else f"agts_{t}_{k}_{done}", f"{lab} out of date: {name}",
                                f"Last completed {_fmt(done)}, over {cfg['formAge']} months ago. Please complete a new one.")
+
+
+FORM_LABEL = {"ra": "Risk assessment", "pep": "Personal emergency plan"}
+
+
+def _bkey(name: str, end) -> str:
+    return f"{str(name).strip().lower()}|{int(end)}"
+
+
+async def booked_map(clients: Optional[list] = None) -> dict:
+    """Plan reviews marked as booked: {name|plan end: {by, at}}; limited to the given clients when passed."""
+    keys = None if clients is None else {_bkey(c.get("name", ""), c["end"]) for c in clients if isinstance(c.get("end"), (int, float))}
+    docs = await db.plan_reviews_booked.find({}, P).to_list(5000)
+    return {d["key"]: {"by": d.get("booked_by_name", ""), "at": d.get("booked_at", "")} for d in docs if keys is None or d["key"] in keys}
+
+
+def form_status(c: dict, forms: dict, cfg: dict, today: int) -> dict:
+    """Latest risk assessment / personal emergency plan per participant: missing, incomplete, old or ok (same rules as the page)."""
+    last = (c.get("name") or "").split(" ")[-1]
+    mine = forms.get((c.get("name") or "").strip().lower(), []) + (forms.get(f"{c['pref']} {last}".strip().lower(), []) if c.get("pref") else [])
+    out = {}
+    for t in ("ra", "pep"):
+        fs = sorted([f for f in mine if f.get("t") == t], key=lambda f: f.get("u") or f.get("c") or 0, reverse=True)
+        f = fs[0] if fs else None
+        s = str((f or {}).get("st", "")).lower()
+        if not f:
+            out[t] = ("missing", None)
+        elif "complete" not in s or "incomplete" in s:
+            out[t] = ("incomplete", f)
+        elif today - (f.get("u") or f.get("c") or today) > float(cfg["formAge"]) * 30.4:
+            out[t] = ("old", f)
+        else:
+            out[t] = ("ok", f)
+    return out
+
+
+async def plans_context():
+    """(nk, cfg, today, [(page, rows)]) for every plans page with owners; rows hold what the email and calendar need."""
+    async with httpx.AsyncClient(timeout=30) as client:
+        prev = await read_part(client, "preview")
+    if not prev or not prev.get("data"):
+        return None
+    nk = json.loads(prev["data"]).get("nikki") or {}
+    cfg = {"tag": "Nikki's Clients", "months": 3, "formAge": 12, **(nk.get("cfg") or {})}
+    today = _today_serial()
+    forms = {}
+    for f in nk.get("forms") or []:
+        forms.setdefault(str(f.get("p", "")).strip().lower(), []).append(f)
+    booked = await booked_map()
+    out = []
+    for pg in await db.dashboards.find({"embed": "agts-nk"}, P).to_list(100):
+        tag = (pg.get("tag") or cfg["tag"]).lower()
+        rows = []
+        for c in nk.get("clients") or []:
+            end = c.get("end")
+            if c.get("archived") or tag not in (c.get("tags") or "").lower() or not isinstance(end, (int, float)):
+                continue
+            end = int(end)
+            rows.append({"name": c["name"], "end": end, "rev": _addmonths(end, -int(cfg["months"])),
+                         "booked": _bkey(c["name"], end) in booked, "forms": form_status(c, forms, cfg, today)})
+        out.append((pg, rows))
+    return nk, cfg, today, out
+
+
+def _today_serial() -> int:
+    from datetime import date, datetime
+    from core import DIGEST_TZ
+    return (datetime.now(DIGEST_TZ).date() - date(1899, 12, 30)).days
+
+
+# ---- Monday plans email
+def plans_email(first: str, rows: list, today: int) -> Optional[tuple]:
+    """(subject, html) summary of one therapist's plans for this calendar month; None when nothing needs doing."""
+    from datetime import date, timedelta
+    import calendar
+    from html import escape
+    d = date(1899, 12, 30) + timedelta(days=today)
+    month_end = today + calendar.monthrange(d.year, d.month)[1] - d.day
+    live = [r for r in rows if r["end"] >= today]
+    overdue = sorted([r for r in live if r["rev"] < today and not r["booked"] and r["end"] > month_end], key=lambda r: r["rev"])
+    due = sorted([r for r in live if today <= r["rev"] <= month_end and not r["booked"] and r["end"] > month_end], key=lambda r: r["rev"])
+    ending = sorted([r for r in live if r["end"] <= month_end], key=lambda r: r["end"])
+    word = {"missing": "missing", "incomplete": "not completed", "old": "out of date"}
+    forms = [(r, [f"{FORM_LABEL[t]} {word[s]}" for t, (s, _) in r["forms"].items() if s != "ok"]) for r in live]
+    forms = sorted([x for x in forms if x[1]], key=lambda x: x[0]["name"])
+    if not (overdue or due or ending or forms):
+        return None
+
+    def sec(title, items, colour):
+        if not items:
+            return ""
+        li = "".join(f'<li style="margin:0 0 6px">{i}</li>' for i in items)
+        return (f'<h3 style="margin:20px 0 8px;font-size:15px;color:{colour}">{escape(title)} ({len(items)})</h3>'
+                f'<ul style="margin:0;padding-left:18px;font-size:14px;color:#1f2937">{li}</ul>')
+    b = lambda s: f"<b>{escape(s)}</b>"
+    html = (f'<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:auto;color:#1f2937">'
+            f'<h2 style="color:#205790;margin:0 0 6px">Your participant plans – {d.strftime("%B %Y")}</h2>'
+            f'<p style="font-size:14px;margin:0 0 4px">Hi {escape(first)}, here is what needs doing for your participants this month.</p>'
+            + sec("Plan reviews overdue", [f"{b(r['name'])} – review was due {_fmt(r['rev'])}, plan ends {_fmt(r['end'])}" for r in overdue], "#b42318")
+            + sec("Plan reviews due this month", [f"{b(r['name'])} – review due {_fmt(r['rev'])}" for r in due], "#8f5f00")
+            + sec("Plans ending this month", [f"{b(r['name'])} – plan ends {_fmt(r['end'])}" for r in ending], "#b42318")
+            + sec("Forms to action", [f"{b(r['name'])} – {escape(', '.join(x))}" for r, x in forms], "#205790")
+            + '<p style="font-size:13px;color:#6b7280;margin-top:22px">Open StaffHub → Home → My participant plans to see details '
+              'or tick a review as booked. Booked reviews drop off this email.</p></div>')
+    n = len(overdue) + len(due) + len(ending)
+    return f"Your participant plans: {n} review{'s' if n != 1 else ''} / plan date{'s' if n != 1 else ''} this month", html
+
+
+async def send_plans_emails(only: Optional[tuple] = None) -> dict:
+    """Every plans page owner gets their own summary. only=(user, page_id) sends just that page to that user (test)."""
+    from email_service import send_email
+    ctx = await plans_context()
+    if not ctx:
+        return {"sent": 0, "reason": "No plan data uploaded yet"}
+    _, _, today, pages = ctx
+    sent, skipped = 0, 0
+    for pg, rows in pages:
+        if only and pg["dashboard_id"] != only[1]:
+            continue
+        users = [only[0]] if only else await db.users.find({"user_id": {"$in": pg.get("users") or []}, "hidden": {"$ne": True}},
+                                                          {"_id": 0, "name": 1, "email": 1}).to_list(20)
+        for u in users:
+            msg = plans_email((u.get("name") or "there").split(" ")[0], rows, today)
+            if not msg or not u.get("email"):
+                skipped += 1
+                continue
+            sent += bool(await send_email(to=u["email"], subject=msg[0], html=msg[1]))
+    return {"sent": sent, "nothing_due": skipped}
+
+
+@router.post("/agts-dashboard/plans-email/test")
+async def plans_email_test(request: Request, page: str = "participant-plans"):
+    user = await require_view(request, None, "nk", page)
+    return {**await send_plans_emails((user, page)), "to": user.get("email")}
+
+
+# ---- Review booked tick
+class BookIn(BaseModel):
+    name: str
+    end: int
+    booked: bool = True
+
+
+@router.post("/agts-dashboard/review-booked")
+async def review_booked(body: BookIn, request: Request, token: Optional[str] = None, page: str = "participant-plans"):
+    user = await require_view(request, token, "nk", page)
+    async with httpx.AsyncClient(timeout=30) as client:
+        prev = await read_part(client, "preview")
+    nk = (json.loads(prev["data"]).get("nikki") if prev and prev.get("data") else None) or {}
+    if user.get("_plans_tag"):
+        nk = own_participants(nk, user["_plans_tag"])
+    if not any(c.get("name") == body.name and c.get("end") == body.end for c in nk.get("clients") or []):
+        raise HTTPException(404, "Participant not found on this page")
+    key = _bkey(body.name, body.end)
+    if body.booked:
+        await db.plan_reviews_booked.update_one({"key": key}, {"$set": {
+            "key": key, "name": body.name, "end": body.end, "booked_by": user["user_id"],
+            "booked_by_name": user.get("name", ""), "booked_at": now_iso()}}, upsert=True)
+    else:
+        await db.plan_reviews_booked.delete_one({"key": key})
+    spawn(sync_plan_calendar())  # drop / restore the review date in connected calendars
+    return {"booked": await booked_map(nk.get("clients") or [])}
+
+
+# ---- Plan dates in each therapist's own Google Calendar
+_cal_lock = asyncio.Lock()
+
+
+async def sync_plan_calendar(extra: Optional[tuple] = None) -> dict:
+    async with _cal_lock:  # one sync at a time so overlapping runs can't add the same event twice
+        return await _sync_plan_calendar(extra)
+
+
+async def _sync_plan_calendar(extra: Optional[tuple] = None) -> dict:
+    """Adds all-day 'Plan ends' and 'Plan review due' events to the calendars of page owners who connected Google Calendar,
+    and removes ones that no longer apply (booked, archived, date changed). extra=(user_id, page_id) also syncs a
+    non-owner (e.g. an admin) for that page."""
+    from datetime import date, timedelta
+    from fastapi.concurrency import run_in_threadpool
+    import google_services as gs
+    from routes.calendar import admin_calendar
+    if extra:
+        await db.plan_cal_users.update_one({"user_id": extra[0]}, {"$addToSet": {"pages": extra[1]}}, upsert=True)
+    ctx = await plans_context()
+    if not ctx:
+        return {"added": 0, "removed": 0}
+    _, _, today, pages = ctx
+    by_page = {pg["dashboard_id"]: rows for pg, rows in pages}
+    targets = {}
+    for pg, _ in pages:
+        for uid in pg.get("users") or []:
+            targets.setdefault(uid, set()).add(pg["dashboard_id"])
+    for d in await db.plan_cal_users.find({}, P).to_list(500):
+        targets.setdefault(d["user_id"], set()).update(d.get("pages") or [])
+    day = lambda s: (date(1899, 12, 30) + timedelta(days=int(s))).isoformat()
+    added = removed = 0
+    for uid, pids in targets.items():
+        try:
+            svc = await admin_calendar(uid)
+        except Exception as e:
+            logger.error(f"Plan calendar connect failed for {uid}: {e}")
+            continue
+        if not svc:
+            continue
+        want = {}
+        for pid in pids:
+            for r in by_page.get(pid, []):
+                if today <= r["end"] <= today + 400:
+                    want[f"end|{_bkey(r['name'], r['end'])}"] = (f"Plan ends: {r['name']}", r["end"])
+                if today <= r["rev"] <= today + 400 and not r["booked"] and r["rev"] < r["end"]:
+                    want[f"rev|{_bkey(r['name'], r['end'])}|{r['rev']}"] = (f"Plan review due: {r['name']}", r["rev"])
+        have = {d["ekey"]: d for d in await db.plan_cal_events.find({"user_id": uid}, P).to_list(5000)}
+        try:
+            for ek, (title, s) in want.items():
+                if ek in have:
+                    continue
+                g = await run_in_threadpool(gs.calendar_insert, svc, {
+                    "summary": title, "description": "From StaffHub participant plans.", "transparency": "transparent",
+                    "start": {"date": day(s)}, "end": {"date": day(s + 1)}})
+                await db.plan_cal_events.insert_one({"user_id": uid, "ekey": ek, "google_event_id": g["id"], "created_at": now_iso()})
+                added += 1
+            for ek, d in have.items():
+                if ek in want:
+                    continue
+                try:
+                    await run_in_threadpool(gs.calendar_delete, svc, d["google_event_id"])
+                except Exception as e:  # already deleted by the user in Google Calendar
+                    logger.info(f"Plan calendar delete skipped: {e}")
+                await db.plan_cal_events.delete_one({"user_id": uid, "ekey": ek})
+                removed += 1
+        except Exception as e:
+            logger.error(f"Plan calendar sync failed for {uid}: {e}")
+    return {"added": added, "removed": removed}
+
+
+@router.post("/agts-dashboard/calendar-sync")
+async def calendar_sync_now(request: Request, page: str = "participant-plans"):
+    user = await require_view(request, None, "nk", page)
+    from routes.calendar import cal_key
+    if not await db.integrations.find_one({"key": cal_key(user["user_id"])}):
+        raise HTTPException(409, "Connect your Google Calendar first")
+    return await sync_plan_calendar((user["user_id"], page))
 
 
 MOBILE_CSS = """<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style id="sh-mobile">
@@ -403,6 +650,13 @@ async def dashboard_loop():
                                          "Keep the Therapist dashboard current: open it, tap Show uploads & data status and add the export.",
                                          "/dashboard/therapist-dashboard")
                 await plan_alerts()
+                # Monday 8am: each therapist's plans summary email
+                if local.weekday() == 0 and local.hour >= 8:
+                    ekey = f"agts_plans_email_{local.date().isoformat()}"
+                    if not await db.meta.find_one({"key": ekey}):
+                        await db.meta.insert_one({"key": ekey, "created_at": now_iso()})
+                        logger.info(f"Plans emails: {await send_plans_emails()}")
+                await sync_plan_calendar()
                 # Below hours target alerts, once per therapist per dashboard week
                 bill, sett = await read_part(client, "billing"), await read_part(client, "settings")
                 if bill and bill.get("data"):

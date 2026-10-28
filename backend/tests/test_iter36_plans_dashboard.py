@@ -143,6 +143,8 @@ class FakeColl:
         for k, v in q.items():
             if isinstance(v, dict) and "$ne" in v:
                 if d.get(k) == v["$ne"]: return False
+            elif isinstance(v, dict) and "$in" in v:
+                if d.get(k) not in v["$in"]: return False
             elif d.get(k) != v: return False
         return True
     def find(self, q=None, proj=None): return FakeCursor([d for d in self.docs if self._match(d, q or {})])
@@ -153,11 +155,22 @@ class FakeColl:
         if not d:
             d = dict(q); self.docs.append(d)
         d.update(upd.get("$set", {}))
+        for k, v in upd.get("$addToSet", {}).items():
+            d.setdefault(k, [])
+            for x in (v["$each"] if isinstance(v, dict) else [v]):
+                if x not in d[k]: d[k].append(x)
+    async def delete_one(self, q):
+        d = await self.find_one(q)
+        if d: self.docs.remove(d)
+    async def delete_many(self, q):
+        self.docs = [d for d in self.docs if not self._match(d, q)]
 
 
 class FakeDB:
     def __init__(self, dashboards, users):
         self.dashboards, self.users, self.meta = FakeColl(dashboards), FakeColl(users), FakeColl()
+        # iter37 collections: review booked ticks, calendar sync bookkeeping, calendar connections
+        self.plan_reviews_booked, self.plan_cal_users, self.plan_cal_events, self.integrations = FakeColl(), FakeColl(), FakeColl(), FakeColl()
 
 
 def serial(d): return (d - date(1899, 12, 30)).days
@@ -174,8 +187,13 @@ def ag(monkeypatch):
     return ag
 
 
+def ok_forms(clients, today):
+    """Recent completed RA + PEP for each client so form alerts don't interfere with end/review tests."""
+    return [{"p": c["name"], "t": t, "st": "Completed", "u": today - 10} for c in clients for t in ("ra", "pep")]
+
+
 def run_plan_alerts(ag, monkeypatch, clients, forms=None, cfg=None, pages=None, users=None):
-    nk = {"clients": clients, "forms": forms or [], "cfg": cfg or {}}
+    nk = {"clients": clients, "forms": forms if forms is not None else [], "cfg": cfg or {}}
     async def fake_read(client, part): return {"data": json.dumps({"nikki": nk})} if part == "preview" else None
     monkeypatch.setattr(ag, "read_part", fake_read)
     fdb = FakeDB(pages if pages is not None else [
@@ -202,7 +220,7 @@ class TestPlanAlerts:
             {"name": "Eve Arch", "tags": "Saraya's Clients", "end": T + 3, "archived": True},
             {"name": "Fay Today", "tags": "Saraya's Clients", "end": T},          # 0 days
         ]
-        fdb = run_plan_alerts(ag, monkeypatch, clients)
+        fdb = run_plan_alerts(ag, monkeypatch, clients, ok_forms(clients, T))
         titles = {(s[0], s[1]) for s in ag._sent}
         assert (("u_saraya",), "Plan ending soon: Ann End") in titles
         assert (("u_nikki",), "Plan review overdue: Ben Rev") in titles
@@ -221,21 +239,24 @@ class TestPlanAlerts:
 
     def test_singular_day(self, ag, monkeypatch):
         T = self.today()
-        run_plan_alerts(ag, monkeypatch, [{"name": "One Day", "tags": "Nikki's Clients", "end": T + 1}])
+        cl = [{"name": "One Day", "tags": "Nikki's Clients", "end": T + 1}]
+        run_plan_alerts(ag, monkeypatch, cl, ok_forms(cl, T))
         assert "(1 day)" in ag._sent[0][2]
 
     def test_risk_assessment_out_of_date(self, ag, monkeypatch):
         T = self.today()
         clients = [{"name": "Gus Old", "tags": "Nikki's Clients", "end": T + 300}]
         forms = [{"p": "Gus Old", "t": "ra", "st": "Completed", "u": T - 400},
-                 {"p": "Gus Old", "t": "ra", "st": "Incomplete", "u": T - 500}]
+                 {"p": "Gus Old", "t": "ra", "st": "Incomplete", "u": T - 500},
+                 {"p": "Gus Old", "t": "pep", "st": "Completed", "u": T - 20}]
         run_plan_alerts(ag, monkeypatch, clients, forms)
         assert [s[1] for s in ag._sent] == ["Risk assessment out of date: Gus Old"]
 
     def test_recent_ra_no_alert(self, ag, monkeypatch):
         T = self.today()
         run_plan_alerts(ag, monkeypatch, [{"name": "Hal New", "tags": "Nikki's Clients", "end": T + 300}],
-                        [{"p": "Hal New", "t": "ra", "st": "Completed", "u": T - 30}])
+                        [{"p": "Hal New", "t": "ra", "st": "Completed", "u": T - 30},
+                         {"p": "Hal New", "t": "pep", "st": "Completed", "u": T - 30}])
         assert ag._sent == []
 
     def test_sync_creates_page_for_unique_name(self, ag, monkeypatch):

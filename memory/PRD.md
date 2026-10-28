@@ -150,6 +150,11 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Therapist own plans pages (view=nk + _plans_tag): every "Nikki's participants" wording (incl. JS-escaped, subtitle, export) becomes "my participants"; template edits go through _inject(), which logs an error if an anchor is missing instead of failing silently
 - Plan expiry calendar (nkCal in therapist-dashboard.html, inside Plans & safety view): month grid Mon–Sun, red dot plan end, amber dot review due, dated chip list, ‹ › / Today nav; chip selects participant and scrolls to its card
 - Therapist pages are view-only: /data sends only that tag's active clients + their forms (own_participants), /save returns 403, uploads/settings hidden. Test page doc dashboards 'plans-test' (users [user_testemp001], tag "Saraya's Clients")
+- Plans alerts also cover missing / not completed / out-of-date risk assessments AND personal emergency plans (once per participant per page)
+- Review booked tick (db.plan_reviews_booked key "name|end"): POST /api/agts-dashboard/review-booked; booked reviews drop from overdue chips/tiles/alerts/email/calendar; shared across all pages for that participant
+- Monday 8am Perth plans email per page owner (send_plans_emails); test: POST /api/agts-dashboard/plans-email/test?page=
+- Google Calendar sync (any user can connect; db.plan_cal_events): all-day "Plan ends"/"Plan review due" events, hourly + POST /api/agts-dashboard/calendar-sync; native bar on plans pages (plan-calendar-bar.tsx)
+
 
 
 - Participant plans & safety is shared only with Nikki (dashboards.users via user_emails; allowed() checks users); 'Plans & safety' tab only injected in view=nk; nk data endpoint returns only preview.nikki (no billing/pay); nk save merges only the nikki key into preview. nikki_plan_alerts (hourly in dashboard_loop): plan end within 0–30 days for clients tagged cfg.tag → notify Nikki once per client+end (meta agts_plan_end_*)
