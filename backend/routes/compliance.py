@@ -1,16 +1,18 @@
 """Admin compliance dashboard, Excel export and New Starter checklist."""
 import io
-from datetime import date
+from datetime import date, datetime
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
 from typing import List, Optional
 from html import escape
-from core import P, admin_user, new_id, bearer, current_user, db, dmy, logger, notify, now_iso, spawn, user_from_token
+from core import DIGEST_TZ, P, admin_user, new_id, bearer, current_user, db, dmy, logger, notify, now_iso, spawn, user_from_token
 from email_service import send_email
-from routes.certificates import cert_status
+from routes.certificates import REQ_KEY, cert_status, missing_required, requirements
 from routes.forms import forms_query
 from routes.cpd import cpd_year_start
+from routes.calendar import cancel_invite, send_invite
 
 router = APIRouter(prefix="/api")
 
@@ -193,20 +195,6 @@ async def compliance_data():
 
 
 # ---- Required certificates per staff group
-REQ_KEY = "cert_requirements"
-
-
-async def requirements() -> dict:
-    doc = await db.meta.find_one({"key": REQ_KEY}, P)
-    return (doc or {}).get("groups", {})
-
-
-def missing_required(certs: list, names: list) -> list:
-    """A requirement is met by any certificate (not expired) whose title contains the requirement's name."""
-    valid = [c["title"].lower() for c in certs if cert_status(c["expiry_date"])["status"] != "expired"]
-    return [n for n in names if not any(n.lower() in t for t in valid)]
-
-
 class RequirementsIn(BaseModel):
     staff_group: str
     names: List[str]
@@ -240,6 +228,10 @@ async def remind_certificates(preview: bool = False, admin=Depends(admin_user)):
     rows = [r for r in (await compliance_data())["rows"] if r["no_certs"] or r["missing_required"]]
     if preview:
         return {"reminded": 0, "would_remind": len(rows)}
+    return {"reminded": await send_cert_reminders(rows)}
+
+
+async def send_cert_reminders(rows: list) -> int:
     for r in rows:
         need = ", ".join(r["missing_required"]) or "your training certificates"
         await notify([r["user_id"]], "certificate", "Please upload your certificates", f"Still needed: {need}",
@@ -253,7 +245,25 @@ async def remind_certificates(preview: bool = False, admin=Depends(admin_user)):
                    "<p>We don't have any of your training certificates on file yet.</p>")
                 + "<p>Open StaffHub → Certificates → Upload certificate and snap a photo or attach the file. "
                   "It only takes a minute.</p></div>"))
-    return {"reminded": len(rows)}
+    return len(rows)
+
+
+async def cert_reminder_loop():
+    """First Monday of each month, 9am Perth: remind everyone with no or missing required certificates."""
+    while True:
+        try:
+            local = datetime.now(DIGEST_TZ)
+            if local.weekday() == 0 and local.day <= 7 and local.hour >= 9:
+                key = f"cert_remind_{local.year}_{local.month:02d}"
+                claim = await db.meta.update_one({"key": key}, {"$setOnInsert": {"created_at": now_iso()}}, upsert=True)
+                if claim.upserted_id:  # only the first backend to claim this month sends
+                    rows = [r for r in (await compliance_data())["rows"] if r["no_certs"] or r["missing_required"]]
+                    n = await send_cert_reminders(rows)
+                    await db.meta.update_one({"key": key}, {"$set": {"reminded": n}})
+                    logger.info(f"Monthly certificate reminders sent to {n} staff")
+        except Exception as e:
+            logger.error(f"Certificate reminder loop failed: {e}")
+        await asyncio.sleep(1800)
 
 
 # ---- Starter progress for admins + check-in booking
@@ -291,11 +301,16 @@ async def book_checkin(user_id: str, body: CheckinIn, admin=Depends(admin_user))
            "description": body.note.strip(), "location": body.location.strip(), "date": body.date,
            "time": body.time.strip(), "attendees": [user_id, admin["user_id"]],
            "private_for": [user_id, admin["user_id"]], "checkin_for": user_id,
+           "organizer_id": admin["user_id"], "notes": "", "outcome": "",
            "created_by": admin["name"], "created_at": now_iso()}
+    invite = {"calendar": "not_connected"}
+    if u.get("email") and not u.get("hidden"):
+        invite = await send_invite(admin["user_id"], doc, u["email"])
+    doc.update(invite)
     await db.events.insert_one(dict(doc))
     await notify([user_id], "event", "Check-in booked", f"{admin['name']} booked a check-in with you on {when}",
                  "/events")
-    if u.get("email") and not u["email"].endswith("@example.com") and not u.get("hidden"):
+    if invite["calendar"] != "sent" and u.get("email") and not u["email"].endswith("@example.com") and not u.get("hidden"):
         await send_email(to=u["email"], subject=f"Your check-in with {admin['name']} on {when}", html=(
             "<div style='font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px'>"
             f"<h2 style='color:#205890'>Check-in booked</h2><p>Hi {escape(u['name'].split(' ')[0])},</p>"
@@ -313,6 +328,29 @@ async def cancel_checkin(user_id: str, event_id: str, admin=Depends(admin_user))
     if not ev:
         raise HTTPException(404, "Check-in not found")
     await db.events.delete_one({"event_id": event_id})
+    if ev.get("google_event_id"):
+        await cancel_invite(ev.get("organizer_id") or admin["user_id"], ev["google_event_id"])
     when = dmy(ev["date"]) + (f" at {ev['time']}" if ev.get("time") else "")
     await notify([user_id], "event", "Check-in cancelled", f"Your check-in on {when} has been cancelled", "/events")
     return {"ok": True}
+
+
+CHECKIN_OUTCOMES = ("", "On track", "Needs support", "Follow-up needed")
+
+
+class CheckinNotesIn(BaseModel):
+    notes: str = ""
+    outcome: str = ""
+
+
+@router.put("/starter-checklist/user/{user_id}/checkin/{event_id}/notes")
+async def checkin_notes(user_id: str, event_id: str, body: CheckinNotesIn, admin=Depends(admin_user)):
+    """Admin-only notes and outcome after a check-in; never shown to the staff member."""
+    if body.outcome not in CHECKIN_OUTCOMES:
+        raise HTTPException(400, "Unknown outcome")
+    res = await db.events.update_one({"event_id": event_id, "checkin_for": user_id}, {"$set": {
+        "notes": body.notes.strip()[:4000], "outcome": body.outcome, "notes_by": admin["name"],
+        "notes_at": now_iso()}})
+    if not res.matched_count:
+        raise HTTPException(404, "Check-in not found")
+    return await db.events.find_one({"event_id": event_id}, {"_id": 0, "attendees": 0})

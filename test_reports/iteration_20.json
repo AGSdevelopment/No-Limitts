@@ -1,0 +1,45 @@
+{
+  "summary": "Iteration 20: tested check-in notes and outcome, Google Calendar connect (OAuth was not completed), calendar helpers, the monthly cert reminder loop, the 'required for your role' expiry warning and Pronathi's restore. Backend: 22 of 23 pytest checks passed. One privacy bug: notes, outcome and notes_by marked admin-only are returned to the employee by GET /api/events. Frontend /starter/user_testemp001 as admin passed end to end: the connect box shows, booking works, 'Add notes & outcome' opens, the outcome chip and notes save and show with 'Tap to edit', tapping reopens the editor with saved values, and cancelling the check-in works. No page errors. No deprecated Expo packages in the reviewed files.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "GET /api/events (employee)", "issue": "Private check-in events are returned to the staff member with the admin-only fields notes, outcome, notes_by and notes_at. Reproduced: an employee GET /api/events returned {'notes': 'TEST private admin note', 'outcome': 'Needs support', 'notes_by': 'Alex Admin'}. The UI label says 'Notes (only admins see these)' and the docstring in checkin_notes says the notes are never shown to the staff member. Reference: /app/backend/routes/events.py:18-28 (projection P only drops _id).", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "cert_reminder_loop", "issue": "Uses find_one followed by insert_one on meta key cert_remind_YYYY_MM, which is not atomic. If more than one backend worker or replica runs, reminders could be sent twice. A unique index on meta.key, or an upsert that checks the result, would prevent this. Reference: /app/backend/routes/compliance.py:256-259"}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "starter/[id] CheckinCard", "issues": [
+        "The trash icon cancels the check-in straight away with no confirmation, and the staff member is notified at once. Add a confirm dialog.",
+        "Outcome chips are about 36px tall, below the 44px minimum touch target.",
+        "The editor's 'Cancel' button has no testID (/app/frontend/src/components/checkin-card.tsx:64).",
+        "When calendar === 'failed' there is no indicator on the card; only the toast at booking time mentions it."
+      ]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter20_checkin_notes_calendar.py", "/app/test_reports/pytest/pytest_iter20.xml"],
+  "action_items": [
+    "HIGH: In GET /api/events, strip notes, outcome, notes_by and notes_at for non-admins (or for everyone; the admin starter screen reads them from /starter-checklist/user/{id}). Check any other endpoint that returns event docs to employees.",
+    "Add a confirm dialog before cancelling a check-in in CheckinCard.",
+    "Make the cert_reminder_loop month key claim atomic (unique index on meta.key, then insert_one with DuplicateKeyError guard).",
+    "Optional: give the outcome chips a 44px minimum height and add a testID to the notes editor Cancel button."
+  ],
+  "critical_code_review_comments": [
+    "calendar.py: router order is correct. The calendar router is included before socials, so /integrations/{kind}/start and DELETE /integrations/{kind} do not catch google-calendar (verified: /start returns a Google URL).",
+    "calendar.py: the OAuth state is single-use (find_one_and_delete) with a 15-minute expiry, and the refresh token is encrypted. This is good.",
+    "book_checkin: invites are skipped for hidden users (the test employee), so the 'sent' path could not be exercised without a real Google connection.",
+    "CheckinCard: local notes/outcome state is set once from props and does not resync if the data changes after mount. This is minor.",
+    "starter/[id].tsx: the cancelBtn style is unused."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter20_checkin_notes_calendar.py"],
+  "success_rate": {"backend": "96% (22/23)", "frontend": "100%"},
+  "seed_data_creation": "None kept. Cleanup done: test check-ins deleted, check-in and certificate notifications deleted, TEST_ certs deleted, cert_requirements groups reset to {}, user_testemp001 set back to hidden=True and staff_group=None, oauth_states for the test admin removed.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run pytest with -n 0. test_notes_not_leaked_to_employee_events is expected to fail until GET /api/events strips the admin-only check-in fields. Never call /compliance/remind-certificates without preview=true. Do not complete Google OAuth. The test admin has no calendar connection, so bookings return calendar='not_connected'.",
+  "rca_of_issue": "list_events in routes/events.py uses projection P (only _id excluded) and returns the full event doc. Check-in notes are stored on the same events document (db.events) as the private event visible to the staff member (private_for includes the user), so they leak. Mitigation: pop notes, outcome, notes_by and notes_at in list_events for non-admin users, or store notes in a separate collection."
+}

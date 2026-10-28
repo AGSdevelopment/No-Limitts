@@ -15,12 +15,24 @@ class EventIn(BaseModel):
     time: str = ""
 
 
+def visible_events(user: dict) -> dict:
+    """Private events (e.g. new starter check-ins) only show to the people involved; admins see all."""
+    if user.get("role") == "admin":
+        return {}
+    return {"$or": [{"private_for": {"$exists": False}}, {"private_for": user["user_id"]}]}
+
+
+def event_fields(user: dict) -> dict:
+    """Check-in notes/outcomes are admin-only."""
+    hidden = {"_id": 0}
+    if user.get("role") != "admin":
+        hidden.update({"notes": 0, "outcome": 0, "notes_by": 0, "notes_at": 0})
+    return hidden
+
+
 @router.get("/events")
 async def list_events(user=Depends(current_user)):
-    # private events (e.g. new starter check-ins) only show to the people involved; admins see all
-    q = {} if user.get("role") == "admin" else {"$or": [{"private_for": {"$exists": False}},
-                                                        {"private_for": user["user_id"]}]}
-    docs = await db.events.find(q, P).sort([("date", 1), ("time", 1)]).to_list(500)
+    docs = await db.events.find(visible_events(user), event_fields(user)).sort([("date", 1), ("time", 1)]).to_list(500)
     for d in docs:
         d["going"] = user["user_id"] in d.get("attendees", [])
         d["attendee_count"] = len(d.get("attendees", []))

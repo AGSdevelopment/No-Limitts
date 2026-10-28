@@ -344,6 +344,12 @@
    "name": "Stephanie Goodchild",
    "role": "employee",
    "staff_group": "therapist_contractor"
+  },
+  {
+   "email": "pronathi@aspireandgrow.com.au",
+   "name": "Pronathi",
+   "role": "admin",
+   "staff_group": "support_office"
   }
  ]
 }

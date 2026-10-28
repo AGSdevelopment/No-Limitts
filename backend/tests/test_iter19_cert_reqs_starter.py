@@ -205,10 +205,10 @@ class TestComplianceRequired:
                              timeout=30).status_code == 403
 
 
-def test_pronathi_absent():
+def test_pronathi_restored_as_admin():
     users = requests.get(f"{BASE_URL}/api/users", headers=ADMIN, timeout=30).json()
-    assert not any("pronathi" in (u.get("email") or "").lower() or "pronathi" in (u.get("name") or "").lower()
-                   for u in users)
+    p = [u for u in users if (u.get("email") or "").lower() == "pronathi@aspireandgrow.com.au"]
+    assert p and p[0]["role"] == "admin" and p[0]["staff_group"] == "support_office"
 
 
 # ---------- Completion alert (in-process, notify/send_email MOCKED) ----------

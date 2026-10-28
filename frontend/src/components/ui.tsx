@@ -189,6 +189,7 @@ export function Chip({ label, selected, onPress, testID }: { label: string; sele
   return (
     <Pressable
       testID={testID}
+      hitSlop={6}
       onPress={() => {
         Haptics.selectionAsync().catch(() => {});
         onPress();

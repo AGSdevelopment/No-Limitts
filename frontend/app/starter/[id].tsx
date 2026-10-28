@@ -1,14 +1,15 @@
-import { useState } from "react";
-import { Pressable, Text, View } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { useCallback, useState } from "react";
+import { Text, View } from "react-native";
+import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { api } from "@/src/api";
+import { api, openLink } from "@/src/api";
 import { useAuth } from "@/src/auth";
+import { CheckinCard } from "@/src/components/checkin-card";
 import { useToast } from "@/src/components/toast";
-import { Avatar, Button, EmptyState, ErrorState, Field, Ionicons, Loading, dmyToIso, formatDate } from "@/src/components/ui";
+import { Avatar, Button, ConfirmSheet, EmptyState, ErrorState, Field, Ionicons, Loading, dmyToIso, formatDate } from "@/src/components/ui";
 import { groupLabel } from "@/src/groups";
 import { makeStyles, useTheme } from "@/src/theme";
 
@@ -24,6 +25,24 @@ export default function StarterProgress() {
   const q = useQuery<any>({ queryKey: key, queryFn: () => api(`/starter-checklist/user/${id}`), enabled: user?.role === "admin" && !!id });
   const [form, setForm] = useState({ date: "", time: "", location: "", note: "" });
   const [saving, setSaving] = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState<string | null>(null);
+  const cal = useQuery<any>({ queryKey: ["calendar-status"], queryFn: () => api("/integrations/google-calendar/status"), enabled: user?.role === "admin" });
+  useFocusEffect(
+    useCallback(() => {
+      cal.refetch();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []),
+  );
+
+  const connectCal = async () => {
+    try {
+      const r = await api("/integrations/google-calendar/start", { method: "POST" });
+      await openLink(r.authorization_url);
+      cal.refetch();
+    } catch (e: any) {
+      toast(e.message, "error");
+    }
+  };
 
   if (user?.role !== "admin") return <EmptyState icon="lock-closed-outline" title="Admins only" />;
   if (q.isLoading) return <Loading />;
@@ -35,6 +54,7 @@ export default function StarterProgress() {
     try {
       await api(`/starter-checklist/user/${id}/checkin/${eventId}`, { method: "DELETE" });
       toast("Check-in cancelled", "success");
+      setConfirmCancel(null);
       qc.invalidateQueries({ queryKey: key });
       qc.invalidateQueries({ queryKey: ["events"] });
     } catch (e: any) {
@@ -47,8 +67,12 @@ export default function StarterProgress() {
     if (!iso) return toast("Enter the date as dd-mm-yyyy", "error");
     setSaving(true);
     try {
-      await api(`/starter-checklist/user/${id}/checkin`, { method: "POST", body: { ...form, date: iso } });
-      toast(`Check-in booked. ${s.name.split(" ")[0]} has been notified.`, "success");
+      const r = await api(`/starter-checklist/user/${id}/checkin`, { method: "POST", body: { ...form, date: iso } });
+      const first = s.name.split(" ")[0];
+      toast(
+        r.calendar === "sent" ? `Check-in booked and Google Calendar invite sent to ${first}.` : r.calendar === "failed" ? `Check-in booked. ${first} was notified, but the calendar invite failed.` : `Check-in booked. ${first} has been notified.`,
+        r.calendar === "failed" ? "info" : "success",
+      );
       setForm({ date: "", time: "", location: "", note: "" });
       qc.invalidateQueries({ queryKey: key });
       qc.invalidateQueries({ queryKey: ["events"] });
@@ -105,30 +129,34 @@ export default function StarterProgress() {
         <Text style={styles.sub}>No check-ins booked yet.</Text>
       ) : (
         checkins.map((c: any) => (
-          <View key={c.event_id} style={styles.item} testID={`starter-checkin-${c.event_id}`}>
-            <Ionicons name="calendar-outline" size={22} color={colors.brandPrimary} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.itemTitle}>
-                {formatDate(c.date)}
-                {c.time ? ` at ${c.time}` : ""}
-              </Text>
-              {!!(c.location || c.description) && <Text style={styles.itemSub}>{[c.location, c.description].filter(Boolean).join(" · ")}</Text>}
-            </View>
-            <Pressable onPress={() => cancel(c.event_id)} hitSlop={8} style={styles.cancelBtn} accessibilityLabel="Cancel check-in" testID={`starter-checkin-cancel-${c.event_id}`}>
-              <Ionicons name="trash-outline" size={20} color={colors.error} />
-            </Pressable>
-          </View>
+          <CheckinCard key={c.event_id} c={c} userId={id} onChanged={() => qc.invalidateQueries({ queryKey: key })} onCancel={() => setConfirmCancel(c.event_id)} />
         ))
       )}
 
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Book a check-in</Text>
+        {cal.data?.configured && !cal.data?.connected ? (
+          <View style={styles.calBox} testID="calendar-connect-box">
+            <Text style={styles.itemSub}>Connect your Google Calendar to send a real invite to {s.name.split(" ")[0]} and add it to your own calendar.</Text>
+            <Button label="Connect Google Calendar" icon="logo-google" variant="secondary" onPress={connectCal} testID="calendar-connect-button" />
+          </View>
+        ) : cal.data?.connected ? (
+          <Text style={styles.itemSub} testID="calendar-connected">Google Calendar connected: an invite will be sent automatically.</Text>
+        ) : null}
         <Field label="Date (dd-mm-yyyy)" value={form.date} onChangeText={(v) => setForm({ ...form, date: v })} placeholder="e.g. 15-07-2026" keyboardType="numbers-and-punctuation" testID="checkin-date" />
         <Field label="Time" value={form.time} onChangeText={(v) => setForm({ ...form, time: v })} placeholder="e.g. 10:00am" testID="checkin-time" />
         <Field label="Location" value={form.location} onChangeText={(v) => setForm({ ...form, location: v })} placeholder="e.g. Office or Google Meet" testID="checkin-location" />
         <Field label="Note" value={form.note} onChangeText={(v) => setForm({ ...form, note: v })} placeholder="Optional" multiline testID="checkin-note" />
         <Button label="Book check-in" icon="calendar" loading={saving} disabled={!form.date.trim()} onPress={book} testID="checkin-book-button" />
       </View>
+      <ConfirmSheet
+        visible={confirmCancel !== null}
+        title="Cancel this check-in?"
+        message={`${s.name.split(" ")[0]} will be notified, and any Google Calendar invite will be cancelled. Notes on it are deleted too.`}
+        confirmLabel="Cancel check-in"
+        onConfirm={() => confirmCancel && cancel(confirmCancel)}
+        onClose={() => setConfirmCancel(null)}
+      />
     </KeyboardAwareScrollView>
   );
 }
@@ -147,4 +175,5 @@ const useStyles = makeStyles((c) => ({
   card: { backgroundColor: c.surface, borderRadius: 16, padding: 16, gap: 12, marginTop: 8 },
   cardTitle: { fontSize: 16, fontWeight: "700", color: c.onSurface },
   cancelBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  calBox: { backgroundColor: c.surfaceSecondary, borderRadius: 12, padding: 12, gap: 10 },
 }));

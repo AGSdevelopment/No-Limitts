@@ -30,13 +30,31 @@ def cert_status(expiry: str) -> dict:
     return {"status": s, "days_left": days}
 
 
+REQ_KEY = "cert_requirements"
+
+
+async def requirements() -> dict:
+    doc = await db.meta.find_one({"key": REQ_KEY}, P)
+    return (doc or {}).get("groups", {})
+
+
+def missing_required(certs: list, names: list) -> list:
+    """A requirement is met by any certificate (not expired) whose title contains the requirement's name."""
+    valid = [c["title"].lower() for c in certs if cert_status(c["expiry_date"])["status"] != "expired"]
+    return [n for n in names if not any(n.lower() in t for t in valid)]
+
+
+def required_match(title: str, names: list) -> str:
+    return next((n for n in names if n.lower() in title.lower()), "")
+
+
 def with_status(c: dict) -> dict:
     c = {k: v for k, v in c.items() if k != "storage_path"}
     c.update(cert_status(c["expiry_date"]))
     return c
 
 
-def expiry_email_html(name: str, title: str, expiry: str, status: str, days: int) -> str:
+def expiry_email_html(name: str, title: str, expiry: str, status: str, days: int, required: bool = False) -> str:
     if status == "expired":
         line = f"Your certificate <strong>{escape(title)}</strong> expired on {escape(expiry)}."
     else:
@@ -44,7 +62,8 @@ def expiry_email_html(name: str, title: str, expiry: str, status: str, days: int
                 f"({days} day{'s' if days != 1 else ''} left).")
     return (f'<table role="presentation" width="100%"><tr><td style="padding:24px;font-family:Arial,sans-serif;'
             f'color:#11181C"><p>Hi {escape(name)},</p><p>{line}</p>'
-            f'<p>Please renew it and upload the new certificate in the {escape(EMAIL_FROM_NAME)} app.</p>'
+            + ('<p><strong>This certificate is required for your role.</strong></p>' if required else '')
+            + f'<p>Please renew it and upload the new certificate in the {escape(EMAIL_FROM_NAME)} app.</p>'
             f'<p style="font-size:12px;color:#888">Sent by {escape(EMAIL_FROM_NAME)}. We never ask for your '
             f'password by email.</p></td></tr></table>')
 
@@ -58,13 +77,16 @@ async def check_certificate(cert: dict):
     title = f"Certificate {'expired' if stage == 'expired' else 'expiring soon'}"
     body = (f"{cert['title']} expired on {dmy(cert['expiry_date'])}" if stage == "expired"
             else f"{cert['title']} expires in {st['days_left']} days ({dmy(cert['expiry_date'])})")
-    await notify([cert["owner_id"]], "certificate", title, body, "/(tabs)/certificates")
     owner = await db.users.find_one({"user_id": cert["owner_id"]}, P)
+    required = required_match(cert["title"], (await requirements()).get((owner or {}).get("staff_group") or "", []))
+    if required:
+        body += ". It's required for your role, so please renew it" + (" now" if stage == "expired" else " before then")
+    await notify([cert["owner_id"]], "certificate", title, body, "/(tabs)/certificates")
     if owner and owner.get("email"):
         subject = f"{title}: {cert['title']}"
         await send_email(to=owner["email"], subject=subject,
                          html=expiry_email_html(owner["name"], cert["title"], dmy(cert["expiry_date"]), stage,
-                                                st["days_left"] or 0))
+                                                st["days_left"] or 0, bool(required)))
 
 
 async def check_all_certificates():

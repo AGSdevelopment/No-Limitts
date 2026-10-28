@@ -14,6 +14,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 
 logger = logging.getLogger(__name__)
+os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")  # Google may return extra previously granted scopes
 
 fernet = Fernet(os.environ["WEBHOOK_ENCRYPTION_KEY"].encode())
 DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"]
@@ -86,6 +87,26 @@ def google_creds(refresh_token_enc: str, scopes):
 
 def drive_service(refresh_token_enc: str):
     return build("drive", "v3", credentials=google_creds(refresh_token_enc, DRIVE_SCOPES), cache_discovery=False)
+
+
+# ------------------------------------------------------------- Google Calendar (per-admin invites)
+CALENDAR_SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
+
+
+def calendar_service(refresh_token_enc: str):
+    return build("calendar", "v3", credentials=google_creds(refresh_token_enc, CALENDAR_SCOPES), cache_discovery=False)
+
+
+def calendar_insert(svc, body: dict) -> dict:
+    return svc.events().insert(calendarId="primary", body=body, sendUpdates="all").execute()
+
+
+def calendar_patch(svc, event_id: str, body: dict) -> dict:
+    return svc.events().patch(calendarId="primary", eventId=event_id, body=body, sendUpdates="none").execute()
+
+
+def calendar_delete(svc, event_id: str):
+    svc.events().delete(calendarId="primary", eventId=event_id, sendUpdates="all").execute()
 
 
 # ------------------------------------------------------------- Google Chat (two-way read via Chat API)

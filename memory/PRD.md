@@ -111,3 +111,8 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Required certificates per staff group (/cert-requirements), missing flagged on compliance + export + starter checklist
 - Admin "Remind staff" certificate reminder (in-app + email, preview count first)
 - Starter progress view /starter/[id] for admins, with check-in booking (private event, notify starter) and cancel
+- Pronathi re-added: admin + Support Office (restore_staff one-time migration)
+- Check-in notes & outcome (admin-only; hidden from staff in /events and dashboard)
+- Monthly certificate reminders: first Monday 9am Perth (cert_reminder_loop, atomic monthly claim)
+- Google Calendar invites per admin (routes/calendar.py, calendar.events scope); needs Calendar API enabled + redirect URI .../api/integrations/google-calendar/callback in Google Cloud
+- Expiry warnings mention "required for your role" for required certificates

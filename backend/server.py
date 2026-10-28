@@ -6,9 +6,10 @@ import json
 from core import HIDDEN_TEST_USERS, ROOT_DIR, client, db, logger, new_id, now_iso
 from storage import init_storage
 from routes import (auth, users, notifications, certificates, chat, updates, policies, compliance, events, tasks,
-                    dashboard, drive, gchat, forms, socials, cpd, ai, digest)
+                    dashboard, drive, gchat, calendar, forms, socials, cpd, ai, digest)
 from routes.certificates import expiry_loop
 from routes.policies import policy_reminder_loop
+from routes.compliance import cert_reminder_loop
 from routes.tasks import task_reminder_loop
 from routes.drive import drive_index_loop
 from routes.gchat import gchat_loop
@@ -25,7 +26,7 @@ async def health():
 
 
 for module in (auth, users, notifications, certificates, chat, updates, policies, compliance, events, tasks,
-               dashboard, drive, gchat, forms, socials, cpd, ai, digest):
+               dashboard, drive, gchat, calendar, forms, socials, cpd, ai, digest):
     app.include_router(module.router)
 
 
@@ -90,22 +91,22 @@ async def seed_staff_v2():
     await db.meta.insert_one({"key": "company_staff_v2", "created_at": now_iso()})
 
 
-REMOVED_STAFF = ["pronathi@aspireandgrow.com.au"]
+RESTORED_STAFF = [{"email": "pronathi@aspireandgrow.com.au", "name": "Pronathi", "role": "admin",
+                   "staff_group": "support_office"}]
 
 
-async def remove_staff():
-    """Delete staff who have left (also runs on the published database), with their sessions and notifications."""
-    for email in REMOVED_STAFF:
-        u = await db.users.find_one({"email": email}, {"_id": 0, "user_id": 1})
-        if not u:
-            continue
-        uid = u["user_id"]
-        await db.user_sessions.delete_many({"user_id": uid})
-        await db.notifications.delete_many({"user_id": uid})
-        await db.checklist_progress.delete_many({"user_id": uid})
-        await db.conversations.update_many({"member_ids": uid}, {"$pull": {"member_ids": uid}})
-        await db.users.delete_one({"user_id": uid})
-        logger.info(f"Removed staff member {email}")
+async def restore_staff():
+    """One-time: make sure these staff exist with the given role and group (also runs on the published database)."""
+    if await db.meta.find_one({"key": "restore_staff_v1"}):
+        return
+    for u in RESTORED_STAFF:
+        if await db.users.find_one({"email": u["email"]}):
+            await db.users.update_one({"email": u["email"]}, {"$set": {"role": u["role"], "staff_group": u["staff_group"]}})
+        else:
+            await db.users.insert_one({"user_id": new_id("user"), **u, "picture": None, "job_title": "",
+                                       "created_at": now_iso()})
+        logger.info(f"Restored staff member {u['email']}")
+    await db.meta.insert_one({"key": "restore_staff_v1", "created_at": now_iso()})
 
 
 async def seed():
@@ -144,7 +145,7 @@ async def startup():
     await seed_company_data()
     await seed_staff_v2()
     await migrate_forms_v3()
-    await remove_staff()
+    await restore_staff()
     # internal test accounts stay usable but are hidden from staff everywhere
     await db.users.update_many({"user_id": {"$in": HIDDEN_TEST_USERS}}, {"$set": {"hidden": True}})
     # migrate the old single Support Office flag / audience to staff groups
@@ -167,6 +168,7 @@ async def startup():
     asyncio.create_task(socials_loop())
     asyncio.create_task(task_reminder_loop())
     asyncio.create_task(policy_reminder_loop())
+    asyncio.create_task(cert_reminder_loop())
 
 
 @app.on_event("shutdown")

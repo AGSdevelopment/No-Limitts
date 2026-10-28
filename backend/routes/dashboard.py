@@ -3,6 +3,7 @@ from datetime import date
 from fastapi import APIRouter, Depends
 from core import P, current_user, db
 from routes.certificates import with_status
+from routes.events import event_fields, visible_events
 
 router = APIRouter(prefix="/api")
 
@@ -14,7 +15,8 @@ async def dashboard(user=Depends(current_user)):
              .to_list(1000)]
     alerts = sorted([c for c in certs if c["status"] != "valid"], key=lambda c: c["expiry_date"])
     today = date.today().isoformat()
-    events = await db.events.find({"date": {"$gte": today}}, {"_id": 0, "attendees": 0}).sort("date", 1).to_list(3)
+    events = await db.events.find({"date": {"$gte": today}, **visible_events(user)},
+                                  {**event_fields(user), "attendees": 0}).sort("date", 1).to_list(3)
     tasks = await db.tasks.find({"assignee_id": uid, "status": "open"}, P).to_list(100)
     tasks.sort(key=lambda t: t.get("due_date") or "9999")
     updates = await db.updates.find({"source": {"$exists": False}}, P).sort([("pinned", -1), ("created_at", -1)]).to_list(3)
