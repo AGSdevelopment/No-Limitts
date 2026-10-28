@@ -12,7 +12,7 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 
 ## Architecture
 - Expo Router app (tabs: Home, Chat, Certificates, Library + stack screens), React Query, sage-green light theme
-- FastAPI + MongoDB (server.py), Emergent Object Storage (storage.py) for certificate files, Emergent managed email (email_service.py)
+- FastAPI + MongoDB. Backend split (Jun 2026): server.py (app, seeds, startup), core.py (db, auth deps, notify, shared helpers), routes/*.py one router per area (auth, users, notifications, certificates, chat, updates, policies, compliance, events, tasks, dashboard, drive, gchat, forms, socials, cpd, ai, digest). Emergent Object Storage (storage.py) for certificate files, Emergent managed email (email_service.py)
 - Background expiry checker every 6h + on upload; notifies once per stage (expiring, expired)
 
 ## Implemented (2026-06)
@@ -92,8 +92,11 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Weekly policy reminders: policy_reminder_loop Monday 9am Perth (meta policy_remind_<y>_<w>), one in-app + email per person listing pending policies
 - Compliance dashboard (/compliance, admin, Library → Admin): GET /api/compliance → per staff pending policies, expired/expiring certs, CPD hours this year + summary stats; filters & search
 
+- Compliance export: GET /api/compliance/export?token= (admin) → .xlsx (Staff compliance + Summary sheets, openpyxl); Export button in Compliance header
+- New Starter checklist (/starter-checklist): New Starter-category forms visible to user (manual tick, db.checklist_progress), all policies acknowledged (auto), ≥1 certificate (auto); GET /api/starter-checklist, POST /api/starter-checklist/{form:<id>}; Home card + Library row for new_starter_* groups; compliance shows Starter x/y badge
+
 ## Backlog
 - P0: Add Google Drive OAuth credentials and connect
 - P1: Phone push notifications (Firebase file + build)
 - P1: Camera capture for certificates; date picker
-- P2: Compliance export report; attachments in chat; real-time websockets; short-lived file tokens
+- P2: attachments in chat; real-time websockets; short-lived file tokens

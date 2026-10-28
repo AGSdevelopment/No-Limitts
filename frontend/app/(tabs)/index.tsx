@@ -25,6 +25,8 @@ export default function Home() {
   const styles = useStyles();
   const { colors } = useTheme();
   const q = useQuery({ queryKey: ["dashboard"], queryFn: () => api("/dashboard"), refetchInterval: 30000 });
+  const isStarter = !!user?.staff_group?.startsWith("new_starter");
+  const starter = useQuery<any>({ queryKey: ["starter-checklist"], queryFn: () => api("/starter-checklist"), enabled: isStarter });
   const d = q.data;
   const bottomChrome = usesNativeTabs ? insets.bottom : 0;
 
@@ -60,6 +62,20 @@ export default function Home() {
               </Pressable>
             ))}
           </ScrollView>
+
+          {isStarter && starter.data && starter.data.done < starter.data.total && (
+            <Pressable testID="home-starter-card" onPress={() => router.push("/starter-checklist")} style={({ pressed }) => [styles.starter, pressed && { opacity: 0.85 }]}>
+              <Ionicons name="list" size={24} color={colors.onBrandPrimary} />
+              <View style={{ flex: 1, gap: 6 }}>
+                <Text style={styles.starterTitle}>Your New Starter checklist</Text>
+                <View style={styles.starterBar}>
+                  <View style={[styles.starterFill, { width: `${Math.round((starter.data.done / starter.data.total) * 100)}%` }]} />
+                </View>
+                <Text style={styles.starterSub}>{starter.data.done} of {starter.data.total} steps done · tap to continue</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={colors.onBrandPrimary} />
+            </Pressable>
+          )}
 
           {d.cert_alerts.length > 0 && (
             <Animated.View entering={FadeInDown.delay(50)}>
@@ -209,4 +225,9 @@ const useStyles = makeStyles((c) => ({
   socialIconBox: { alignItems: "center", justifyContent: "center" },
   socialHead: { flexDirection: "row", alignItems: "center", gap: 6 },
   socialText: { fontSize: 14, color: c.onSurface, lineHeight: 20 },
+  starter: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: c.brandPrimary, borderRadius: 16, padding: 16, marginBottom: 16 },
+  starterTitle: { fontSize: 16, fontWeight: "700", color: c.onBrandPrimary },
+  starterBar: { height: 8, borderRadius: 4, backgroundColor: "rgba(255,255,255,0.3)", overflow: "hidden" },
+  starterFill: { height: 8, borderRadius: 4, backgroundColor: c.onBrandPrimary },
+  starterSub: { fontSize: 13, color: c.onBrandPrimary, opacity: 0.9 },
 }));

@@ -53,6 +53,7 @@ function RootStack() {
         <Stack.Screen name="drive" options={{ ...header, title: "Company Drive" }} />
         <Stack.Screen name="cpd" options={{ ...header, title: "CPD" }} />
         <Stack.Screen name="compliance" options={{ ...header, title: "Compliance" }} />
+        <Stack.Screen name="starter-checklist" options={{ ...header, title: "New Starter checklist" }} />
         <Stack.Screen name="integrations" options={{ ...header, title: "Integrations" }} />
       </Stack.Protected>
       <Stack.Protected guard={!user}>

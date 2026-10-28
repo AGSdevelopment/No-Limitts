@@ -1,0 +1,37 @@
+{
+  "summary": "Backend refactor regression and the new compliance/New Starter features were tested end to end, with no regressions found. (1) AST diff: every function, class and module-level constant from pre-refactor server.py (git HEAD) exists in core.py, server.py or routes/*.py, and each is identical apart from @api->@router. The only changed function is compliance(), as intended, plus 5 new functions for the export and checklist. pyflakes reports no undefined names. (2) The new pytest suite test_iter17_refactor_compliance.py passes 31/31: smoke tests across all 18 modules, a DM send, private task create/patch/delete with RBAC, policy acknowledge, the CPD report PDF, compliance plus a check that the xlsx opens in openpyxl with both sheets and the right row count, employee 403 on compliance and export, and the checklist toggle/persist/untoggle with 400/404 edge cases. /api/drive/shared returns 409 'Therapist Resources folder hasn't been set up yet', which matches the pre-refactor code and the current config. (3) Old suite: 38 failed + 8 errors, which matches the ~45 stale failures. The errors come from a missing /tmp/cpd.png fixture in this environment. (4) Frontend at 375x667, no page errors. Admin: Home loads; on Compliance the 4 stats, 4 filter chips, search, expandable row details, empty state and the Export button (44px tall; opens /api/compliance/export?token=..., 200 xlsx) all work. Employee set to new_starter_employee: the Home starter card shows '1 of 6' and opens the checklist (6 items). Toggling a form item gives 2/6, which persists after reload; untoggle gives 1/6. The form opens JotForm prefilled with name/email, the policies item goes to /policies, and the employee sees 'Admins only' on /compliance. The employee's staff_group was reverted to null. No deprecated Expo packages detected.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/compliance", "issue": "Staff with zero certificates count as compliant on certificates (needs_attention is driven only by expired/expiring), and the UI shows a green '0 certs OK' badge. A missing required certificate is never flagged."},
+      {"endpoint": "GET /api/compliance", "issue": "compliance_data calls starter_checklist() once per new starter, and each call re-queries all policies, forms and certificates (N+1). This is fine at 33 staff but will slow down as the company grows; reuse the policies/certs already loaded."},
+      {"endpoint": "POST /api/starter-checklist/{item_key}", "issue": "Any user, not only new starters, can toggle checklist items. This is harmless but unguarded."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "compliance", "issues": ["The '0 certs OK' badge is green for staff who have no certificates, which is misleading. Show a neutral 'No certificates' badge instead.", "The policies_pending list uses the policy title as its React key, so duplicate policy titles would trigger key warnings."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter17_refactor_compliance.py", "/app/test_reports/pytest/iter17.xml"],
+  "action_items": [
+    "(Optional) Treat 0 certificates as 'No certificates' (neutral or warn) in the compliance badge and possibly in needs_attention.",
+    "(Optional) Remove the N+1 starter_checklist queries in compliance_data before staff numbers grow.",
+    "The old test suite (test_staffhub_api.py) creates TEST-xxxxxx channels that it never deletes, and they are visible to all real staff in Chat. 5 of them were left from earlier runs today and I deleted them. Add teardown, or mark the old stale tests skip, so they stop leaking into production-like data."
+  ],
+  "critical_code_review_comments": [
+    "Refactor is mechanically faithful: an AST comparison against git HEAD server.py shows 0 missing and 0 changed functions or constants, except compliance (intentional).",
+    "compliance.py uses `__import__('io').BytesIO()`. Use a normal `import io`.",
+    "The compliance export authenticates with ?token=, so the session token appears in access logs and browser history. This is the same pattern as the other file endpoints, so it is acceptable but worth noting."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter17_refactor_compliance.py"],
+  "success_rate": {"backend": "100% (31/31 new tests; 0 regressions vs. stale suite)", "frontend": "100% (admin compliance + employee starter checklist flows)"},
+  "seed_data_creation": "None kept. user_testemp001 was temporarily set to new_starter_employee and reverted to null. Deleted TEST_ DM messages, 5 TEST- channels, 10 TEST_ certificates, 1 TEST_ CPD log and the TEST notifications created by old/new suite runs.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Test users are hidden and do not appear in /api/compliance rows. Run the new suite with `pytest tests/test_iter17_refactor_compliance.py` (pytest.ini forces -n 2; use -n 0 for serial). /api/drive/shared returns 409 until the Therapist Resources folder is configured. Capture the export via add_init_script overriding window.open.",
+  "rca_of_issue": ""
+}

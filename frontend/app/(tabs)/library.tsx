@@ -23,6 +23,7 @@ export default function Library() {
   const isAdmin = user?.role === "admin";
 
   const resources: Row[] = [
+    ...(user?.staff_group?.startsWith("new_starter") ? [{ icon: "list-outline", label: "New Starter checklist", to: "/starter-checklist", id: "starter" } as Row] : []),
     { icon: "notifications-outline", label: "Notifications", to: "/notifications", id: "notifications", count: dash.data?.unread_notifications },
     { icon: "megaphone-outline", label: "Company updates", to: "/updates", id: "updates" },
     { icon: "checkbox-outline", label: "My tasks", to: "/tasks", id: "tasks", count: dash.data?.open_task_count },

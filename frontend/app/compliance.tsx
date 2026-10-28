@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
 import { FlatList, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from "react-native";
+import { Stack } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { api } from "@/src/api";
+import { API_URL, api, getApiToken, openLink } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { Avatar, Chip, EmptyState, ErrorState, Ionicons, Loading, formatDate } from "@/src/components/ui";
 import { groupLabel } from "@/src/groups";
@@ -63,6 +64,22 @@ export default function Compliance() {
 
   return (
     <View style={styles.root} testID="compliance-screen">
+      <Stack.Screen
+        options={{
+          headerRight: () => (
+            <Pressable
+              testID="compliance-export-button"
+              onPress={() => openLink(`${API_URL}/compliance/export?token=${encodeURIComponent(getApiToken() ?? "")}`)}
+              hitSlop={10}
+              style={styles.exportBtn}
+              accessibilityLabel="Download spreadsheet"
+            >
+              <Ionicons name="download-outline" size={20} color={colors.brandPrimary} />
+              <Text style={styles.exportText}>Export</Text>
+            </Pressable>
+          ),
+        }}
+      />
       <FlatList
         data={rows}
         keyExtractor={(r) => r.user_id}
@@ -90,6 +107,9 @@ export default function Compliance() {
                 <Badge icon="shield-checkmark-outline" text={pend ? `${pend} polic${pend === 1 ? "y" : "ies"} pending` : "Policies done"} tone={pend ? "warn" : "good"} />
                 <Badge icon="ribbon-outline" text={item.certs_expired.length ? `${item.certs_expired.length} expired` : item.certs_expiring.length ? `${item.certs_expiring.length} expiring` : `${item.certs_total} certs OK`} tone={item.certs_expired.length ? "bad" : certIssues ? "warn" : "good"} />
                 <Badge icon="school-outline" text={`${item.cpd_hours} CPD h`} tone="neutral" />
+                {!!item.starter && (
+                  <Badge icon="list-outline" text={`Starter ${item.starter.done}/${item.starter.total}`} tone={item.starter.done === item.starter.total ? "good" : "warn"} />
+                )}
               </View>
               {expanded && (
                 <View style={styles.details} testID={`compliance-details-${item.user_id}`}>
@@ -150,6 +170,8 @@ function Badge({ icon, text, tone }: { icon: any; text: string; tone: Tone }) {
 
 const useStyles = makeStyles((c) => ({
   root: { flex: 1, backgroundColor: c.surfaceSecondary },
+  exportBtn: { flexDirection: "row", alignItems: "center", gap: 4, minHeight: 44, paddingHorizontal: 8 },
+  exportText: { fontSize: 15, fontWeight: "600", color: c.brandPrimary },
   statsRow: { flexDirection: "row", gap: 10 },
   stat: { flex: 1, borderRadius: 16, padding: 14, gap: 2 },
   statValue: { fontSize: 28, fontWeight: "800" },
