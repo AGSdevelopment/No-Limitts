@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Linking, Modal, Platform, Pressable, ScrollView, Switch, Text, View } from "react-native";
-import { useRouter } from "expo-router";
+import { Stack, useRouter } from "expo-router";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import * as Haptics from "expo-haptics";
@@ -51,6 +51,40 @@ export default function UploadCertificate() {
   const [shareType, setShareType] = useState("");
   const [spaces, setSpaces] = useState<string[]>([]);
   const toggleSpace = (k: string) => setSpaces((s) => (s.includes(k) ? s.filter((x) => x !== k) : [...s, k]));
+  const [mode, setMode] = useState<"certificate" | "resource">("certificate");
+
+  const submitResource = async () => {
+    if (!file) return setError("Please attach the file to share.");
+    if (!title.trim()) return setError("Please enter a title.");
+    const h = parseFloat(cpdHours.replace(",", "."));
+    if (countCpd && (!h || h <= 0)) return setError("Enter how many CPD hours were completed.");
+    if (shareCpd && !shareType) return setError("Choose whether it's a Course, Webinar, Case Study or Resource link.");
+    if (!shareCpd && !spaces.length && !countCpd) return setError("Choose at least one place to add it.");
+    setSaving(true);
+    try {
+      const res = await uploadForm(`${API_URL}/resources/upload`, {
+        headers: authHeaders(),
+        fields: { title: title.trim(), provider: issuer.trim(), cpd_hours: countCpd ? String(h) : "", share_cpd: shareCpd ? shareType : "", drive_spaces: spaces.join(",") },
+        files: { file },
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(typeof body.detail === "string" ? body.detail : "Upload failed");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      qc.invalidateQueries({ queryKey: ["cpd"] });
+      qc.invalidateQueries({ queryKey: ["cpd-resources"] });
+      const done = [body.cpd_log_id && "My CPD", body.cpd_resource_id && "CPD Resources",
+        ...Object.entries(body.drive ?? {}).filter(([, v]) => v === "added").map(([k]) => SPACES.find((x) => x.key === k)?.label)].filter(Boolean);
+      const failed = Object.entries(body.drive ?? {}).filter(([, v]) => v !== "added").map(([k]) => SPACES.find((x) => x.key === k)?.label);
+      toast(failed.length ? `Shared, but couldn't add it to ${failed.join(" and ")}.` : `Shared to ${done.join(", ")}`, failed.length ? "info" : "success");
+      if (router.canGoBack()) router.back();
+      else router.replace("/(tabs)");
+    } catch (e: any) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+      setError(e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
   const drive = useQuery<any>({ queryKey: ["drive-status"], queryFn: () => api("/integrations/google-drive/status") });
 
   const autoFill = async (target: Picked | null = file) => {
@@ -74,7 +108,7 @@ export default function UploadCertificate() {
   };
 
   const pickDoc = async () => {
-    const r = await DocumentPicker.getDocumentAsync({ type: ["application/pdf", "image/*"], copyToCacheDirectory: true });
+    const r = await DocumentPicker.getDocumentAsync({ type: mode === "resource" ? "*/*" : ["application/pdf", "image/*"], copyToCacheDirectory: true });
     if (!r.canceled && r.assets?.[0]) {
       const a = r.assets[0];
       setFile({ uri: a.uri, name: a.name, mimeType: a.mimeType ?? undefined });
@@ -95,7 +129,7 @@ export default function UploadCertificate() {
       const a = r.assets[0];
       const picked = { uri: a.uri, name: a.fileName ?? "certificate-photo.jpg", mimeType: a.mimeType ?? "image/jpeg" };
       setFile(picked);
-      autoFill(picked);
+      if (mode === "certificate") autoFill(picked);
     }
   };
   const takePhoto = async () => {
@@ -113,6 +147,7 @@ export default function UploadCertificate() {
 
   const submit = async () => {
     setError(null);
+    if (mode === "resource") return submitResource();
     if (!file) return setError("Please attach the certificate file.");
     if (!title.trim()) return setError("Please enter the certificate name.");
     const expiryIso = dmyToIso(expiry);
@@ -168,6 +203,11 @@ export default function UploadCertificate() {
       bottomOffset={24}
       testID="upload-certificate-screen"
     >
+      <Stack.Screen options={{ title: mode === "resource" ? "Share a resource" : "Upload certificate" }} />
+      <View style={styles.modeRow}>
+        <Chip label="Certificate" selected={mode === "certificate"} onPress={() => setMode("certificate")} testID="upload-mode-certificate" />
+        <Chip label="Resource to share (no expiry)" selected={mode === "resource"} onPress={() => setMode("resource")} testID="upload-mode-resource" />
+      </View>
       {file ? (
         <View style={styles.fileCard} testID="upload-selected-file">
           <IconBox name={file.mimeType?.includes("pdf") ? "document-text" : "image"} size={44} />
@@ -195,13 +235,13 @@ export default function UploadCertificate() {
           <Pressable testID="upload-pick-photo" onPress={pickPhoto} style={({ pressed }) => [styles.pick, pressed && { opacity: 0.7 }]}>
             <Ionicons name="images-outline" size={28} color={colors.brandPrimary} />
             <Text style={styles.pickText}>From photos</Text>
-            <Text style={styles.pickSub}>Photo of certificate</Text>
+            <Text style={styles.pickSub}>{mode === "resource" ? "Photo or screenshot" : "Photo of certificate"}</Text>
           </Pressable>
         </View>
         </View>
       )}
 
-      {file && (
+      {file && mode === "certificate" && (
         <Button
           label={reading ? "Reading certificate…" : "Auto-fill details with AI"}
           icon="sparkles-outline"
@@ -213,8 +253,10 @@ export default function UploadCertificate() {
         />
       )}
 
-      <Field label="Certificate name" value={title} onChangeText={setTitle} placeholder="e.g. First Aid at Work" testID="upload-title-input" />
-      <Field label="Issued by (optional)" value={issuer} onChangeText={setIssuer} placeholder="e.g. St John Ambulance" testID="upload-issuer-input" />
+      <Field label={mode === "resource" ? "Title" : "Certificate name"} value={title} onChangeText={setTitle} placeholder={mode === "resource" ? "e.g. Autism & sensory processing webinar" : "e.g. First Aid at Work"} testID="upload-title-input" />
+      <Field label={mode === "resource" ? "Provider (optional)" : "Issued by (optional)"} value={issuer} onChangeText={setIssuer} placeholder={mode === "resource" ? "e.g. OT Australia" : "e.g. St John Ambulance"} testID="upload-issuer-input" />
+      {mode === "certificate" && (
+        <>
       <Field label={`Issue date (${DMY_HINT})`} value={issueDate} onChangeText={setIssueDate} placeholder="15-01-2026" autoCapitalize="none" testID="upload-issue-date-input" />
       <Field label={`Expiry date (${DMY_HINT})`} value={expiry} onChangeText={setExpiry} placeholder="15-01-2027" autoCapitalize="none" testID="upload-expiry-date-input" />
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }} style={{ marginTop: -4, marginBottom: 20 }}>
@@ -223,11 +265,13 @@ export default function UploadCertificate() {
         ))}
       </ScrollView>
       <Text style={styles.hint}>We&apos;ll remind you in the app and by email 30 days before it expires.</Text>
+        </>
+      )}
       <View style={styles.cpdBox} testID="upload-cpd-box">
         <View style={styles.cpdRow}>
           <View style={{ flex: 1 }}>
             <Text style={styles.cpdTitle}>Count towards my CPD hours</Text>
-            <Text style={styles.pickSub}>Adds this training to My CPD with the certificate as evidence</Text>
+            <Text style={styles.pickSub}>{mode === "resource" ? "Adds it to My CPD with the file as evidence" : "Adds this training to My CPD with the certificate as evidence"}</Text>
           </View>
           <Switch testID="upload-cpd-switch" value={countCpd} onValueChange={setCountCpd} trackColor={{ true: colors.brandPrimary, false: colors.surfaceTertiary }} />
         </View>
@@ -262,7 +306,7 @@ export default function UploadCertificate() {
         ))}
       </View>
       {error && <Text style={styles.error} testID="upload-error">{error}</Text>}
-      <Button label="Upload certificate" icon="cloud-upload-outline" loading={saving} onPress={submit} testID="upload-submit-button" />
+      <Button label={mode === "resource" ? "Share resource" : "Upload certificate"} icon="cloud-upload-outline" loading={saving} onPress={submit} testID="upload-submit-button" />
       <Modal visible={!!camSheet} transparent animationType="fade" onRequestClose={() => setCamSheet(null)}>
         <Pressable style={styles.scrim} onPress={() => setCamSheet(null)} />
         <View style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]} testID="camera-permission-sheet">
@@ -306,6 +350,7 @@ const useStyles = makeStyles((c) => ({
   cpdRow: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 44 },
   cpdTitle: { fontSize: 15, fontWeight: "600", color: c.onSurface },
   shareTitle: { fontSize: 14, fontWeight: "600", color: c.onSurface },
+  modeRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 },
   typeRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   error: { fontSize: 14, color: c.errorText, marginBottom: 12 },
 }));

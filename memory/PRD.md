@@ -123,3 +123,5 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Probation tracker (12 months default, editable; admin reminder 14 days before), Starter buddy (3 standard tasks), Profile one-page PDF, Compliance filters by group/CPD band
 - Upload screen: also share to CPD Resources (Course/Webinar/Case Study/Resource link) and/or Therapist/Participant Resources Drive folders
 - Events: any staff can create (purpose, food & drink option, conditions); RSVP Going/Maybe/Can't go with a comment visible to all; event detail /event/[id]; organiser/admin delete
+- Upload screen "Resource to share (no expiry)" mode -> POST /api/resources/upload (CPD Resources / Drive folders / My CPD)
+- Event reminders day before 9am Perth to Going/Maybe (in-app + email), event photos (attendees/organiser/admin), Add to calendar (Google link + .ics), Past events tab

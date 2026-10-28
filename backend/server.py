@@ -11,6 +11,7 @@ from routes.certificates import expiry_loop
 from routes.policies import policy_reminder_loop
 from routes.compliance import cert_reminder_loop
 from routes.profile import probation_reminder_loop
+from routes.events import event_reminder_loop
 from routes.tasks import task_reminder_loop
 from routes.drive import drive_index_loop
 from routes.gchat import gchat_loop
@@ -171,6 +172,7 @@ async def startup():
     asyncio.create_task(policy_reminder_loop())
     asyncio.create_task(cert_reminder_loop())
     asyncio.create_task(probation_reminder_loop())
+    asyncio.create_task(event_reminder_loop())
 
 
 @app.on_event("shutdown")

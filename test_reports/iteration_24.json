@@ -1,0 +1,39 @@
+{
+  "summary": "Iteration 24 tested four features: sharing a resource with no expiry, event reminders, event photos and the .ics calendar file. Backend: 18 of 18 pytest cases pass. POST /api/resources/upload gives 400 'Choose where to share it' with no destination, 400 for a bad share_cpd, bad hours or a blank title. All 4 share types create a CPD resource with a file in the right section. cpd_hours creates a My CPD log whose category matches the share type; with hours only the category is 'Course'. No certificate is created. The reminder loop was run in-process with notify and send_email mocked, datetime patched to 10am Perth and sleep patched. notify was called once, for Going and Maybe only (not not_going), with the title, the time ('tomorrow at 5:30pm') and the location. Check-ins were skipped. reminded_for stops a second reminder. Before 9am nothing is sent, and no email goes to @example.com users. Photos: not RSVP'd or not_going gives 403; Maybe, the organiser and admins are allowed; a PDF gives 400. ?token= serves the image bytes (401 without a token, 404 for an unknown id). GET event and GET events leave out storage_path. Deleting another user's photo gives 404; the admin and the owner can delete. ICS: a 5:30pm Perth event gives DTSTART ...T093000Z and DTEND +2h, an event with no time gives VALUE=DATE, no auth gives 401, an unknown event gives 404. Frontend (390x844, employee): the Certificate and 'Resource to share (no expiry)' chips work. Resource mode hides the issue and expiry dates and changes the title to 'Share a resource', the labels to Title/Provider and the button to 'Share resource'. With no destination it shows 'Choose at least one place to add it.' Sharing as Webinar created a Webinars resource (no Drive write) and returned to Home. The Events chips Upcoming / 'Past events & photos' filter correctly, and a past card shows '📷 1 photo · tap to view'. The detail screen shows the Google Calendar and Apple / Outlook buttons. 'Add photos' appears only after RSVP Going. Uploading 2 photos from the picker worked, the viewer opens, and the owner's delete works; a non-owner sees no delete. One real bug: the Google Calendar link has a zero-length date range for Perth users. No deprecated Expo packages were detected.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/events/{id}/photos", "issue": "The content-type check trusts the client (anything starting image/), so image/svg+xml is accepted. GET /photos/{pid} then serves it inline from the API origin, which risks stored XSS (and the ?token= is in the URL). Allow-list jpeg/png/heic/webp/gif, or serve with Content-Disposition: attachment + X-Content-Type-Options: nosniff. Reference: /app/backend/routes/events.py:193-195,227"},
+      {"endpoint": "DELETE /api/events/{id} and DELETE photos", "issue": "Removing a photo or deleting an event doesn't remove the objects from storage, so the files are orphaned (minor storage leak)."},
+      {"endpoint": "event_reminder_loop", "issue": "reminded_for is claimed before notify/send_email. If they throw, the reminder is lost for good (no retry). Acceptable, but worth knowing. Reference: /app/backend/routes/events.py:152-162"}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "AddToCalendar Google link", "issue": "The end date is computed with `new Date(`${ev.date}T00:00:00`)` (local) followed by `.toISOString()` (UTC). In UTC+ timezones (Perth) the end date equals the start, e.g. dates=20261107/20261107; this was reproduced in a browser with timezone Australia/Perth. Google gets a zero-length or invalid all-day range. Timed events (5:30pm) are also added as all-day, with the time only in the details. Fix: build the end date with string or UTC maths (new Date(ev.date + 'T00:00:00Z') + setUTCDate). When parse_time succeeds, send dates=YYYYMMDDTHHMMSS/...(+2h) with ctz=Australia/Perth, the same as the .ics. Reference: /app/frontend/src/components/event-extras.tsx:18-24", "testID": "event-add-google", "priority": "HIGH"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "event/[id]", "issues": ["At 390px the 'Google Calendar' and 'Apple / Outlook' button labels wrap onto 2 lines. Consider shorter labels ('Google' / 'Apple · Outlook') or stacking the buttons.", "The add-to-calendar buttons still show on past events, where they're pointless.", "The photo trash button deletes straight away with no confirmation."]},
+      {"screen": "upload-certificate (resource mode)", "issues": ["The certificate wording remains: the CPD switch subtitle says 'with the certificate as evidence', the 'From photos' tile says 'Photo of certificate', and 'Take a photo' says 'We'll fill in the details for you' although AI autofill is certificate-only."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter24_resources_reminders_photos_ics.py", "/app/backend/tests/iter24_ui_seed.py", "/app/test_reports/pytest/pytest_iter24.xml"],
+  "action_items": [
+    "Fix the Google Calendar URL in event-extras.tsx: compute the end date timezone-safely, and use timed dates when the event has a parseable time.",
+    "Restrict event photo content types (no SVG) and/or add nosniff + Content-Disposition when serving.",
+    "Optional: delete storage objects when photos or events are deleted; shorten the calendar button labels; hide the calendar buttons on past events; update the certificate wording in resource mode."
+  ],
+  "critical_code_review_comments": [
+    "upload_resource never calls copy_cert_to_drive. It only writes to Drive when drive_spaces is sent (which was not done).",
+    "The photo permission (going/maybe/organiser/admin) matches between the backend and the frontend canAdd.",
+    "A past event where the user never RSVP'd doesn't allow adding photos, even if they attended. That's intended by the spec, but staff may not RSVP in advance."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter24_resources_reminders_photos_ics.py", "/app/backend/tests/iter24_ui_seed.py"],
+  "success_rate": {"backend": "100% (18/18)", "frontend": "95% (all requested flows work; Google Calendar date bug in Perth timezone)"},
+  "seed_data_creation": "None persisted. Test events (incl. directly inserted reminder/check-in events), CPD resources/logs, 'New event'/'New CPD resource' notifications were deleted. Event photo objects in storage remain (no delete API for storage).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run: pytest tests/test_iter24_resources_reminders_photos_ics.py -n 0. The reminder test runs event_reminder_loop in-process with datetime/notify/send_email/asyncio.sleep patched. It uses a date 300+ days ahead so the real server loop and real events aren't affected. For UI data use `python tests/iter24_ui_seed.py seed|clean`. For Perth-timezone checks, open a new browser context with timezone_id='Australia/Perth'. Server clock is ~2026-10-28."
+}

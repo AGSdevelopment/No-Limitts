@@ -1,0 +1,138 @@
+import { useState } from "react";
+import { Pressable, Text, View } from "react-native";
+import { Image } from "expo-image";
+import * as ImagePicker from "expo-image-picker";
+import { useQueryClient } from "@tanstack/react-query";
+
+import { API_URL, authHeaders, getApiToken, openLink } from "@/src/api";
+import { useToast } from "@/src/components/toast";
+import { Button, Ionicons } from "@/src/components/ui";
+import { makeStyles, useTheme } from "@/src/theme";
+import { uploadForm } from "@/src/utils/upload";
+
+const tokenQ = () => `token=${encodeURIComponent(getApiToken() ?? "")}`;
+
+// "Add to calendar": Google Calendar link or a calendar file for Apple / Outlook.
+export function AddToCalendar({ ev }: { ev: any }) {
+  const styles = useStyles();
+  const google = () => {
+    const [y, m, day] = ev.date.split("-").map(Number);
+    const ymd = (dt: Date) => dt.toISOString().slice(0, 10).replace(/-/g, "");
+    const t = /^\s*(\d{1,2})(?:[:.](\d{2}))?\s*([ap])?\.?m?\.?\s*$/i.exec(ev.time ?? "");
+    let dates: string;
+    if (t) {
+      let h = Number(t[1]);
+      const min = Number(t[2] ?? 0);
+      const ap = (t[3] ?? "").toLowerCase();
+      if (ap === "p" && h < 12) h += 12;
+      if (ap === "a" && h === 12) h = 0;
+      const pad = (n: number) => String(n).padStart(2, "0");
+      const endH = Math.min(h + 2, 23);
+      dates = `${ymd(new Date(Date.UTC(y, m - 1, day)))}T${pad(h)}${pad(min)}00/${ymd(new Date(Date.UTC(y, m - 1, day)))}T${pad(endH)}${pad(min)}00`;
+    } else {
+      dates = `${ymd(new Date(Date.UTC(y, m - 1, day)))}/${ymd(new Date(Date.UTC(y, m - 1, day + 1)))}`;
+    }
+    const details = [ev.description, ev.catering && `Food & drink: ${ev.catering}`, ev.conditions].filter(Boolean).join("\n");
+    const url = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(ev.title)}&dates=${dates}&details=${encodeURIComponent(details)}&location=${encodeURIComponent(ev.location ?? "")}&ctz=Australia/Perth`;
+    openLink(url);
+  };
+  return (
+    <View style={styles.calRow}>
+      <Button label="Google" icon="logo-google" variant="secondary" onPress={google} style={{ flex: 1, paddingHorizontal: 8 }} testID="event-add-google" />
+      <Button label="Apple/Outlook" icon="calendar-outline" variant="secondary" onPress={() => openLink(`${API_URL}/events/${ev.event_id}/ics?${tokenQ()}`)} style={{ flex: 1, paddingHorizontal: 8 }} testID="event-add-ics" />
+    </View>
+  );
+}
+
+// Photo gallery; people who went (or the organiser / admins) can add photos.
+export function EventPhotos({ ev, canAdd, userId, isAdmin }: { ev: any; canAdd: boolean; userId?: string; isAdmin: boolean }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  const toast = useToast();
+  const qc = useQueryClient();
+  const [uploading, setUploading] = useState(0);
+  const [open, setOpen] = useState<string | null>(null);
+  const src = (p: any) => `${API_URL}/events/${ev.event_id}/photos/${p.photo_id}?${tokenQ()}`;
+
+  const add = async () => {
+    const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.7, allowsMultipleSelection: true, selectionLimit: 10 });
+    if (r.canceled || !r.assets?.length) return;
+    let ok = 0;
+    for (const [i, a] of r.assets.entries()) {
+      setUploading(r.assets.length - i);
+      try {
+        const res = await uploadForm(`${API_URL}/events/${ev.event_id}/photos`, {
+          headers: authHeaders(),
+          files: { file: { uri: a.uri, name: a.fileName ?? `photo-${i + 1}.jpg`, mimeType: a.mimeType ?? "image/jpeg" } },
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(typeof body.detail === "string" ? body.detail : "Upload failed");
+        }
+        ok += 1;
+      } catch (e: any) {
+        toast(e.message, "error");
+        break;
+      }
+    }
+    setUploading(0);
+    if (ok) toast(`${ok} photo${ok > 1 ? "s" : ""} added`, "success");
+    qc.invalidateQueries({ queryKey: ["event", ev.event_id] });
+  };
+
+  const remove = async (p: any) => {
+    try {
+      const res = await fetch(`${API_URL}/events/${ev.event_id}/photos/${p.photo_id}`, { method: "DELETE", headers: authHeaders() });
+      if (!res.ok) throw new Error("Couldn't delete the photo");
+      setOpen(null);
+      qc.invalidateQueries({ queryKey: ["event", ev.event_id] });
+    } catch (e: any) {
+      toast(e.message, "error");
+    }
+  };
+
+  const photos: any[] = ev.photos ?? [];
+  const selected = photos.find((p) => p.photo_id === open);
+  return (
+    <View style={styles.card} testID="event-photos">
+      <Text style={styles.section}>Photos{photos.length ? ` · ${photos.length}` : ""}</Text>
+      {photos.length === 0 && <Text style={styles.meta}>{canAdd ? "No photos yet. Add some so the team can relive it!" : "No photos yet."}</Text>}
+      <View style={styles.grid}>
+        {photos.map((p) => (
+          <Pressable key={p.photo_id} onPress={() => setOpen(open === p.photo_id ? null : p.photo_id)} style={styles.thumbWrap} testID={`event-photo-${p.photo_id}`}>
+            <Image source={{ uri: src(p) }} style={styles.thumb} contentFit="cover" transition={150} />
+          </Pressable>
+        ))}
+      </View>
+      {selected && (
+        <View style={{ gap: 8 }} testID="event-photo-viewer">
+          <Image source={{ uri: src(selected) }} style={styles.big} contentFit="contain" />
+          <View style={styles.viewerRow}>
+            <Text style={[styles.meta, { flex: 1 }]}>Added by {selected.name}</Text>
+            {(isAdmin || selected.user_id === userId) && (
+              <Pressable onPress={() => remove(selected)} style={styles.iconBtn} accessibilityLabel="Delete photo" testID="event-photo-delete">
+                <Ionicons name="trash-outline" size={20} color={colors.error} />
+              </Pressable>
+            )}
+          </View>
+        </View>
+      )}
+      {canAdd && (
+        <Button label={uploading ? `Uploading ${uploading}…` : "Add photos"} icon="images-outline" variant="secondary" loading={!!uploading} onPress={add} testID="event-photos-add" />
+      )}
+    </View>
+  );
+}
+
+const useStyles = makeStyles((c) => ({
+  calRow: { flexDirection: "row", gap: 8 },
+  card: { backgroundColor: c.surface, borderRadius: 16, padding: 16, gap: 10 },
+  section: { fontSize: 15, fontWeight: "700", color: c.onSurface },
+  meta: { fontSize: 13, color: c.muted },
+  grid: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  thumbWrap: { width: "32%", aspectRatio: 1, borderRadius: 10, overflow: "hidden", backgroundColor: c.surfaceSecondary },
+  thumb: { width: "100%", height: "100%" },
+  big: { width: "100%", aspectRatio: 1, borderRadius: 12, backgroundColor: c.surfaceSecondary },
+  viewerRow: { flexDirection: "row", alignItems: "center" },
+  iconBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+}));

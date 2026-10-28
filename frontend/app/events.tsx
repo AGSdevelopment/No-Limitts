@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { FlatList, Pressable, RefreshControl, Text, View } from "react-native";
 import { Stack, useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -6,7 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { useToast } from "@/src/components/toast";
-import { Button, Card, EmptyState, ErrorState, Ionicons, Loading } from "@/src/components/ui";
+import { Button, Card, Chip, EmptyState, ErrorState, Ionicons, Loading } from "@/src/components/ui";
 import { makeStyles, useTheme } from "@/src/theme";
 
 export default function Events() {
@@ -19,7 +20,8 @@ export default function Events() {
   const qc = useQueryClient();
   const q = useQuery<any[]>({ queryKey: ["events"], queryFn: () => api("/events") });
   const today = new Date().toLocaleDateString("en-CA", { timeZone: "Australia/Perth" });
-  const events = (q.data ?? []).filter((e) => e.date >= today);
+  const [past, setPast] = useState(false);
+  const events = (q.data ?? []).filter((e) => (past ? e.date < today && !e.checkin_for : e.date >= today)).sort((a, b) => (past ? b.date.localeCompare(a.date) : 0));
 
   const rsvp = async (e: any) => {
     try {
@@ -52,7 +54,13 @@ export default function Events() {
           keyExtractor={(e) => e.event_id}
           contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: insets.bottom + 24, flexGrow: 1 }}
           refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => q.refetch()} tintColor={colors.brandPrimary} />}
-          ListEmptyComponent={<EmptyState icon="calendar-outline" title="No upcoming events" subtitle="Tap + to create one for the team." />}
+          ListHeaderComponent={
+            <View style={styles.tabs}>
+              <Chip label="Upcoming" selected={!past} onPress={() => setPast(false)} testID="events-tab-upcoming" />
+              <Chip label="Past events & photos" selected={past} onPress={() => setPast(true)} testID="events-tab-past" />
+            </View>
+          }
+          ListEmptyComponent={<EmptyState icon="calendar-outline" title={past ? "No past events" : "No upcoming events"} subtitle={past ? undefined : "Tap + to create one for the team."} />}
           renderItem={({ item }) => {
             const dt = new Date(`${item.date}T00:00:00`);
             const mine = item.my_rsvp?.status;
@@ -74,7 +82,9 @@ export default function Events() {
                   <Text style={styles.sub}>
                     {item.counts?.going ?? item.attendee_count} going{item.counts?.maybe ? ` · ${item.counts.maybe} maybe` : ""}
                   </Text>
-                  {item.checkin_for ? null : mine && mine !== "going" ? (
+                  {item.checkin_for || past ? (
+                    past && item.photos?.length ? <Text style={styles.myRsvp}>📷 {item.photos.length} photo{item.photos.length > 1 ? "s" : ""} · tap to view</Text> : null
+                  ) : mine && mine !== "going" ? (
                     <Text style={styles.myRsvp}>You said: {mine === "maybe" ? "Maybe" : "Can't go"} · tap to change</Text>
                   ) : (
                     <Button
@@ -108,4 +118,5 @@ const useStyles = makeStyles((c) => ({
   desc: { fontSize: 14, color: c.onSurfaceSecondary, lineHeight: 20 },
   rsvp: { alignSelf: "flex-start", minHeight: 44, marginTop: 6 },
   myRsvp: { fontSize: 13, fontWeight: "600", color: c.brandPrimary, marginTop: 6 },
+  tabs: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
 }));

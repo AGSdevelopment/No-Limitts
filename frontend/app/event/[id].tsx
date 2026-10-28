@@ -6,6 +6,8 @@ import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api } from "@/src/api";
+import { useAuth } from "@/src/auth";
+import { AddToCalendar, EventPhotos } from "@/src/components/event-extras";
 import { useToast } from "@/src/components/toast";
 import { Avatar, Button, Chip, ConfirmSheet, EmptyState, ErrorState, Field, Ionicons, Loading, formatDate } from "@/src/components/ui";
 import { makeStyles, useTheme } from "@/src/theme";
@@ -18,6 +20,7 @@ const OPTIONS = [
 
 export default function EventDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { user } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const styles = useStyles();
@@ -94,7 +97,22 @@ export default function EventDetail() {
         {!!ev.catering && <Detail icon="restaurant-outline" text={ev.catering} />}
         {!!ev.conditions && <Detail icon="information-circle-outline" text={ev.conditions} />}
         <Text style={styles.meta}>Organised by {ev.created_by}</Text>
+        {!ev.checkin_for && ev.date >= new Date().toLocaleDateString("en-CA", { timeZone: "Australia/Perth" }) && (
+          <>
+            <Text style={styles.meta}>Add to my calendar</Text>
+            <AddToCalendar ev={ev} />
+          </>
+        )}
       </View>
+
+      {!ev.checkin_for && (
+        <EventPhotos
+          ev={ev}
+          canAdd={user?.role === "admin" || ev.created_by_id === user?.user_id || ["going", "maybe"].includes(ev.my_rsvp?.status) || ev.going}
+          userId={user?.user_id}
+          isAdmin={user?.role === "admin"}
+        />
+      )}
 
       <View style={styles.card}>
         <Text style={styles.section}>Your RSVP</Text>

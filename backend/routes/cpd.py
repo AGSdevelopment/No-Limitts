@@ -326,7 +326,7 @@ async def share_file_to_resources(cert: dict, category: str, user: dict) -> str:
     doc = {"resource_id": new_id("cpdr"), "title": cert["title"], "description": desc[:2000], "url": "",
            "category": cpd_section(category), "created_by": user["name"], "created_by_id": user["user_id"],
            "storage_path": cert["storage_path"], "file_name": cert["file_name"], "content_type": cert["content_type"],
-           "source_cert_id": cert["cert_id"], "created_at": now_iso()}
+           "source_cert_id": cert.get("cert_id"), "created_at": now_iso()}
     await db.cpd_resources.insert_one(doc)
     if cert.get("cpd_log_id"):
         await db.cpd_logs.update_one({"log_id": cert["cpd_log_id"]}, {"$set": {

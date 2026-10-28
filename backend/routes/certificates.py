@@ -208,3 +208,59 @@ async def download_certificate(cert_id: str, request: Request, token: Optional[s
     data, ctype = await run_in_threadpool(get_object, cert["storage_path"])
     return Response(content=data, media_type=cert.get("content_type") or ctype,
                     headers={"Content-Disposition": f'inline; filename="{cert["file_name"]}"'})
+
+
+@router.post("/resources/upload")
+async def upload_resource(title: str = Form(...), provider: str = Form(""), cpd_hours: str = Form(""),
+                          share_cpd: str = Form(""), drive_spaces: str = Form(""), file: UploadFile = File(...),
+                          user=Depends(current_user)):
+    """Share a webinar, case study, course material or other resource (no expiry date): to CPD Resources,
+    Company Drive folders and/or My CPD."""
+    title = title.strip()
+    if not title:
+        raise HTTPException(400, "Title is required")
+    share = share_cpd.strip()
+    if share and share.lower() not in ("course", "webinar", "case study", "resource link"):
+        raise HTTPException(400, "Choose Course, Webinar, Case Study or Resource link")
+    spaces = [x.strip() for x in drive_spaces.split(",") if x.strip()]
+    hours = None
+    if cpd_hours.strip():
+        try:
+            hours = round(float(cpd_hours.replace(",", ".")), 2)
+        except ValueError:
+            raise HTTPException(400, "CPD hours must be a number")
+        if not (0 < hours <= 200):
+            raise HTTPException(400, "CPD hours must be between 0 and 200")
+    if not (share or spaces or hours):
+        raise HTTPException(400, "Choose where to share it")
+    data = await file.read()
+    if not data:
+        raise HTTPException(400, "Empty file")
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, "File too large (max 15 MB)")
+    ext = (file.filename or "file").rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else "bin"
+    path = f"{APP_NAME}/resources/{user['user_id']}/{uuid.uuid4().hex}.{ext}"
+    ctype = file.content_type or "application/octet-stream"
+    try:
+        result = await run_in_threadpool(put_object, path, data, ctype)
+    except Exception as e:
+        logger.error(f"resource upload failed: {e}")
+        raise HTTPException(502, "Could not store the file, please try again")
+    item = {"cert_id": None, "title": title, "issuer": provider.strip()[:200], "storage_path": result["path"],
+            "file_name": file.filename or "document", "content_type": ctype}
+    out = {"title": title}
+    if hours:
+        from routes.cpd import LOG_CATEGORY, cpd_section
+        log = {"log_id": new_id("cpd"), "user_id": user["user_id"], "user_name": user["name"], "title": title,
+               "provider": item["issuer"], "date": date.today().isoformat(), "hours": hours,
+               "category": LOG_CATEGORY[cpd_section(share)] if share else "Course", "notes": "Added from an upload",
+               "storage_path": item["storage_path"], "file_name": item["file_name"], "content_type": ctype,
+               "created_at": now_iso()}
+        await db.cpd_logs.insert_one(log)
+        item["cpd_log_id"] = out["cpd_log_id"] = log["log_id"]
+    if share:
+        from routes.cpd import share_file_to_resources  # local import: cpd is a sibling module
+        out["cpd_resource_id"] = await share_file_to_resources(item, share, user)
+    if spaces:
+        out["drive"] = await upload_to_spaces(item, data, spaces, user)
+    return out
