@@ -1,0 +1,28 @@
+{
+  "summary": "External dashboards feature tested. Backend 7/7 pytest pass: admin list returns 1 item with url, admin GET returns url (no _id), unknown id 404, employee list [] and GET 404 'Dashboard not found' with no URL leaked, unauth 401 on both. Frontend (390x844): admin sees 'Therapist dashboard' row in Library Resources, tap navigates to /dashboard/therapist-dashboard, header title 'Therapist dashboard', iframe src = Wix URL, iframe fills screen (390x780) and Wix content loads (no X-Frame-Options/CSP blocking); open-in-browser button 44x44. Employee: no row in Library; direct visit shows 'No access' empty state, no iframe, Wix URL absent from DOM and frontend source bundle.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/dashboard/[id] (direct deep link, no access)", "issues": ["When visited directly with no navigation history, header shows 'Dashboard' with no back button - user has no in-screen way back (minor; normal for deep link but consider a 'Go to Library' action in the empty state)."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter35_external_dashboards.py", "/app/test_reports/pytest/pytest_iter35.xml"],
+  "action_items": [
+    "Informational: the Wix therapist-dashboard page itself is members-gated - inside the iframe it immediately shows a Wix 'Sign Up / Log In' popup. On web, browsers blocking third-party cookies (Safari, Chrome incognito) may prevent the Wix login from persisting inside the iframe; the open-in-browser button is the fallback. Native WebView should be fine (consider sharedCookiesEnabled / thirdPartyCookiesEnabled props on WebView for Wix login persistence).",
+    "Optional: add a 'Back to Library' action on the No access empty state for direct deep links."
+  ],
+  "critical_code_review_comments": [
+    "Gating is enforced server-side correctly; URL never sent to disallowed roles.",
+    "WebView onShouldStartLoadWithRequest uses req.url.includes(host) - a loose check (e.g. external URL containing host in query string stays in-app). Low risk.",
+    "WebView lacks sharedCookiesEnabled/thirdPartyCookiesEnabled; Wix member login may not persist between sessions on iOS."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter35_external_dashboards.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "None (uses startup-seeded therapist-dashboard and seeded test sessions)",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Use tokens test_session_admin / test_session_employee via localStorage auth_token (JSON-stringified). Library row testID library-row-dash-therapist-dashboard; iframe data-testid dashboard-frame. Run pytest with -n 0 and EXPO_PUBLIC_BACKEND_URL exported from frontend/.env."
+}
