@@ -1,0 +1,49 @@
+{
+  "summary": "Tested AGTS therapist plans pages (view=nk) and the Plan Expiry Calendar. Read-only (no /save calls, no uploads, no Settings edits). Backend 32/33 pytest pass. Access control works: no token -> 401 on engine/app/data; employee allowed on plans-test; admin -> 403 on plans-test; employee -> 403 on participant-plans and unknown pages; embed 'agts' docs can't be used as nk pages; admin full engine 200 (no nk tab), employee -> 403. The therapist page HTML has no \"Nikki's participants\" / \"Nikki\\'s participants\"; it does have 'emergency plans for my participants', 'My participants', data-v=\"nk\" and id=\"v-nk\". No 'anchor missing' errors in the logs. FAILED (HIGH, privacy): /api/agts-dashboard/data?view=nk&page=plans-test sends all 49 clients and 92 forms, so 36 participants of other therapists reach Saraya's page. Only the browser filters them by tag. Unit tests with a fake db and a fake notify (no real notifications sent) passed for plan_alerts, sync_plan_pages and hours_alerts. Frontend at 390x844 inside the iframe: the 'Needs attention now' box shows 2 red chips (plan ending within 30 days) and 2 amber chips (review overdue). 7 tiles show. Calendar: 'October 2026', Mon-Sun headers, 3 empty lead cells and 31 day cells. Today (28) is outlined. Red dots mark plan ends and amber dots mark reviews due. The dated chip list appears below. Tapping › goes to November 2026 and the Today button appears; Today goes back to October and the button hides; ‹ goes to September. Tapping a chip selects the participant and shows the details card; tapping it again deselects. No JS errors. In-app: the admin's Home shows the Therapist dashboard and the full engine loads in the iframe; opening /dashboard/plans-test as admin shows 'No access'. The employee's Home shows the 'Test plans page' card, and it opens the nk page with the calendar.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "GET /api/agts-dashboard/data?view=nk&page=<therapist page>", "issue": "The server sends every client in the shared list (49) and every form (92), with names, funding, support coordinator, tags and plan dates. It only overrides cfg.tag, and the browser filters by tag. Any therapist with a plans page can read other therapists' and Nikki's participant data from the network response or devtools. When _plans_tag is set, filter nk.clients by tag (case-insensitive substring, same as the dashboard's tagRe) and forms by the remaining client names / pref names, on the server.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "POST /api/agts-dashboard/save (view=nk, therapist page) [code review only, not called]", "issue": "The therapist page still shows 'Upload client list' / 'Upload forms report' and the Settings inputs (tag/months/formAge). The server keeps only the tag; the rest of the nikki section is replaced. If a therapist uploads, wireNikki keeps only /nikki/ or the therapist-tag clients, which silently deletes every other therapist's clients from the shared record and breaks their pages and sync_plan_pages. A therapist changing months/formAge also changes Nikki's shared cfg. Hide the uploads and Settings on own pages, or reject saves when _plans_tag is set."},
+      {"endpoint": "plan_alerts()", "issue": "A missing risk assessment raises no alert; only an out-of-date completed one does. The dashboard counts Missing as 'Risk assessment needed', so the alerts and the tile don't match. Personal emergency plans are never alerted. Confirm this is intended."},
+      {"endpoint": "sync_plan_pages()", "issue": "$set users each hour overwrites any manual sharing on plans-<name> docs, and pages are never removed when a tag disappears or a user leaves. Low risk."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Plan expiry calendar chip tap", "issue": "The details card renders only inside the 'Needs attention now' box at the top. When a calendar chip near the bottom is tapped, the card appears off-screen and the page doesn't scroll, so the only feedback is the chip outline. If there is no alert box (no soon/overdue rows), calendar chips select but no card ever shows. Render the card under the calendar (or scroll to it) and keep it independent of the alert box.", "testID": ".cal .nkPick", "priority": "MEDIUM"},
+      {"component": "Header 'Open in browser' on plans pages", "issue": "Therapist plans docs have url '' so window.open('') opens a blank tab (native openBrowserAsync('') may throw). participant-plans opens the full Wix therapist dashboard URL. Hide the button for embed agts-nk.", "testID": "dashboard-open-browser", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Participant Plans & Safety (therapist page)", "issues": [
+        "Amber chips use white text on #c98a00, about 2.9:1 contrast at 11-12.5px, which fails WCAG AA. Darken the amber to about #8a5a00 or use dark text.",
+        "Calendar ‹ › / Today buttons are 44x40; make them at least 44 high.",
+        "The 'Plan reviews overdue' tile shows 4 while the alert box lists 2 amber chips, because the tile also counts plans ending within 30 days. Consider aligning or relabelling.",
+        "Details card for an expired plan would show '(-N days left)'; use 'expired N days ago'.",
+        "Remaining Nikki wording on own pages: the Excel file is named 'Nikki_plan_reviews_*.xlsx', and the upload message becomes '... of My participants found' (capital M mid-sentence, from the regex fallback)."
+      ]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter36_plans_dashboard.py", "/app/test_reports/pytest/pytest_iter36.xml"],
+  "action_items": [
+    "HIGH: filter clients and forms on the server in /agts-dashboard/data for therapist pages (_plans_tag set) so other participants' data is never sent.",
+    "HIGH: on therapist pages, hide the upload buttons and the Settings section, and/or have the server reject view=nk saves when _plans_tag is set. Today an upload would wipe other therapists' clients from the shared Wix record.",
+    "MEDIUM: show the participant details card next to the calendar (or scroll to it) when a calendar chip is tapped, and show it even when there is no alert box.",
+    "LOW: hide the 'Open in browser' header button for embed agts-nk dashboards (url is empty).",
+    "LOW: improve amber chip contrast; make calendar nav buttons at least 44px high; fix 'My participants' capitalisation in upload messages and the Nikki_ Excel filename on own pages."
+  ],
+  "critical_code_review_comments": [
+    "require_view properly requires embed 'agts-nk' and allowed(); admins are correctly not auto-granted therapist pages.",
+    "The token is passed in the query string (engine?token=...). Referrer-Policy no-referrer and Cache-Control no-store reduce leakage, but the token can still show up in server/proxy logs.",
+    "plan_alerts' review-overdue rule (only when plan end > 30 days) matches the frontend revOver; per-page dedupe keys work (verified with a second run sending 0)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter36_plans_dashboard.py"],
+  "success_rate": {"backend": "97% (32/33; the failure is the HIGH data-scoping issue)", "frontend": "95% (all requested flows work; calendar-chip details card is off-screen)"},
+  "seed_data_creation": "None. Used the existing plans-test dashboard doc and the seeded test sessions; live Wix data was only read.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Live Wix data: never call /agts-dashboard/save. Today = 28 Oct 2026. plans-test (tag Saraya's Clients) has 13 participants: 2 plans end within 30 days (13 Nov, 22 Nov), 2 reviews overdue (24 Sep, 29 Sep), 5 expired. October has no calendar events; November has 3 (2 Nov review, 13 and 22 Nov ends). test_client_scope_report should pass once server-side filtering is added. The unit tests patch routes.agts_dashboard.db/read_part and core.notify."
+}

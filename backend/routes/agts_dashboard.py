@@ -89,8 +89,8 @@ async def dashboard_data(request: Request, token: Optional[str] = None, view: st
         if view == "nk":  # only Nikki's participant data, never billing, pay or bonus figures
             prev = await read_part(client, "preview")
             nk = (json.loads(prev["data"]).get("nikki") if prev and prev.get("data") else None) or {}
-            if user.get("_plans_tag"):  # a therapist's own page: show only participants with their tag
-                nk = {**nk, "cfg": {**(nk.get("cfg") or {}), "tag": user["_plans_tag"]}}
+            if user.get("_plans_tag"):  # a therapist's own page: send only participants (and their forms) with their tag
+                nk = own_participants(nk, user["_plans_tag"])
             out.update({p: None for p in PARTS})
             out["preview"] = {"data": json.dumps({"weeks": {}, "nikki": nk or {}}), "updatedBy": (prev or {}).get("updatedBy"),
                               "updated": (prev or {}).get("updated")}
@@ -115,16 +115,29 @@ async def dashboard_save(body: SaveIn, request: Request, view: str = "", page: s
     if view == "nk":
         if body.part != "preview":
             raise HTTPException(403, "Only participant plan data can be saved here")
+        if user.get("_plans_tag"):  # therapist pages are view-only: an upload there would replace everyone's shared list
+            raise HTTPException(403, "This page is view-only. Plan data is uploaded on the main plans page.")
         # merge just the Nikki section into the shared record so nothing else is overwritten
         async with httpx.AsyncClient(timeout=30) as client:
             prev = await read_part(client, "preview")
         full = json.loads(prev["data"]) if prev and prev.get("data") else {}
-        old_cfg = (full.get("nikki") or {}).get("cfg") or {}
         full["nikki"] = json.loads(body.json).get("nikki") or {}
-        if user.get("_plans_tag"):  # keep Nikki's tag setting; a therapist page only views with its own tag
-            full["nikki"]["cfg"] = {**(full["nikki"].get("cfg") or {}), "tag": old_cfg.get("tag", "Nikki's Clients")}
         return await write_part("preview", json.dumps(full, separators=(",", ":")), user["email"])
     return await write_part(body.part, body.json, user["email"])
+
+
+def own_participants(nk: dict, tag: str) -> dict:
+    """Plans data for one therapist's page: only their tagged, active participants and those participants' forms."""
+    t = tag.lower()
+    clients = [c for c in nk.get("clients") or [] if not c.get("archived") and t in (c.get("tags") or "").lower()]
+    names = set()
+    for c in clients:
+        n = (c.get("name") or "").lower()
+        names.add(n)
+        if c.get("pref") and n:
+            names.add(f"{c['pref']} {n.split(' ')[-1]}".lower())
+    forms = [f for f in nk.get("forms") or [] if (f.get("p") or "").lower() in names]
+    return {**nk, "clients": clients, "forms": forms, "cfg": {**(nk.get("cfg") or {}), "tag": tag}}
 
 
 def _addmonths(serial: int, months: int) -> int:
@@ -304,8 +317,12 @@ async def engine(request: Request, token: Optional[str] = None, view: str = "", 
     if view == "nk":
         own = bool(user.get("_plans_tag"))  # a therapist's own page
         if own:  # covers plain and JS-escaped (Nikki\'s) wording, with or without "for"/"All of"
-            html = re.sub(r"(for |All of )?Nikki(\\?)'s participants",
+            html = re.sub(r"(for |All of |of )?Nikki(\\?)'s participants",
                           lambda m: (m.group(1) or "") + ("my" if m.group(1) else "My") + " participants", html)
+            html = html.replace("`Nikki_plan_reviews_", "`My_plan_reviews_")
+            # view-only: hide uploads and settings (the server also refuses saves from these pages)
+            html = _inject(html, "</body>", "<style>label.btn:has(#nkCl),label.btn:has(#nkFo),.controls:has(#nkTag),"
+                           "h2:has(+ .controls #nkTag){display:none!important}</style></body>")
         who = "my participants" if own else "Nikki's participants"
         html = _inject(html, '<button class="tab" data-v="set">Settings</button>',
                        '<button class="tab" data-v="set">Settings</button>\n    <button class="tab" data-v="nk">Plans &amp; safety</button>')

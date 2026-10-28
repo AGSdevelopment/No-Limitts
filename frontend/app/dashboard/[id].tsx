@@ -34,11 +34,11 @@ export default function Dashboard() {
       <Stack.Screen
         options={{
           title: d.name,
-          headerRight: () => (
+          headerRight: () => (d.url ? (
             <Pressable onPress={() => openLink(d.url)} style={styles.headerBtn} accessibilityLabel="Open in browser" testID="dashboard-open-browser">
               <Ionicons name="open-outline" size={22} color={colors.brandPrimary} />
             </Pressable>
-          ),
+          ) : null),
         }}
       />
       {Platform.OS === "web" ? (
