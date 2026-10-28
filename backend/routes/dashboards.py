@@ -9,21 +9,27 @@ DEFAULTS = [
      "url": "https://www.aspireandgrowtherapyservices.com.au/therapist-dashboard", "roles": ["admin"], "groups": [],
      "embed": "agts"},
     {"dashboard_id": "participant-plans", "name": "Participant plans & safety",
-     "url": "https://www.aspireandgrowtherapyservices.com.au/therapist-dashboard", "roles": ["admin"], "groups": [],
-     "embed": "agts-nk"},
+     "url": "https://www.aspireandgrowtherapyservices.com.au/therapist-dashboard", "roles": [], "groups": [],
+     "embed": "agts-nk", "user_emails": ["nikki@aspireandgrow.com.au"]},
 ]
 
 
 async def ensure_dashboards():
     for d in DEFAULTS:
+        emails = d.pop("user_emails", None)
         if not await db.dashboards.find_one({"dashboard_id": d["dashboard_id"]}):
             await db.dashboards.insert_one({**d, "created_at": now_iso()})
         else:
             await db.dashboards.update_one({"dashboard_id": d["dashboard_id"]}, {"$set": {"embed": d.get("embed", "")}})
+        if emails is not None:  # shared with named people only
+            users = await db.users.find({"email": {"$in": emails}}, {"_id": 0, "user_id": 1}).to_list(20)
+            await db.dashboards.update_one({"dashboard_id": d["dashboard_id"]},
+                                           {"$set": {"roles": [], "users": [u["user_id"] for u in users]}})
 
 
 def allowed(d: dict, user: dict) -> bool:
-    return user.get("role") in d.get("roles", []) or (user.get("staff_group") or "") in d.get("groups", [])
+    return (user.get("role") in d.get("roles", []) or (user.get("staff_group") or "") in d.get("groups", [])
+            or user.get("user_id") in d.get("users", []))
 
 
 def out(d: dict) -> dict:

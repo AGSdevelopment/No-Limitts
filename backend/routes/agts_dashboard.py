@@ -13,7 +13,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
-from core import P, admin_user, bearer, db, logger, now_iso, user_from_token
+from core import P, bearer, db, logger, now_iso, user_from_token
 
 router = APIRouter(prefix="/api")
 COLLECTION = "TherapistDashboard"
@@ -36,6 +36,20 @@ async def require_admin_token(request: Request, token: Optional[str]) -> dict:
     return user
 
 
+async def require_view(request: Request, token: Optional[str], view: str) -> dict:
+    """view='nk' is the Participant plans & safety page: only people the dashboard is shared with (Nikki)."""
+    if view != "nk":
+        return await require_admin_token(request, token)
+    from routes.dashboards import allowed
+    user = await user_from_token(bearer(request) or token)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    d = await db.dashboards.find_one({"dashboard_id": "participant-plans"}, P)
+    if not d or not allowed(d, user):
+        raise HTTPException(403, "Not available for your account")
+    return user
+
+
 async def read_part(client: Optional[httpx.AsyncClient], part: str) -> Optional[dict]:
     h = wix_headers()
     if h:
@@ -51,11 +65,32 @@ async def read_part(client: Optional[httpx.AsyncClient], part: str) -> Optional[
     return {"data": doc["data"], "updatedBy": doc.get("updatedBy"), "updated": doc.get("updated")} if doc else None
 
 
+async def write_part(part: str, data: str, email: str):
+    h = wix_headers()
+    if h:
+        item = {"id": part, "data": {"_id": part, "title": part, "data": data, "updatedBy": email}}
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.post(f"{WIX}/save", json={"dataCollectionId": COLLECTION, "dataItem": item}, headers=h)
+        if r.status_code != 200:
+            logger.error(f"Wix save failed {r.status_code}: {r.text[:300]}")
+            raise HTTPException(502, f"Could not save to Wix ({r.status_code})")
+    else:
+        await db.agts_dashboard_parts.update_one({"part": part}, {"$set": {"data": data, "updatedBy": email, "updated": now_iso()}}, upsert=True)
+    return {"updated": now_iso(), "updatedBy": email}
+
+
 @router.get("/agts-dashboard/data")
-async def dashboard_data(request: Request, token: Optional[str] = None):
-    user = await require_admin_token(request, token)
+async def dashboard_data(request: Request, token: Optional[str] = None, view: str = ""):
+    user = await require_view(request, token, view)
     async with httpx.AsyncClient(timeout=30) as client:
         out = {"user": user["email"], "source": "wix" if wix_headers() else "staffhub"}
+        if view == "nk":  # only Nikki's participant data, never billing, pay or bonus figures
+            prev = await read_part(client, "preview")
+            nk = json.loads(prev["data"]).get("nikki") if prev and prev.get("data") else None
+            out.update({p: None for p in PARTS})
+            out["preview"] = {"data": json.dumps({"weeks": {}, "nikki": nk or {}}), "updatedBy": (prev or {}).get("updatedBy"),
+                              "updated": (prev or {}).get("updated")}
+            return out
         for p in PARTS:
             out[p] = await read_part(client, p)
     return out
@@ -67,23 +102,54 @@ class SaveIn(BaseModel):
 
 
 @router.post("/agts-dashboard/save")
-async def dashboard_save(body: SaveIn, admin=Depends(admin_user)):
+async def dashboard_save(body: SaveIn, request: Request, view: str = ""):
+    user = await require_view(request, None, view)
     if body.part not in PARTS:
         raise HTTPException(400, "Unknown data type.")
     if len(body.json) > 480000:
         raise HTTPException(400, "The data is too large to save.")
-    h = wix_headers()
-    if h:
-        item = {"id": body.part, "data": {"_id": body.part, "title": body.part, "data": body.json, "updatedBy": admin["email"]}}
+    if view == "nk":
+        if body.part != "preview":
+            raise HTTPException(403, "Only participant plan data can be saved here")
+        # merge just the Nikki section into the shared record so nothing else is overwritten
         async with httpx.AsyncClient(timeout=30) as client:
-            r = await client.post(f"{WIX}/save", json={"dataCollectionId": COLLECTION, "dataItem": item}, headers=h)
-        if r.status_code != 200:
-            logger.error(f"Wix save failed {r.status_code}: {r.text[:300]}")
-            raise HTTPException(502, f"Could not save to Wix ({r.status_code})")
-        return {"updated": now_iso(), "updatedBy": admin["email"]}
-    await db.agts_dashboard_parts.update_one({"part": body.part}, {"$set": {"data": body.json, "updatedBy": admin["email"],
-                                                                             "updated": now_iso()}}, upsert=True)
-    return {"updated": now_iso(), "updatedBy": admin["email"]}
+            prev = await read_part(client, "preview")
+        full = json.loads(prev["data"]) if prev and prev.get("data") else {}
+        full["nikki"] = json.loads(body.json).get("nikki") or {}
+        return await write_part("preview", json.dumps(full, separators=(",", ":")), user["email"])
+    return await write_part(body.part, body.json, user["email"])
+
+
+async def nikki_plan_alerts():
+    """Tell the people the plans page is shared with when a participant's plan ends within 30 days (once per plan end)."""
+    from datetime import date, datetime
+    from core import DIGEST_TZ, notify
+    from routes.dashboards import allowed  # noqa: F401
+    d = await db.dashboards.find_one({"dashboard_id": "participant-plans"}, P)
+    ids = (d or {}).get("users") or []
+    if not ids:
+        return
+    async with httpx.AsyncClient(timeout=30) as client:
+        prev = await read_part(client, "preview")
+    if not prev or not prev.get("data"):
+        return
+    nk = json.loads(prev["data"]).get("nikki") or {}
+    tag = ((nk.get("cfg") or {}).get("tag") or "Nikki's Clients").lower()
+    today = (datetime.now(DIGEST_TZ).date() - date(1899, 12, 30)).days
+    for c in nk.get("clients") or []:
+        end = c.get("end")
+        if c.get("archived") or tag not in (c.get("tags") or "").lower() or not isinstance(end, (int, float)):
+            continue
+        days = int(end) - today
+        if 0 <= days <= 30:
+            key = f"agts_plan_end_{c['name']}_{int(end)}"
+            if await db.meta.find_one({"key": key}):
+                continue
+            await db.meta.insert_one({"key": key, "created_at": now_iso()})
+            when = (date(1899, 12, 30) + __import__("datetime").timedelta(days=int(end))).strftime("%d %b %Y")
+            await notify(ids, "dashboard", f"Plan ending soon: {c['name']}",
+                         f"Their plan ends {when} ({days} day{'s' if days != 1 else ''}). Time to check the plan review.",
+                         "/dashboard/participant-plans")
 
 
 MOBILE_CSS = """<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style id="sh-mobile">
@@ -155,14 +221,14 @@ MOBILE_CSS = """<meta name="viewport" content="width=device-width,initial-scale=
 
 @router.get("/agts-dashboard/engine", response_class=HTMLResponse)
 async def engine(request: Request, token: Optional[str] = None, view: str = ""):
-    await require_admin_token(request, token)
+    await require_view(request, token, view)
     html = ENGINE.read_text(encoding="utf-8")
     html = html.replace("<head>", "<head>" + MOBILE_CSS, 1)
     # Participant plans & safety (Nikki) view: the engine already renders it into #v-nk; give it a tab and a home
-    html = html.replace('<button class="tab" data-v="set">Settings</button>',
-                        '<button class="tab" data-v="set">Settings</button>\n    <button class="tab" data-v="nk">Plans &amp; safety</button>', 1)
-    html = html.replace('<div class="view" id="v-set">', '<div class="view" id="v-nk"><div class="empty">Loading…</div></div>\n  <div class="view" id="v-set">', 1)
     if view == "nk":
+        html = html.replace('<button class="tab" data-v="set">Settings</button>',
+                            '<button class="tab" data-v="set">Settings</button>\n    <button class="tab" data-v="nk">Plans &amp; safety</button>', 1)
+        html = html.replace('<div class="view" id="v-set">', '<div class="view" id="v-nk"><div class="empty">Loading…</div></div>\n  <div class="view" id="v-set">', 1)
         html = html.replace("</body>", """<style>#tabs,.uploads,.note,#shToggle,.sharebar,.top .controls,#periodLine{display:none!important}</style>
 <script>document.addEventListener('DOMContentLoaded',function(){ var h=document.querySelector('h1'); if(h) h.textContent='Participant Plans & Safety';
  var p=document.getElementById('periodLine'); if(p) p.textContent="Plan reviews, risk assessments and emergency plans for Nikki's participants";
@@ -237,6 +303,7 @@ async def dashboard_loop():
                             await notify(await _admin_ids(), "dashboard", "Upload this week's End of Week export",
                                          "Keep the Therapist dashboard current: open it, tap Show uploads & data status and add the export.",
                                          "/dashboard/therapist-dashboard")
+                await nikki_plan_alerts()
                 # Below hours target alerts, once per therapist per dashboard week
                 bill, sett = await read_part(client, "billing"), await read_part(client, "settings")
                 if bill and bill.get("data"):
@@ -257,21 +324,21 @@ async def dashboard_loop():
 @router.get("/agts-dashboard/app", response_class=HTMLResponse)
 async def app_page(request: Request, token: Optional[str] = None, view: str = ""):
     """Wrapper that hosts the engine in a frame and relays load/save messages, like the Wix page did."""
-    await require_admin_token(request, token)
+    await require_view(request, token, view)
     t = json.dumps(token or "")
     html = """<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="referrer" content="no-referrer"><style>html,body{margin:0;height:100%;background:#f4f8fb}iframe{border:0;width:100%;height:100%;display:block}</style></head>
 <body><iframe id="f" src="engine?token=__TOK____VIEW__"></iframe><script>
-const TOKEN=__T__; const f=document.getElementById('f');
+const TOKEN=__T__; const Q=__Q__; const f=document.getElementById('f');
 const api=(p,o={})=>fetch(p,{...o,headers:{'Authorization':'Bearer '+TOKEN,'Content-Type':'application/json'}}).then(async r=>{const j=await r.json().catch(()=>({})); if(!r.ok) throw new Error(j.detail||('Error '+r.status)); return j;});
 let loading=false;
 window.addEventListener('message',async e=>{ if(e.source!==f.contentWindow) return; const m=e.data||{};
-  if(m.type==='ready'&&!loading){ loading=true; try{ const d=await api('data'); f.contentWindow.postMessage({type:'shared-data',...d},'*'); }
+  if(m.type==='ready'&&!loading){ loading=true; try{ const d=await api('data'+Q); f.contentWindow.postMessage({type:'shared-data',...d},'*'); }
     catch(err){ f.contentWindow.postMessage({type:'shared-error',message:err.message},'*'); loading=false; } }
-  if(m.type==='save'){ try{ const r=await api('save',{method:'POST',body:JSON.stringify({part:m.part,json:m.json})}); f.contentWindow.postMessage({type:'saved',part:m.part,...r},'*'); }
+  if(m.type==='save'){ try{ const r=await api('save'+Q,{method:'POST',body:JSON.stringify({part:m.part,json:m.json})}); f.contentWindow.postMessage({type:'saved',part:m.part,...r},'*'); }
     catch(err){ f.contentWindow.postMessage({type:'shared-error',message:'Could not save: '+err.message},'*'); } }
 });
 </script></body></html>"""
     from urllib.parse import quote
-    return HTMLResponse(html.replace("__TOK__", quote(token or "")).replace("__VIEW__", "&view=nk" if view == "nk" else "").replace("__T__", t),
+    return HTMLResponse(html.replace("__TOK__", quote(token or "")).replace("__VIEW__", "&view=nk" if view == "nk" else "").replace("__T__", t).replace("__Q__", json.dumps("?view=nk" if view == "nk" else "")),
                         headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
