@@ -1,9 +1,12 @@
 """Admin compliance dashboard, Excel export and New Starter checklist."""
+import io
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 from typing import Optional
-from core import P, admin_user, bearer, current_user, db, dmy, now_iso, user_from_token
+from html import escape
+from core import P, admin_user, bearer, current_user, db, dmy, logger, notify, now_iso, spawn, user_from_token
+from email_service import send_email
 from routes.certificates import cert_status
 from routes.forms import forms_query
 from routes.cpd import cpd_year_start
@@ -36,7 +39,7 @@ async def compliance_export(request: Request, token: Optional[str] = None):
         c.fill = PatternFill("solid", fgColor="205890")
     for r in d["rows"]:
         issues = "; ".join(f"{c['title']} ({'expired' if c['status'] == 'expired' else 'expires'} {dmy(c['expiry_date'])})"
-                           for c in r["certs_expired"] + r["certs_expiring"])
+                           for c in r["certs_expired"] + r["certs_expiring"]) or ("No certificates" if r["no_certs"] else "")
         ws.append([r["name"], STAFF_GROUP_LABELS.get(r.get("staff_group"), "Admin" if r.get("role") == "admin" else ""),
                    r["policies_total"] - len(r["policies_pending"]), len(r["policies_pending"]),
                    "; ".join(r["policies_pending"]), r["certs_total"], len(r["certs_expired"]),
@@ -50,10 +53,11 @@ async def compliance_export(request: Request, token: Optional[str] = None):
     for row in (("Generated", dmy(date.today().isoformat())), ("Staff", s["staff"]),
                 ("Policies acknowledged %", s["policy_pct"]), ("Staff fully up to date", s["fully_acknowledged"]),
                 ("Expired certificates", s["expired_certs"]), ("Expiring certificates", s["expiring_certs"]),
+                ("Staff with no certificates", s["no_certs"]),
                 (f"Average CPD hours {d['year']}", s["avg_cpd"]), ("Staff needing attention", s["needs_attention"])):
         ws2.append(row)
     ws2.column_dimensions["A"].width = 30
-    buf = __import__("io").BytesIO()
+    buf = io.BytesIO()
     wb.save(buf)
     return Response(content=buf.getvalue(),
                     media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -96,6 +100,8 @@ async def get_starter_checklist(user=Depends(current_user)):
 
 @router.post("/starter-checklist/{item_key}")
 async def toggle_starter_item(item_key: str, user=Depends(current_user)):
+    if user.get("staff_group") not in NEW_STARTER_GROUPS:
+        raise HTTPException(403, "Only New Starter staff can tick checklist steps")
     if not item_key.startswith("form:"):
         raise HTTPException(400, "This item completes automatically")
     if not await db.forms.find_one({"form_id": item_key[5:], "category": "New Starter", **forms_query(user)}):
@@ -105,7 +111,36 @@ async def toggle_starter_item(item_key: str, user=Depends(current_user)):
         await db.checklist_progress.delete_one(q)
         return {"done": False}
     await db.checklist_progress.insert_one({**q, "done_at": now_iso()})
+    spawn(check_starter_complete(user))
     return {"done": True}
+
+
+async def check_starter_complete(user: dict):
+    """Tell every admin (in-app + email) the first time a new starter has finished every checklist step."""
+    try:
+        user = await db.users.find_one({"user_id": user["user_id"]}, P)
+        if not user or user.get("staff_group") not in NEW_STARTER_GROUPS or user.get("starter_completed_at"):
+            return
+        items = await starter_checklist(user)
+        if not items or not all(i["done"] for i in items):
+            return
+        res = await db.users.update_one({"user_id": user["user_id"], "starter_completed_at": {"$exists": False}},
+                                        {"$set": {"starter_completed_at": now_iso()}})
+        if not res.modified_count:
+            return
+        test_user = bool(user.get("hidden"))  # internal test accounts only alert the hidden test admins, no email
+        admins = await db.users.find({"role": "admin", "hidden": True if test_user else {"$ne": True}}, P).to_list(200)
+        await notify([a["user_id"] for a in admins], "starter", "New Starter checklist complete",
+                     f"{user['name']} has finished every step. Time to book their next check-in.", "/compliance")
+        for a in [] if test_user else admins:
+            if a.get("email") and not a["email"].endswith("@example.com"):
+                await send_email(to=a["email"], subject=f"{user['name']} has finished the New Starter checklist", html=(
+                    "<div style='font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px'>"
+                    f"<h2 style='color:#205890'>New Starter checklist complete</h2><p>Hi {escape(a['name'].split(' ')[0])},</p>"
+                    f"<p><b>{escape(user['name'])}</b> has completed all {len(items)} steps of their New Starter "
+                    "checklist (forms, policies and certificates).</p><p>Now's a good time to book their next check-in.</p></div>"))
+    except Exception as e:
+        logger.error(f"Starter completion check failed: {e}")
 
 
 async def compliance_data():
@@ -130,7 +165,8 @@ async def compliance_data():
         rows.append({**u, "policies_total": len(policies), "policies_pending": pending,
                      "certs_total": len(mine), "certs_expired": expired, "certs_expiring": expiring,
                      "cpd_hours": round(hours.get(uid, 0), 2),
-                     "needs_attention": bool(pending or expired or expiring)})
+                     "no_certs": not mine,
+                     "needs_attention": bool(pending or expired or expiring or not mine)})
         if u.get("staff_group") in NEW_STARTER_GROUPS:
             items = await starter_checklist(u)
             rows[-1]["starter"] = {"done": sum(i["done"] for i in items), "total": len(items)}
@@ -142,5 +178,6 @@ async def compliance_data():
         "fully_acknowledged": sum(1 for r in rows if not r["policies_pending"]),
         "expired_certs": sum(len(r["certs_expired"]) for r in rows),
         "expiring_certs": sum(len(r["certs_expiring"]) for r in rows),
+        "no_certs": sum(1 for r in rows if r["no_certs"]),
         "avg_cpd": round(sum(r["cpd_hours"] for r in rows) / n, 1),
         "needs_attention": sum(1 for r in rows if r["needs_attention"])}}

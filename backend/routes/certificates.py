@@ -149,6 +149,8 @@ async def upload_certificate(title: str = Form(...), expiry_date: str = Form(...
     spawn(copy_cert_to_drive(cert, data))
     await check_certificate(cert)
     cert["notified_stage"] = cert_status(expiry_date)["status"]
+    from routes.compliance import check_starter_complete  # local import: compliance imports this module
+    spawn(check_starter_complete(user))
     return with_status(cert)
 
 

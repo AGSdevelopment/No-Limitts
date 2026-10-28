@@ -100,3 +100,10 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - P1: Phone push notifications (Firebase file + build)
 - P1: Camera capture for certificates; date picker
 - P2: attachments in chat; real-time websockets; short-lived file tokens
+
+## Jun 2026 updates
+- Backend split into core.py + routes/*.py (no behaviour change)
+- Compliance: staff with zero certificates flagged (no_certs, needs attention, Excel + stat)
+- Starter checklist: only New Starter groups can tick (403 otherwise)
+- Checklist completion: one-time in-app + email alert to all admins (test accounts only alert hidden test admins, no email)
+- Old stale backend tests removed; tests/test_iter17*, test_iter18* remain

@@ -1,0 +1,37 @@
+{
+  "summary": "Tested 4 features. Backend: 42/42 pytest pass (31 iter17 + 11 new iter18). (1) Missing-cert alerts: /api/compliance rows have no_certs bool, every zero-cert row has needs_attention=true, summary.no_certs matches (33). Excel export shows 'No certificates' in the Certificate issues column and a 'Staff with no certificates' row on the Summary sheet. (2) Checklist guard: POST /api/starter-checklist/{key} returns 403 for employees with no group, other groups and admins. New starters can tick and untick. (3) Only test_iter17 was left in tests/ and no TEST channels are in the DB. (4) Completion alert: tested in-process with send_email and notify MOCKED, because a real run would email real admins. Logic is correct: no alert while steps remain, exactly one alert across 5 calls (4 at the same time), starter_completed_at is set, type 'starter', title 'New Starter checklist complete', link /compliance. But the hidden test admin user_testadmin01 is NOT a recipient, and the 3 real @aspireandgrow.com.au admins WOULD get real emails when the hidden test employee finishes. Frontend: compliance red 'No certificates' badge, Certificates filter (33 rows), 'No certificates uploaded yet' in details and the 'N staff with none' stat all work. Starter checklist: admin sees the guard hint on all 5 form steps, the circle is aria-disabled and tapping sends no POST. A new-starter employee can tick and untick in the UI (progress 1→2→1).",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "check_starter_complete (routes/compliance.py:118-140)", "issue": "Recipient query uses hidden != True, so the hidden test admin user_testadmin01 never gets the 'starter' notification. The review's expected check (admin GET /api/notifications shows it) cannot pass. Worse, the hidden test employee user_testemp001 (and any hidden account) finishing the checklist sends REAL in-app alerts and REAL emails to andrew@, pronathi@ and nikki@aspireandgrow.com.au. The @example.com skip only protects test recipients, not real ones.", "priority": "HIGH"}
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "starter-checklist (non-new-starter)", "issues": ["The disabled tick circle looks exactly like the enabled one (same brandPrimary colour, no reduced opacity). Only the hint text shows it can't be tapped. Consider opacity 0.4 or a muted colour when !canTick."]},
+      {"screen": "compliance", "issues": ["The Certificates stat headline shows a large red '0' (the expired count) while 33 staff have no certificates. The big number reads as 'all good' even though the card is red. Consider a headline like the issue total or the no-cert count."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter18_alerts_checklist.py", "/app/backend/tests/test_iter17_refactor_compliance.py", "/app/test_reports/pytest/pytest_results_iter18.xml"],
+  "action_items": [
+    "In check_starter_complete: return early when the completing user is hidden (user.get('hidden')), so test accounts never alert or email real admins. Alternatively, when the completer is hidden, send the in-app alert only to hidden test admins and send no emails. Then the E2E check on user_testadmin01 can pass without real emails.",
+    "Optional: dim the disabled tick circle on starter-checklist when is_new_starter is false.",
+    "Optional: rethink the Certificates stat headline number on compliance."
+  ],
+  "critical_code_review_comments": [
+    "Once-only guarantee is solid: update_one with starter_completed_at $exists:false plus a modified_count check. 4 calls at the same time gave exactly 1 alert.",
+    "Completion triggers are wired from the checklist toggle (tick only), the policy acknowledge endpoint and the certificate upload endpoint.",
+    "starter_completed_at is never cleared, e.g. when a user is moved out of and back into a New Starter group. That matches the 'once only' requirement, but confirm it is intended.",
+    "Emails are sent one after another inside the spawned task with no per-admin try/except. One failed send_email stops emails to the remaining admins (the error is caught and logged by the outer try)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter18_alerts_checklist.py (new)"],
+  "success_rate": {"backend": "100% of tests pass (42/42); 1 design-level HIGH issue in alert recipients/hidden users", "frontend": "100%"},
+  "seed_data_creation": "None. Temporary state was reverted: user_testemp001 staff_group=None, no starter_completed_at, checklist_progress empty, policy acks back to the original 3, 0 'starter' notifications.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Do NOT run the real completion flow over HTTP for user_testemp001: it will email the 3 real admins. Use test_completion_alert_once_only in test_iter18 (in-process, notify/send_email monkeypatched). pytest.ini forces -n 2 --dist loadscope; use -n 0 for serial. Test users are hidden=True and do not appear on /api/compliance. The employee sees 4 New Starter forms (audience filter); the admin sees 5.",
+  "rca_of_issue": "compliance.py:131 selects admins with {'role':'admin','hidden':{'$ne':True}}. Both seeded test users are hidden=True, so the test admin is excluded, while a hidden test employee still triggers the alert to every real admin. Repro: run test_completion_alert_once_only and look at the RESULT print: recipients are the 3 real admin IDs and emails go to the @aspireandgrow.com.au addresses."
+}

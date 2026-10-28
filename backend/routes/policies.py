@@ -9,7 +9,7 @@ from typing import Optional
 import asyncio
 import re
 import uuid
-from core import DIGEST_TZ, HIDDEN_TEST_USERS, MAX_UPLOAD_BYTES, P, admin_user, all_user_ids, bearer, current_user, db, logger, new_id, notify, now_iso, user_from_token
+from core import spawn, DIGEST_TZ, HIDDEN_TEST_USERS, MAX_UPLOAD_BYTES, P, admin_user, all_user_ids, bearer, current_user, db, logger, new_id, notify, now_iso, user_from_token
 from routes.drive import clean_pdf_text, drive_svc_or_409
 from email_service import send_email
 from storage import APP_NAME, get_object, put_object
@@ -215,4 +215,6 @@ async def acknowledge_policy(policy_id: str, user=Depends(current_user)):
     res = await db.policies.update_one({"policy_id": policy_id}, {"$addToSet": {"acknowledged_by": user["user_id"]}})
     if not res.matched_count:
         raise HTTPException(404, "Policy not found")
+    from routes.compliance import check_starter_complete  # local import avoids a circular import
+    spawn(check_starter_complete(user))
     return {"ok": True}

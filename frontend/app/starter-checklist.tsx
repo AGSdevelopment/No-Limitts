@@ -40,7 +40,7 @@ export default function StarterChecklist() {
 
   if (q.isLoading) return <Loading />;
   if (q.isError) return <ErrorState message="Couldn't load your checklist." onRetry={() => q.refetch()} />;
-  const { items, done, total } = q.data;
+  const { items, done, total, is_new_starter: canTick } = q.data;
   const pct = total ? done / total : 0;
 
   return (
@@ -63,9 +63,9 @@ export default function StarterChecklist() {
           <View style={[styles.card, item.done && styles.cardDone]} testID={`starter-item-${item.key}`}>
             <Pressable
               onPress={() => item.type === "form" && toggle(item)}
-              disabled={item.type !== "form"}
+              disabled={item.type !== "form" || !canTick}
               hitSlop={6}
-              style={styles.check}
+              style={[styles.check, item.type === "form" && !canTick && { opacity: 0.4 }]}
               testID={`starter-toggle-${item.key}`}
               accessibilityLabel={item.type === "form" ? (item.done ? "Mark not done" : "Mark done") : undefined}
             >
@@ -80,7 +80,7 @@ export default function StarterChecklist() {
               {!!item.description && <Text style={styles.sub} numberOfLines={2}>{item.description}</Text>}
               <Text style={styles.hint}>
                 {item.type === "form"
-                  ? item.done ? "Submitted · tap the circle to undo" : "Open the form, then tap the circle when submitted"
+                  ? !canTick ? "Only New Starter staff can tick this step" : item.done ? "Submitted · tap the circle to undo" : "Open the form, then tap the circle when submitted"
                   : item.type === "policies"
                     ? `${item.progress[0]} of ${item.progress[1]} acknowledged · ticks itself off`
                     : item.done ? `${item.progress[0]} uploaded` : "Ticks itself off when you upload one"}

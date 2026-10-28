@@ -29,7 +29,7 @@ export default function Compliance() {
       if (s && !r.name.toLowerCase().includes(s)) return false;
       if (filter === "attention") return r.needs_attention;
       if (filter === "policies") return r.policies_pending.length > 0;
-      if (filter === "certs") return r.certs_expired.length + r.certs_expiring.length > 0;
+      if (filter === "certs") return r.no_certs || r.certs_expired.length + r.certs_expiring.length > 0;
       return true;
     });
   }, [q.data, filter, search]);
@@ -43,7 +43,7 @@ export default function Compliance() {
     <View style={{ gap: 12, marginBottom: 12 }}>
       <View style={styles.statsRow}>
         <Stat label="Policies acknowledged" value={`${s.policy_pct}%`} sub={`${s.fully_acknowledged}/${s.staff} staff fully up to date`} tone={s.policy_pct >= 90 ? "good" : "warn"} testID="compliance-stat-policies" />
-        <Stat label="Certificates" value={`${s.expired_certs}`} sub={`expired · ${s.expiring_certs} expiring soon`} tone={s.expired_certs ? "bad" : s.expiring_certs ? "warn" : "good"} testID="compliance-stat-certs" />
+        <Stat label="Certificates" value={`${s.no_certs + s.expired_certs}`} sub={`${s.no_certs} with none · ${s.expired_certs} expired · ${s.expiring_certs} expiring`} tone={s.expired_certs || s.no_certs ? "bad" : s.expiring_certs ? "warn" : "good"} testID="compliance-stat-certs" />
       </View>
       <View style={styles.statsRow}>
         <Stat label={`Avg CPD hours ${q.data.year}`} value={`${s.avg_cpd}`} sub="per staff member" tone="neutral" testID="compliance-stat-cpd" />
@@ -91,7 +91,7 @@ export default function Compliance() {
         ListEmptyComponent={<EmptyState icon="checkmark-done-circle-outline" title="All clear" subtitle="No staff match this filter." testID="compliance-empty" />}
         renderItem={({ item }) => {
           const pend = item.policies_pending.length;
-          const certIssues = item.certs_expired.length + item.certs_expiring.length;
+          const certIssues = item.certs_expired.length + item.certs_expiring.length + (item.no_certs ? 1 : 0);
           const expanded = open === item.user_id;
           return (
             <Pressable onPress={() => setOpen(expanded ? null : item.user_id)} style={styles.card} testID={`compliance-row-${item.user_id}`}>
@@ -105,7 +105,7 @@ export default function Compliance() {
               </View>
               <View style={styles.badges}>
                 <Badge icon="shield-checkmark-outline" text={pend ? `${pend} polic${pend === 1 ? "y" : "ies"} pending` : "Policies done"} tone={pend ? "warn" : "good"} />
-                <Badge icon="ribbon-outline" text={item.certs_expired.length ? `${item.certs_expired.length} expired` : item.certs_expiring.length ? `${item.certs_expiring.length} expiring` : `${item.certs_total} certs OK`} tone={item.certs_expired.length ? "bad" : certIssues ? "warn" : "good"} />
+                <Badge icon="ribbon-outline" text={item.no_certs ? "No certificates" : item.certs_expired.length ? `${item.certs_expired.length} expired` : item.certs_expiring.length ? `${item.certs_expiring.length} expiring` : `${item.certs_total} certs OK`} tone={item.no_certs || item.certs_expired.length ? "bad" : certIssues ? "warn" : "good"} />
                 <Badge icon="school-outline" text={`${item.cpd_hours} CPD h`} tone="neutral" />
                 {!!item.starter && (
                   <Badge icon="list-outline" text={`Starter ${item.starter.done}/${item.starter.total}`} tone={item.starter.done === item.starter.total ? "good" : "warn"} />
@@ -118,6 +118,7 @@ export default function Compliance() {
                       • {c.title}: {c.status === "expired" ? "expired" : "expires"} {formatDate(c.expiry_date)}
                     </Text>
                   ))}
+                  {item.no_certs && <Text style={[styles.detail, { color: colors.errorText }]}>• No certificates uploaded yet</Text>}
                   {pend > 0 && <Text style={styles.detailHead}>Policies not yet acknowledged</Text>}
                   {item.policies_pending.slice(0, 40).map((t: string) => (
                     <Text key={t} style={styles.detail} numberOfLines={1}>• {t}</Text>
