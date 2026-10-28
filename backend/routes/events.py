@@ -53,6 +53,19 @@ class EventEditIn(BaseModel):
 class PollIn(BaseModel):
     kind: str  # date | venue
     options: List[str]
+    closes_on: str = ""  # optional YYYY-MM-DD; the leading option locks in automatically after this day
+
+
+def clean_closes_on(value: str) -> str:
+    if not value:
+        return ""
+    try:
+        d = date.fromisoformat(value)
+    except ValueError:
+        raise HTTPException(400, "Closing date must be YYYY-MM-DD")
+    if d < datetime.now(DIGEST_TZ).date():
+        raise HTTPException(400, "Pick today or a future closing date")
+    return d.isoformat()
 
 
 class AttendanceIn(BaseModel):
@@ -531,7 +544,11 @@ async def create_poll(event_id: str, body: PollIn, user=Depends(current_user)):
             labels = [date.fromisoformat(x).isoformat() for x in labels]
         except ValueError:
             raise HTTPException(400, "Date options must be YYYY-MM-DD")
-    poll = {"kind": body.kind, "closed": False, "created_at": now_iso(),
+    closes = clean_closes_on(body.closes_on)
+    last_ok = min(labels) if body.kind == "date" else (None if ev.get("date_tbd") else ev["date"])
+    if closes and last_ok and closes > last_ok:
+        raise HTTPException(400, f"Voting must close on or before {dmy(last_ok)}")
+    poll = {"kind": body.kind, "closed": False, "created_at": now_iso(), "closes_on": closes,
             "options": [{"option_id": new_id("opt"), "label": x, "votes": [], "voters": []} for x in labels]}
     await db.events.update_one({"event_id": event_id}, {"$set": {"poll": poll}})
     await notify(await all_user_ids(user["user_id"]), "event", f"Vote: {ev['title']}",
@@ -565,26 +582,59 @@ async def lock_poll(event_id: str, option_id: str, user=Depends(current_user)):
         raise HTTPException(404, "Poll option not found")
     if ev["poll"].get("closed"):
         raise HTTPException(400, "This poll is already locked in")
+    await apply_lock(ev, opt, user["user_id"])
+    return shape(await db.events.find_one({"event_id": event_id}, event_fields(user)), user)
+
+
+async def apply_lock(ev: dict, opt: dict, actor_id: str, auto: bool = False):
+    event_id = ev["event_id"]
+    option_id = opt["option_id"]
     field = {"date": "date", "venue": "location", "activity": "title"}[ev["poll"]["kind"]]
     extra = {"reminded_for": None} if field == "date" else {}
     if field == "title":
         extra["location"] = opt.get("location") or ev.get("location", "")
         if ev.get("description", "").startswith("Vote for what we do next:"):
             extra["description"] = f"The team voted for {opt['label']}."
-    await db.events.update_one({"event_id": event_id}, {"$set": {field: opt["label"], "poll.closed": True,
-                                                                "poll.locked_option_id": option_id, **extra}})
-    ids = list(set(responders(ev, user["user_id"])) | set(await all_user_ids(user["user_id"])))
+    res = await db.events.update_one({"event_id": event_id, "poll.closed": False},
+                                     {"$set": {field: opt["label"], "poll.closed": True, "poll.locked_option_id": option_id,
+                                               "poll.auto_locked": auto, **extra}})
+    if not res.modified_count:
+        return
+    ids = list(set(responders(ev, actor_id)) | set(await all_user_ids(actor_id)))
+    if auto:
+        ids = list(set(ids) | {ev["created_by_id"]})
     shown = dmy(opt["label"]) if field == "date" else opt["label"]
     noun = {"date": "date", "location": "venue", "title": "activity"}[field]
-    await notify(ids, "event", f"Locked in: {opt['label'] if field == 'title' else ev['title']}", f"The {noun} is {shown}",
+    why = f" ({len(opt.get('votes') or [])} vote{'s' if len(opt.get('votes') or []) != 1 else ''}, voting closed)" if auto else ""
+    await notify(ids, "event", f"Locked in: {opt['label'] if field == 'title' else ev['title']}", f"The {noun} is {shown}{why}",
                  f"/event/{event_id}")
-    return shape(await db.events.find_one({"event_id": event_id}, event_fields(user)), user)
+
+
+async def poll_close_loop():
+    """Lock in the leading option once a poll's closing date has passed (Perth time)."""
+    while True:
+        try:
+            today = datetime.now(DIGEST_TZ).date().isoformat()
+            async for ev in db.events.find({"poll.closed": False, "poll.closes_on": {"$nin": ["", None], "$lt": today}}, P):
+                opts = ev["poll"]["options"]
+                best = max(opts, key=lambda o: len(o.get("votes") or []))  # ties: first option listed wins
+                if not best.get("votes"):
+                    await db.events.update_one({"event_id": ev["event_id"]}, {"$set": {"poll.closes_on": ""}})
+                    await notify([ev["created_by_id"]], "event", f"No votes yet: {ev['title']}",
+                                 "Voting closed with no votes, so nothing was locked in. Lock an option yourself or ask the team to vote.",
+                                 f"/event/{ev['event_id']}")
+                    continue
+                await apply_lock(ev, best, ev["created_by_id"], auto=True)
+        except Exception as e:
+            logger.error(f"Poll close loop error: {e}")
+        await asyncio.sleep(600)
 
 
 class ActivityVoteIn(BaseModel):
     entry_ids: List[str]
     title: str = ""
     date: str = ""
+    closes_on: str = ""
 
 
 @router.post("/events/activity-vote")
@@ -609,7 +659,7 @@ async def activity_vote(body: ActivityVoteIn, user=Depends(current_user)):
            "time": "", "catering": "", "conditions": "", "capacity": None, "series_id": None, "repeat": "",
            "attendees": [], "rsvps": [], "comments": [], "created_by": user["name"], "created_by_id": user["user_id"],
            "created_at": now_iso(),
-           "poll": {"kind": "activity", "closed": False, "created_at": now_iso(),
+           "poll": {"kind": "activity", "closed": False, "created_at": now_iso(), "closes_on": clean_closes_on(body.closes_on),
                     "options": [{"option_id": new_id("opt"), "label": a["name"][:120], "location": a.get("address", ""),
                                  "entry_id": a["entry_id"], "votes": [], "voters": []} for a in acts]}}
     await db.events.insert_one(dict(doc))

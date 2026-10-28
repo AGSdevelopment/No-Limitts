@@ -5,9 +5,9 @@ import { WebView } from "react-native-webview";
 import { API_URL, getApiToken } from "@/src/api";
 
 // Free OpenStreetMap of Referral Partners, rendered by the backend page (works on web, iOS and Android).
-export function ReferralMap({ postcode, height = 420 }: { postcode?: string; height?: number }) {
+export function ReferralMap({ postcode, radius, height = 420 }: { postcode?: string; radius?: number | null; height?: number }) {
   const pc = postcode && /^\d{4}$/.test(postcode) ? postcode : "";
-  const uri = `${API_URL}/referral-map?token=${encodeURIComponent(getApiToken() ?? "")}${pc ? `&postcode=${pc}` : ""}`;
+  const uri = `${API_URL}/referral-map?token=${encodeURIComponent(getApiToken() ?? "")}${pc ? `&postcode=${pc}${radius != null ? `&radius=${radius}` : ""}` : ""}`;
   return (
     <View style={{ height, borderRadius: 16, overflow: "hidden" }} testID="referral-map">
       {Platform.OS === "web"

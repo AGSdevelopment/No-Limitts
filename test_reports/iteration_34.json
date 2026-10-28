@@ -1,0 +1,39 @@
+{
+  "summary": "Tested the Vote Deadline and Map Distance Filter features. Backend: 15/15 pytest passed (-n 0). Poll and activity-vote closes_on: past date -> 400 'Pick today or a future closing date'; bad format -> 400 'YYYY-MM-DD'; today/future stored; empty allowed. Auto-lock: past closes_on set in Mongo, then backend restarted. Leader (2 votes) locked with auto_locked=true and location set. A 1-1 tie locked the first option. Zero votes: poll stayed open, closes_on cleared, organiser got a 'No votes yet' notification. Activity poll locked: title and description became 'The team voted for X.'. Date poll locked: event date changed. A poll closing today stayed open. Organiser got 'Locked in' with '(2 votes, voting closed)'. Voting after the lock returned 400. /api/referral-map with TEST_ partners 6027/6030/6100 and postcode 6027 gave X-Map-Pins 1/2/2/3/3 for radius 0/10/50/100/none. Radius without a postcode shows all. Postcode 6500 + radius 10 shows the 'No referral partners in this range' note. Frontend (390x844): event page shows event-poll-deadline text for an open poll and event-poll-auto-locked text for an auto-locked poll (no deadline text there). The poll form's closes field works: bad format -> toast, past -> backend error toast, valid -> poll created with deadline text. Activity vote sheet field directory-vote-closes works the same way and lands on the event with deadline text. Map iframe src and markers update for each chip (Nearby 2, Same 1, Wider 2, All 3). The no-match note shows inside the map. FOUND & FIXED: a stray '}' after the event-poll-closes Field rendered a literal '}' in the poll form and gave the 'Unexpected text node: }' console error. It would crash on native. All TEST_ data, events and notifications were cleaned up.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/events/{id}/poll, POST /api/events/activity-vote", "issue": "closes_on is not checked against the event date or the date options. A closing date after the event (or after the earliest date option) can auto-lock after the event has passed, or lock a date that is already past."},
+      {"endpoint": "apply_lock (events.py:585)", "issue": "If update_one matches 0 docs (manual lock races the loop), notifications are still sent. Check modified_count before notify."},
+      {"endpoint": "GET /api/referral-map (referral_map.py pc_of) + directory.tsx:39 pcOf", "issue": "Uses the first 4-digit number in the address. A 4-digit street number ('1234 Albany Hwy, Kenwick WA 6107') is taken as the postcode. Prefer the last 4-digit match."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Event poll create form", "issue": "Stray '}' after <Field testID='event-poll-closes' .../> rendered a raw '}' text node inside a View (web console error; crash on native: 'Text strings must be rendered within <Text>'). FIXED by T1.", "testID": "event-poll-closes", "priority": "HIGH (fixed)"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Referral Partners map", "issues": ["The map ignores the list's search text (directory-search), so the map and list can disagree when a search is typed."]},
+      {"screen": "Activities vote sheet", "issues": ["vote state (date/closes) is not reset after a vote is created, so the next sheet is prefilled with the old closing date."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter34_poll_deadline_map_radius.py", "/app/backend/tests/seed_iter34_ui.py", "/app/test_reports/pytest/pytest_iter34.xml"],
+  "action_items": [
+    "Optional: validate closes_on <= event date (and < earliest date option for date polls)",
+    "Optional: in apply_lock, only notify when update_one modified a doc",
+    "Optional: use the last 4-digit number as the postcode (backend pc_of and frontend pcOf)",
+    "Optional: reset the vote sheet fields after a successful create; consider passing search to the map"
+  ],
+  "critical_code_review_comments": [
+    "poll_close_loop runs every 10 min, so locks happen up to 10 min after Perth midnight. Fine.",
+    "The token is still passed in the iframe query string (carried over from iteration 33)."
+  ],
+  "updated_files": ["/app/frontend/src/components/event-organiser.tsx (removed stray '}' on line 90)"],
+  "success_rate": {"backend": "100%", "frontend": "100% (after 1-char fix)"},
+  "seed_data_creation": "TEST_ events, activities and referral partners from pytest and seed_iter34_ui.py. All removed (python seed_iter34_ui.py clean). Geocache gained 'quinns rocks wa 6030', 'burswood wa 6100' and '6500' (kept).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run pytest -n 0. The auto-lock test restarts the backend via supervisorctl. Geocache now has 6027/6030/6100/6000/6500 entries, so reruns barely hit Photon. In the vote sheet, after fill() Playwright can report submit outside the viewport; use a JS element.click() on [data-testid=directory-vote-submit]. Map: [data-testid=referral-map] iframe, markers .leaflet-marker-icon[title], note #note."
+}

@@ -2,6 +2,7 @@
 Photon service (Nominatim as backup), about 1 request/second, cached in `geocache` and on each entry."""
 import asyncio
 import json
+import re
 from html import escape
 from typing import Optional
 import httpx
@@ -77,11 +78,18 @@ PAGE = """<!doctype html><html><head><meta name="viewport" content="width=device
 
 
 @router.get("/referral-map", response_class=HTMLResponse)
-async def referral_map(request: Request, token: Optional[str] = None, postcode: str = ""):
+async def referral_map(request: Request, token: Optional[str] = None, postcode: str = "", radius: Optional[int] = None):
     user = await user_from_token(bearer(request) or token)
     if not user:
         raise HTTPException(401, "Not authenticated")
     entries = await db.directory.find({"category": REFERRAL, "status": {"$ne": "pending"}}, P).to_list(500)
+    pc = "".join(ch for ch in postcode if ch.isdigit())[:4]
+    if len(pc) == 4 and radius is not None and radius >= 0:
+        # Same postcode-number rule as the list's Same / Nearby / Wider chips
+        def pc_of(e):
+            m = re.findall(r"\b(\d{4})\b", e.get("address") or "")
+            return int(m[-1]) if m else None
+        entries = [e for e in entries if pc_of(e) is not None and abs(pc_of(e) - int(pc)) <= radius]
     for e in [e for e in entries if needs_geo(e)][:8]:
         e["geo"] = await geocode_entry(e)
     for e in [e for e in entries if needs_geo(e) and e["entry_id"] not in _queued]:
@@ -92,7 +100,6 @@ async def referral_map(request: Request, token: Optional[str] = None, postcode: 
              "link": e.get("link", ""), "lat": e["geo"]["lat"], "lng": e["geo"]["lng"]}
             for e in entries if (e.get("geo") or {}).get("lat") is not None]
     centre = None
-    pc = "".join(ch for ch in postcode if ch.isdigit())[:4]
     if len(pc) == 4:
         g = await geocode(f"{pc}")
         if g:
@@ -100,7 +107,7 @@ async def referral_map(request: Request, token: Optional[str] = None, postcode: 
     with_address = len([e for e in entries if e.get("address")])
     note = ""
     if not entries:
-        note = "No referral partners yet."
+        note = "No referral partners in this range. Try Wider or All." if radius is not None and len(pc) == 4 else "No referral partners yet."
     elif len(pins) < len(entries):
         note = f"Showing {len(pins)} of {len(entries)} partners. Others need a location or postcode we can find."
     data = json.dumps({"pins": pins, "centre": centre, "note": note}).replace("</", "<\\/")

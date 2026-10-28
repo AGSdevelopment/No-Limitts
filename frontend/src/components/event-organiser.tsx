@@ -17,6 +17,7 @@ export function EventPoll({ ev, isOrganiser }: { ev: any; isOrganiser: boolean }
   const [creating, setCreating] = useState(false);
   const [kind, setKind] = useState<"date" | "venue">("date");
   const [options, setOptions] = useState(["", ""]);
+  const [closesOn, setClosesOn] = useState("");
   const [busy, setBusy] = useState(false);
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ["event", ev.event_id] });
@@ -45,7 +46,12 @@ export function EventPoll({ ev, isOrganiser }: { ev: any; isOrganiser: boolean }
       if (opts.some((o) => !o)) return toast("Enter dates as dd-mm-yyyy", "error");
     }
     if (opts.length < 2) return toast("Add at least 2 options", "error");
-    if (await call(`/events/${ev.event_id}/poll`, { kind, options: opts }, "Poll started. Everyone has been asked to vote.")) setCreating(false);
+    let closes = "";
+    if (closesOn.trim()) {
+      closes = dmyToIso(closesOn) ?? "";
+      if (!closes) return toast("Enter the closing date as dd-mm-yyyy", "error");
+    }
+    if (await call(`/events/${ev.event_id}/poll`, { kind, options: opts, closes_on: closes }, "Poll started. Everyone has been asked to vote.")) setCreating(false);
   };
 
   const poll = ev.poll;
@@ -81,6 +87,7 @@ export function EventPoll({ ev, isOrganiser }: { ev: any; isOrganiser: boolean }
               />
             )}
             {options.length < 6 && <Button label="Add another option" icon="add" variant="ghost" onPress={() => setOptions([...options, ""])} testID="event-poll-add-option" />}
+            <Field label="Voting closes (optional, dd-mm-yyyy)" value={closesOn} onChangeText={setClosesOn} placeholder="The leading option locks in after this day" keyboardType="numbers-and-punctuation" testID="event-poll-closes" style={{ marginBottom: 0 }} />
             <View style={styles.row}>
               <Button label="Cancel" variant="ghost" onPress={() => setCreating(false)} style={{ flex: 1 }} testID="event-poll-cancel" />
               <Button label="Start poll" loading={busy} onPress={create} style={{ flex: 1 }} testID="event-poll-submit" />
@@ -95,6 +102,12 @@ export function EventPoll({ ev, isOrganiser }: { ev: any; isOrganiser: boolean }
     <View style={styles.card} testID="event-poll">
       <Text style={styles.section}>{poll.closed ? "Poll result" : `Vote on the ${poll.kind === "date" ? "date" : poll.kind === "activity" ? "activity" : "venue"}`}</Text>
       {!poll.closed && <Text style={styles.meta}>Tap every option that works for you.</Text>}
+      {!poll.closed && !!poll.closes_on && (
+        <Text style={[styles.meta, { color: colors.brandPrimary }]} testID="event-poll-deadline">
+          Voting closes at the end of {formatDate(poll.closes_on)}. The leading option then locks in automatically.
+        </Text>
+      )}
+      {poll.closed && poll.auto_locked && <Text style={styles.meta} testID="event-poll-auto-locked">Locked in automatically when voting closed.</Text>}
       {poll.options.map((o: any) => {
         const winner = poll.closed && poll.locked_option_id === o.option_id;
         return (

@@ -36,7 +36,7 @@ export default function Directory() {
 
   const [postcode, setPostcode] = useState("");
   const [radius, setRadius] = useState<number | null>(10);
-  const pcOf = (e: any) => (`${e.address ?? ""}`.match(/\b(\d{4})\b/) ?? [])[1];
+  const pcOf = (e: any) => (`${e.address ?? ""}`.match(/\b\d{4}\b/g) ?? []).pop();
   const list = useMemo(() => {
     const s = search.trim().toLowerCase();
     let out = (q.data ?? []).filter((e) => !s || `${e.name} ${e.services ?? ""} ${e.contact} ${e.address} ${e.note}`.toLowerCase().includes(s));
@@ -88,7 +88,7 @@ export default function Directory() {
   const [voting, setVoting] = useState(false);
   const [picked, setPicked] = useState<string[]>([]);
   const [voteSheet, setVoteSheet] = useState(false);
-  const [vote, setVote] = useState({ title: "Next team activity", date: "" });
+  const [vote, setVote] = useState({ title: "Next team activity", date: "", closes: "" });
   const [voteBusy, setVoteBusy] = useState(false);
   const togglePick = (id: string) => {
     if (picked.includes(id)) setPicked(picked.filter((x) => x !== id));
@@ -101,13 +101,19 @@ export default function Directory() {
       iso = dmyToIso(vote.date) ?? "";
       if (!iso) return toast("Enter the date as dd-mm-yyyy", "error");
     }
+    let closes = "";
+    if (vote.closes.trim()) {
+      closes = dmyToIso(vote.closes) ?? "";
+      if (!closes) return toast("Enter the closing date as dd-mm-yyyy", "error");
+    }
     setVoteBusy(true);
     try {
-      const ev = await api("/events/activity-vote", { method: "POST", body: { entry_ids: picked, title: vote.title, date: iso } });
+      const ev = await api("/events/activity-vote", { method: "POST", body: { entry_ids: picked, title: vote.title, date: iso, closes_on: closes } });
       qc.invalidateQueries({ queryKey: ["events"] });
       setVoteSheet(false);
       setVoting(false);
       setPicked([]);
+      setVote({ title: "Next team activity", date: "", closes: "" });
       toast("Vote created. The team has been told.", "success");
       router.push(`/event/${ev.event_id}`);
     } catch (err: any) {
@@ -239,7 +245,7 @@ export default function Directory() {
                   {postcode.length === 4 && <Text style={styles.sub}>Matched on the postcode in each partner&apos;s location. Close postcode numbers are usually nearby areas.</Text>}
                 </View>
               )}
-              {isReferral && showMap && <ReferralMap postcode={postcode} />}
+              {isReferral && showMap && <ReferralMap postcode={postcode} radius={radius} />}
               {(q.data?.length ?? 0) > 3 && (
                 <TextInput value={search} onChangeText={setSearch} placeholder={`Search ${category.toLowerCase()}`} placeholderTextColor={colors.muted} style={styles.search} testID="directory-search" />
               )}
@@ -357,6 +363,7 @@ export default function Directory() {
             <Text style={styles.sub}>Everyone gets a notification to vote. Lock in the winner on the event page.</Text>
             <Field label="Event name" value={vote.title} onChangeText={(t) => setVote({ ...vote, title: t })} testID="directory-vote-title" />
             <Field label="Pencilled-in date (optional, dd-mm-yyyy)" value={vote.date} onChangeText={(t) => setVote({ ...vote, date: t })} placeholder="Leave blank for 2 weeks from today" keyboardType="numbers-and-punctuation" testID="directory-vote-date" />
+            <Field label="Voting closes (optional, dd-mm-yyyy)" value={vote.closes} onChangeText={(t) => setVote({ ...vote, closes: t })} placeholder="The leading activity locks in after this day" keyboardType="numbers-and-punctuation" testID="directory-vote-closes" />
             <Button label="Create vote" icon="checkmark" loading={voteBusy} onPress={createVote} testID="directory-vote-submit" />
             <Button label="Cancel" variant="ghost" onPress={() => setVoteSheet(false)} testID="directory-vote-cancel" />
           </View>
