@@ -6,6 +6,7 @@ import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api } from "@/src/api";
+import { PlaceChips } from "@/src/components/place-chips";
 import { useToast } from "@/src/components/toast";
 import { Button, Chip, Field, dmyToIso } from "@/src/components/ui";
 import { makeStyles } from "@/src/theme";
@@ -82,7 +83,8 @@ export default function NewEvent() {
       <Field label="Event name" value={f.title} onChangeText={set("title")} placeholder="e.g. End of year BBQ" testID="event-title-input" />
       <Field label="Date (dd-mm-yyyy)" value={f.date} onChangeText={set("date")} placeholder="e.g. 12-12-2026" keyboardType="numbers-and-punctuation" testID="event-date-input" />
       <Field label="Time" value={f.time} onChangeText={set("time")} placeholder="e.g. 5:30pm" testID="event-time-input" />
-      <Field label="Location" value={f.location} onChangeText={set("location")} placeholder="e.g. Kings Park, Perth" testID="event-location-input" />
+      <Field label="Location" value={f.location} onChangeText={set("location")} placeholder="e.g. Kings Park, Perth" testID="event-location-input" style={{ marginBottom: 8 }} />
+      <PlaceChips selected={f.location} onPick={(v) => setF({ ...f, location: v })} testID="event-place" />
       <Field label="Purpose" value={f.description} onChangeText={set("description")} placeholder="What's it for? e.g. Celebrate the year together" multiline testID="event-purpose-input" />
       <Text style={styles.label}>Food & drink</Text>
       <View style={styles.chips}>

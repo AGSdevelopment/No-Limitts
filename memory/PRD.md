@@ -127,7 +127,11 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Event reminders day before 9am Perth to Going/Maybe (in-app + email), event photos (attendees/organiser/admin), Add to calendar (Google link + .ics), Past events tab
 - Event chat comments, Home "Event photos" highlights (dashboard.photo_highlights), recurring events (weekly/fortnightly/monthly, 2-12, series delete), capacity + waitlist with auto-promotion
 - Edit events (PATCH, notifies responders, capacity change promotes waitlist), date/venue polls with lock-in, photo likes & comments, attendance ticking (profile shows events attended)
-- AGTS favourite places to eat & drink (/places, button on Company Drive): add, like, filter, delete own/admin
+- AGTS favourites (/places, button on Company Drive): kinds Eat & Drink / Coffee / WiFi-Meet; admins add/remove, all like; Friday lunch random picker
+- Company Drive directories (/directory): Therapist (Suppliers, Templates, Trusted Referral Partner Organisations), Participants (Suppliers, Activities, Resources); entries with contact/link/notes + file attachments (object storage); admin-only add/edit/remove; Drive header 'Add' (Therapist / Participant / AGTS Favourite)
+- Emerging Therapist Pathway (/pathway): 9 supervision steps + self-set CPD goals; admin sees it on staff profile
+- Places on Events: favourite place chips for event location + venue poll options
+- Participation leaderboard (/leaderboard): admins + Support Office
 - Emerging Therapist staff group (emerging_therapist) added; admins choose which forms it sees
 - Upload: CPD Resources type is required (button disabled + hint) when "Add to CPD Resources" is on
 - Polls: no relock, no replacing open poll, voters tracked by user id; photo like notifies once; edit can't move event into the past

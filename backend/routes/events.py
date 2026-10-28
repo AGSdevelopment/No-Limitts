@@ -85,6 +85,37 @@ async def list_events(user=Depends(current_user)):
     return [shape(d, user) for d in docs]
 
 
+@router.get("/events/leaderboard")
+async def leaderboard(period: str = "year", user=Depends(current_user)):
+    """Who joins the most team events. Uses the organiser's attendance when recorded, otherwise 'going' RSVPs."""
+    if user.get("role") != "admin" and user.get("staff_group") != "support_office":
+        raise HTTPException(403, "Admins and Support Office only")
+    if period not in ("year", "all"):
+        raise HTTPException(400, "Period must be year or all")
+    today = datetime.now(DIGEST_TZ).date().isoformat()
+    q = {"date": {"$lt": today}, "private_for": {"$exists": False}, "checkin_for": {"$exists": False}}
+    if period == "year":
+        q["date"]["$gte"] = f"{today[:4]}-01-01"
+    events = await db.events.find(q, {"_id": 0, "rsvps": 1, "attended": 1}).to_list(5000)
+    hidden = {u["user_id"] for u in await db.users.find({"hidden": True}, {"_id": 0, "user_id": 1}).to_list(100)}
+    board = {}
+    for ev in events:
+        if ev.get("attended"):
+            people, key = ev["attended"], "attended"
+        else:
+            people, key = [r for r in ev.get("rsvps") or [] if r["status"] == "going"], "rsvp_only"
+        for p in people:
+            if p["user_id"] in hidden:
+                continue
+            row = board.setdefault(p["user_id"], {"user_id": p["user_id"], "name": p.get("name") or p.get("user_name", ""),
+                                                  "events": 0, "attended": 0, "rsvp_only": 0})
+            row["events"] += 1
+            row[key] += 1
+    rows = sorted(board.values(), key=lambda r: (-r["events"], -r["attended"], r["name"]))
+    return {"period": period, "events_counted": len(events), "rows": rows}
+
+
+
 def shape(d: dict, user: dict) -> dict:
     rsvps = d.pop("rsvps", None) or []
     d["going"] = user["user_id"] in d.get("attendees", [])

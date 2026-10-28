@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { FlatList, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from "react-native";
-import { useRouter } from "expo-router";
+import { Stack, useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -8,6 +8,7 @@ import { api, openDriveFile } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { useToast } from "@/src/components/toast";
 import { EmptyState, ErrorState, IconName, Ionicons, Loading, timeAgo } from "@/src/components/ui";
+import { CATEGORIES, CAT_ICON } from "@/src/directory";
 import { makeStyles, useTheme } from "@/src/theme";
 
 type Item = { id: string; name: string; mime_type: string; is_folder: boolean; modified: string; size: number | null; pinned?: boolean };
@@ -68,6 +69,18 @@ export default function CompanyDrive() {
   };
   const spaceTabs = (
     <>
+    {isAdmin && (
+      <Stack.Screen
+        options={{
+          headerRight: () => (
+            <Pressable testID="drive-add-button" onPress={() => router.push({ pathname: "/directory-new", params: { space } })} hitSlop={10} style={styles.addBtn} accessibilityLabel="Add to Company Drive">
+              <Ionicons name="add-circle" size={24} color={colors.brandPrimary} />
+              <Text style={styles.addText}>Add</Text>
+            </Pressable>
+          ),
+        }}
+      />
+    )}
     <View style={styles.spaceRow} testID="drive-space-switch">
       {SPACES.map((s) => (
         <Pressable
@@ -81,10 +94,18 @@ export default function CompanyDrive() {
         </Pressable>
       ))}
     </View>
+    <View style={styles.catRow} testID="drive-categories">
+      {CATEGORIES[space].map((c) => (
+        <Pressable key={c} testID={`drive-cat-${space}-${c}`} onPress={() => router.push({ pathname: "/directory", params: { space, category: c } })} style={styles.catBtn}>
+          <Ionicons name={CAT_ICON[c] ?? "folder-outline"} size={16} color={colors.brandPrimary} />
+          <Text style={styles.catText} numberOfLines={3}>{c}</Text>
+        </Pressable>
+      ))}
+    </View>
     <View style={styles.spaceRow}>
       <Pressable testID="drive-places-button" onPress={() => router.push("/places")} style={[styles.spaceBtn, { flex: 1 }]}>
-        <Ionicons name="restaurant-outline" size={18} color={colors.brandPrimary} />
-        <Text style={styles.spaceText} numberOfLines={1}>AGTS favourite places to eat & drink</Text>
+        <Ionicons name="star-outline" size={18} color={colors.brandPrimary} />
+        <Text style={styles.spaceText} numberOfLines={1}>AGTS favourites</Text>
       </Pressable>
     </View>
     </>
@@ -251,4 +272,9 @@ const useStyles = makeStyles((c) => ({
   meta: { fontSize: 13, color: c.muted },
   section: { fontSize: 13, fontWeight: "600", color: c.muted, textTransform: "uppercase", marginLeft: 4 },
   pinBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  catRow: { flexDirection: "row", gap: 8, paddingHorizontal: 16, paddingTop: 8, backgroundColor: c.surface },
+  catBtn: { flex: 1, alignItems: "center", justifyContent: "center", gap: 2, minHeight: 56, borderRadius: 12, backgroundColor: c.brandTertiary, paddingHorizontal: 4, paddingVertical: 6 },
+  catText: { fontSize: 11, fontWeight: "700", color: c.brandPrimary, textAlign: "center" },
+  addBtn: { flexDirection: "row", alignItems: "center", gap: 4, minHeight: 44, paddingHorizontal: 8 },
+  addText: { fontSize: 15, fontWeight: "700", color: c.brandPrimary },
 }));

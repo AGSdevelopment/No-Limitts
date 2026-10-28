@@ -1,0 +1,41 @@
+{
+  "summary": "Iteration 27 tested only the new features: Emerging Therapist Pathway, Lunch Spot Picker, place chips on events and polls, and the Participation Leaderboard. Backend: 17 of 17 pytest tests pass. They cover pathway access (emerging only, 403 for others, 401 without a session), step toggle on and off, the 404 for an unknown step, goal create/patch/delete with validation (yyyy-mm-dd on the API, 400 for a dd-mm date), the admin-only staff pathway view (403 for employee and Support Office), and leaderboard counting from past events seeded directly in the DB. That counting covered: attended takes priority over RSVPs, only 'going' RSVPs count when no attendance was taken, the year/all filter, exclusion of future, private_for and checkin_for events, exclusion of hidden users, the tie-break on attended, and access for admins and Support Office only. Frontend (375x667): home-pathway-card leads to /pathway; ticking and unticking steps updates the progress text; a goal with a bad date shows a toast; adding a goal with a dd-mm-yyyy date, marking it done ('Achieved') and deleting it all work. places-lunch-pick shows places-lunch-result and changes its label to 'Pick again'. Across 8 picks a Drink-only place never came up and no place repeated twice in a row; Close works. On /event-new, event-place-{id} chips fill the Location field with 'name, address'. In the Venues poll, event-poll-place-{id} chips fill empty options and ignore duplicates. As admin, events-leaderboard-button opens /leaderboard with medals, counts and the This year/All time chips. The employee doesn't see the trophy and gets a lock screen on /leaderboard. The admin view of /staff/user_testemp001 shows the 'Therapist pathway · x/9 steps · y/z goals' section. No console errors and no 500s from app code.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/pathway/user/{user_id}", "issue": "Returns 200 with an empty pathway for a user that doesn't exist or isn't an emerging therapist. Should return 404."},
+      {"endpoint": "GET /api/events/leaderboard", "issue": "The period parameter isn't validated. Any value other than 'year' (e.g. 'bogus') is treated as all-time; it should return 400 or be a Literal['year','all']."},
+      {"endpoint": "GET /api/events/leaderboard", "issue": "Older events that only have the legacy 'attendees' list (no rsvps or attended) aren't counted, but shape() treats attendees as 'going' for those events. Totals may be too low for historic events."},
+      {"endpoint": "GET /api/pathway", "issue": "cpd_year_hours uses date.today() (server UTC) to find the start of the year, while the rest of the app uses DIGEST_TZ (Perth). The boundary can be off around New Year."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Events header", "issues": ["The events-leaderboard-button trophy is 26x28px. hitSlop doesn't enlarge the tap area on web, so it's below the 44pt minimum there."]},
+      {"screen": "Pathway", "issues": ["Step and goal toggles have no pending or disabled state, so a quick double tap sends two toggles and cancels itself out."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter27_pathway_leaderboard.py", "/app/backend/tests/seed_iter27_ui.py", "/app/test_reports/pytest/pytest_iter27.xml"],
+  "action_items": [
+    "Optional: make /api/pathway/user/{id} return 404 when the user doesn't exist or isn't in the emerging_therapist group",
+    "Optional: validate leaderboard period with Literal['year','all']",
+    "Optional: count legacy 'attendees' as going in the leaderboard when an event has no rsvps",
+    "Optional: enlarge the trophy Pressable to at least 44x44 (padding) for web",
+    "Optional: disable pathway toggles while a request is in flight"
+  ],
+  "critical_code_review_comments": [
+    "Route order is fine: /events/leaderboard is declared before /events/{event_id}.",
+    "pathway.tsx calls all hooks before its early returns, so it's fine.",
+    "The hidden users lookup in the leaderboard is capped at to_list(100). That's fine now but will break if there are ever more than 100 hidden users."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter27_pathway_leaderboard.py", "/app/backend/tests/seed_iter27_ui.py"],
+  "success_rate": {"backend": "100% (17/17)", "frontend": "100% of requested flows"},
+  "seed_data_creation": "Temporary TEST_ users, events and places were created through the DB and cleaned up afterwards (python /app/backend/tests/seed_iter27_ui.py clean). The test employee's existing 'Sensory course' goal was kept. The employee's pathway step ticks ended at 0/9 (the meet_supervisor tick present at the start of the UI run was toggled off).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run the backend tests serially: pytest -n 0 -p no:randomly tests/test_iter27_pathway_leaderboard.py (parallel or random order causes duplicate-key errors on fixture users). Seeded places must use created_by_id, otherwise GET /places returns 500 for non-admins (KeyError). Event detail route: /event/{id}. The staff profile pathway heading is uppercased with CSS, so match it case-insensitively.",
+  "rca_of_issue": ""
+}

@@ -1,17 +1,22 @@
-"""AGTS favourite places to eat and drink, added by the team."""
+"""AGTS favourites (Eat & Drink, Coffee, WiFi / Meet). Everyone can view and like; admins add and remove."""
 import re
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from core import P, current_user, db, new_id, now_iso
+from core import P, admin_user, current_user, db, new_id, now_iso
 
 router = APIRouter(prefix="/api")
 
-KINDS = ("Eat", "Drink", "Eat & drink")
+KINDS = ("Eat & Drink", "Coffee", "WiFi / Meet")
+
+
+async def migrate_place_kinds():
+    """Older Eat / Drink / Eat & drink places all live under Eat & Drink."""
+    await db.places.update_many({"kind": {"$nin": list(KINDS)}}, {"$set": {"kind": "Eat & Drink"}})
 
 
 class PlaceIn(BaseModel):
     name: str
-    kind: str = "Eat & drink"
+    kind: str = "Eat & Drink"
     address: str = ""
     link: str = ""
     note: str = ""
@@ -23,17 +28,17 @@ async def list_places(user=Depends(current_user)):
     for d in docs:
         d["liked"] = user["user_id"] in (d.get("likes") or [])
         d["like_count"] = len(d.pop("likes", None) or [])
-        d["can_delete"] = user["role"] == "admin" or d["created_by_id"] == user["user_id"]
+        d["can_delete"] = user["role"] == "admin"
     return docs
 
 
 @router.post("/places")
-async def add_place(body: PlaceIn, user=Depends(current_user)):
+async def add_place(body: PlaceIn, user=Depends(admin_user)):
     name = body.name.strip()[:120]
     if not name:
         raise HTTPException(400, "Add the place's name")
     if body.kind not in KINDS:
-        raise HTTPException(400, "Choose Eat, Drink or Eat & drink")
+        raise HTTPException(400, "Choose Eat & Drink, Coffee or WiFi / Meet")
     link = body.link.strip()[:500]
     if link and not link.startswith(("http://", "https://")):
         link = "https://" + link
@@ -59,8 +64,7 @@ async def like_place(place_id: str, user=Depends(current_user)):
 
 
 @router.delete("/places/{place_id}")
-async def delete_place(place_id: str, user=Depends(current_user)):
-    q = {"place_id": place_id} if user["role"] == "admin" else {"place_id": place_id, "created_by_id": user["user_id"]}
-    if not (await db.places.delete_one(q)).deleted_count:
+async def delete_place(place_id: str, user=Depends(admin_user)):
+    if not (await db.places.delete_one({"place_id": place_id})).deleted_count:
         raise HTTPException(404, "Place not found")
     return {"ok": True}

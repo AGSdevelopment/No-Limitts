@@ -1,0 +1,42 @@
+{
+  "summary": "Tested Company Drive directory (backend + UI), AGTS favourites rename/kinds/admin-only, and the leaderboard/pathway small fixes. Backend: 12/12 pytest pass. Frontend: /places crashed on every load with a render error (ReferenceError: Cannot access 'params' before initialization, places.tsx line 24 used `params` before its declaration on line 28). This blocked the AGTS favourites screen and the 'AGTS Favourite' target in directory-new. The testing agent fixed it by reordering the declarations. After the fix, all requested UI flows passed for admin and employee. No deprecated Expo packages detected.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/directory", "issue": "An invalid space/category returns 200 [] instead of 400. Only POST/PUT validate these values."},
+      {"endpoint": "DELETE /api/directory/{id} and DELETE /api/directory/{id}/files/{fid}", "issue": "Stored objects are never removed from object storage, so files are orphaned."},
+      {"endpoint": "GET /api/directory/{id}/files/{fid}", "issue": "get_object is not wrapped in try/except, so a storage failure returns an unhandled 500 (upload returns a friendly 502)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "places.tsx (AGTS favourites)", "issue": "Render crash on every load: `params` (useLocalSearchParams) was used in useState on line 24 before `const params` on line 28 (TDZ ReferenceError). The error boundary showed 'Something went wrong'. FIXED by the testing agent (moved params/useAuth above the useState calls).", "testID": "places-screen", "priority": "CRITICAL (fixed)"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/drive", "issues": ["The category button 'Trusted Referral Partner Organisations' is truncated to 'Trusted Referral Partner …' at 375px (numberOfLines=2, 12px). Consider a shorter label, 3 lines, or a wrapped/stacked layout."]},
+      {"screen": "/places", "issues": ["Admin trash icon deletes a favourite immediately with no confirm sheet. /directory uses ConfirmSheet, so this is inconsistent and accidental deletes are easy."]},
+      {"screen": "/directory-new (employee deep link)", "issues": ["The 'Admins only' empty state has no back/close action when opened directly (no header back on web)."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter28_directory_favourites.py", "/app/test_reports/pytest/pytest_iter28.xml"],
+  "action_items": [
+    "Review the testing agent's fix in /app/frontend/app/places.tsx (hook/variable ordering). It is required to open AGTS favourites.",
+    "Optional: return 400 for an invalid space/category on GET /api/directory.",
+    "Optional: delete storage objects when deleting directory files/entries, and handle get_object errors (502/404) in the file download.",
+    "Optional: add a ConfirmSheet to place deletion, and fix the truncated 'Trusted Referral Partner Organisations' label on /drive."
+  ],
+  "critical_code_review_comments": [
+    "places.tsx used a const before its declaration inside the component (fixed). Lint with no-use-before-define to catch this.",
+    "directory.add_file reads the whole upload into memory before the 15 MB check. Acceptable but could stream.",
+    "PlaceChips (event location) still lists all kinds (Coffee, WiFi / Meet). This may be intentional; only the lunch picker is restricted to Eat & Drink (verified)."
+  ],
+  "updated_files": ["/app/frontend/app/places.tsx", "/app/backend/tests/test_iter28_directory_favourites.py"],
+  "success_rate": {"backend": "100% (12/12)", "frontend": "100% after the places.tsx fix (0% for /places before the fix)"},
+  "seed_data_creation": "TEST_ directory entries and places were created during tests and all deleted afterwards (directory and places collections are now empty).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Leaderboard is admin/support_office only (an employee gets 403 before the period check). In this env Google Drive shows 'Therapist Resources isn't set up yet' / an empty folder, and the category + favourites buttons render above it. The directory file picker works on web via page.expect_file_chooser on directory-attach-button. Directory file open launches a new tab with ?token=. The places DB was empty before testing (no legacy kinds to migrate).",
+  "rca_of_issue": "places.tsx: `const params = useLocalSearchParams()` was declared after `useState(params.kind ...)`. In the Hermes/web bundle, const keeps TDZ semantics, so the first render threw a ReferenceError. Reproduce: open /places as any user. Mitigation: declare params and useAuth before the dependent useState calls (applied)."
+}

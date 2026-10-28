@@ -3,6 +3,7 @@ import { Pressable, Text, View } from "react-native";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/src/api";
+import { PlaceChips } from "@/src/components/place-chips";
 import { useToast } from "@/src/components/toast";
 import { Button, Chip, Field, Ionicons, dmyToIso, formatDate } from "@/src/components/ui";
 import { makeStyles, useTheme } from "@/src/theme";
@@ -67,6 +68,18 @@ export function EventPoll({ ev, isOrganiser }: { ev: any; isOrganiser: boolean }
             {options.map((o, i) => (
               <Field key={i} label={`Option ${i + 1}`} value={o} onChangeText={(v) => setOptions(options.map((x, j) => (j === i ? v : x)))} placeholder={kind === "date" ? "dd-mm-yyyy" : "e.g. The Royal Hotel"} testID={`event-poll-option-${i}`} style={{ marginBottom: 0 }} />
             ))}
+            {kind === "venue" && (
+              <PlaceChips
+                testID="event-poll-place"
+                onPick={(v) => {
+                  if (options.includes(v)) return;
+                  const i = options.findIndex((o) => !o.trim());
+                  if (i >= 0) setOptions(options.map((x, j) => (j === i ? v : x)));
+                  else if (options.length < 6) setOptions([...options, v]);
+                  else toast("Up to 6 options", "error");
+                }}
+              />
+            )}
             {options.length < 6 && <Button label="Add another option" icon="add" variant="ghost" onPress={() => setOptions([...options, ""])} testID="event-poll-add-option" />}
             <View style={styles.row}>
               <Button label="Cancel" variant="ghost" onPress={() => setCreating(false)} style={{ flex: 1 }} testID="event-poll-cancel" />

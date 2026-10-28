@@ -27,6 +27,8 @@ export default function Home() {
   const q = useQuery({ queryKey: ["dashboard"], queryFn: () => api("/dashboard"), refetchInterval: 30000 });
   const isStarter = !!user?.staff_group?.startsWith("new_starter");
   const starter = useQuery<any>({ queryKey: ["starter-checklist"], queryFn: () => api("/starter-checklist"), enabled: isStarter });
+  const isEmerging = user?.staff_group === "emerging_therapist";
+  const pathway = useQuery<any>({ queryKey: ["pathway"], queryFn: () => api("/pathway"), enabled: isEmerging });
   const d = q.data;
   const bottomChrome = usesNativeTabs ? insets.bottom : 0;
 
@@ -72,6 +74,20 @@ export default function Home() {
                   <View style={[styles.starterFill, { width: `${Math.round((starter.data.done / starter.data.total) * 100)}%` }]} />
                 </View>
                 <Text style={styles.starterSub}>{starter.data.done} of {starter.data.total} steps done · tap to continue</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={colors.onBrandPrimary} />
+            </Pressable>
+          )}
+
+          {isEmerging && pathway.data && (
+            <Pressable testID="home-pathway-card" onPress={() => router.push("/pathway")} style={({ pressed }) => [styles.starter, pressed && { opacity: 0.85 }]}>
+              <Ionicons name="trending-up" size={24} color={colors.onBrandPrimary} />
+              <View style={{ flex: 1, gap: 6 }}>
+                <Text style={styles.starterTitle}>My therapist pathway</Text>
+                <View style={styles.starterBar}>
+                  <View style={[styles.starterFill, { width: `${Math.round((pathway.data.steps_done / pathway.data.steps_total) * 100)}%` }]} />
+                </View>
+                <Text style={styles.starterSub}>{pathway.data.steps_done} of {pathway.data.steps_total} supervision steps · {pathway.data.goals_done}/{pathway.data.goals.length} CPD goals</Text>
               </View>
               <Ionicons name="chevron-forward" size={20} color={colors.onBrandPrimary} />
             </Pressable>

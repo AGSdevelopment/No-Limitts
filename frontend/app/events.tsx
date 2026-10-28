@@ -38,9 +38,16 @@ export default function Events() {
       <Stack.Screen
         options={{
           headerRight: () => (
-            <Pressable testID="events-new-button" onPress={() => router.push("/event-new")} hitSlop={10} accessibilityLabel="Create event">
-              <Ionicons name="add-circle" size={30} color={colors.brandPrimary} style={{ marginRight: 8 }} />
-            </Pressable>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+              {(user?.role === "admin" || user?.staff_group === "support_office") && (
+                <Pressable testID="events-leaderboard-button" onPress={() => router.push("/leaderboard")} hitSlop={10} style={{ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }} accessibilityLabel="Participation leaderboard">
+                  <Ionicons name="trophy-outline" size={26} color={colors.brandPrimary} />
+                </Pressable>
+              )}
+              <Pressable testID="events-new-button" onPress={() => router.push("/event-new")} hitSlop={10} accessibilityLabel="Create event">
+                <Ionicons name="add-circle" size={30} color={colors.brandPrimary} style={{ marginRight: 8 }} />
+              </Pressable>
+            </View>
           ),
         }}
       />

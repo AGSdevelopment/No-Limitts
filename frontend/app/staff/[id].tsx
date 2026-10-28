@@ -71,6 +71,8 @@ export default function StaffProfile() {
       <ProbationCard key={`p${s.start_date}${s.probation_end}`} s={s} onSaved={() => q.refetch()} />
       <BuddyCard s={s} onSaved={() => q.refetch()} />
 
+      {s.staff_group === "emerging_therapist" && <PathwaySummary userId={s.user_id} styles={styles} />}
+
       {starter && (
         <Button label={`New Starter checklist · ${starter.done}/${starter.total} done`} icon="list-outline" variant="secondary" onPress={() => router.push(`/starter/${s.user_id}`)} testID="profile-starter-button" />
       )}
@@ -153,6 +155,23 @@ function Row({ icon, color, title, sub, styles }: { icon: any; color: string; ti
         <Text style={styles.sub}>{sub}</Text>
       </View>
     </View>
+  );
+}
+
+function PathwaySummary({ userId, styles }: { userId: string; styles: any }) {
+  const { colors } = useTheme();
+  const q = useQuery<any>({ queryKey: ["staff-pathway", userId], queryFn: () => api(`/pathway/user/${userId}`) });
+  if (!q.data) return null;
+  const p = q.data;
+  return (
+    <Section title={`Therapist pathway · ${p.steps_done}/${p.steps_total} steps · ${p.goals_done}/${p.goals.length} goals`} styles={styles}>
+      {p.steps.map((s: any) => (
+        <Row key={s.key} icon={s.done ? "checkmark-circle" : "ellipse-outline"} color={s.done ? colors.success : colors.muted} title={s.title} sub={s.done ? `Done ${formatDate(s.done_at.slice(0, 10))}` : "Not done yet"} styles={styles} />
+      ))}
+      {p.goals.map((g: any) => (
+        <Row key={g.goal_id} icon={g.done ? "flag" : "flag-outline"} color={g.done ? colors.success : colors.brandPrimary} title={g.title} sub={g.done ? "Goal achieved" : g.due ? `Target ${formatDate(g.due)}` : "CPD goal"} styles={styles} />
+      ))}
+    </Section>
   );
 }
 

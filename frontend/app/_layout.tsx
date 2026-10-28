@@ -47,7 +47,11 @@ function RootStack() {
         <Stack.Screen name="events" options={{ ...header, title: "Events" }} />
         <Stack.Screen name="event-new" options={{ ...header, title: "New event" }} />
         <Stack.Screen name="event/[id]" options={{ ...header, title: "Event" }} />
-        <Stack.Screen name="places" options={{ ...header, title: "AGTS favourite places" }} />
+        <Stack.Screen name="places" options={{ ...header, title: "AGTS favourites" }} />
+        <Stack.Screen name="directory" options={{ ...header, title: "Company Drive" }} />
+        <Stack.Screen name="directory-new" options={{ ...header, title: "Add to Company Drive", presentation: "modal" }} />
+        <Stack.Screen name="leaderboard" options={{ ...header, title: "Event participation" }} />
+        <Stack.Screen name="pathway" options={{ ...header, title: "My therapist pathway" }} />
         <Stack.Screen name="tasks" options={{ ...header, title: "Tasks" }} />
         <Stack.Screen name="notifications" options={{ ...header, title: "Notifications" }} />
         <Stack.Screen name="team" options={{ ...header, title: "Team directory" }} />

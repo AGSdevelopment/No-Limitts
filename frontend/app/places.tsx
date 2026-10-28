@@ -1,4 +1,6 @@
 import { useMemo, useState } from "react";
+import { useLocalSearchParams } from "expo-router";
+import { useAuth } from "@/src/auth";
 import { FlatList, Pressable, RefreshControl, Text, TextInput, View } from "react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
@@ -9,7 +11,8 @@ import { useToast } from "@/src/components/toast";
 import { Button, Chip, EmptyState, ErrorState, Field, Ionicons, Loading } from "@/src/components/ui";
 import { makeStyles, useTheme } from "@/src/theme";
 
-const KINDS = ["Eat", "Drink", "Eat & drink"];
+const KINDS = ["Eat & Drink", "Coffee", "WiFi / Meet"];
+const KIND_ICON: Record<string, any> = { "Eat & Drink": "restaurant-outline", Coffee: "cafe-outline", "WiFi / Meet": "wifi-outline" };
 
 export default function Places() {
   const insets = useSafeAreaInsets();
@@ -18,16 +21,27 @@ export default function Places() {
   const toast = useToast();
   const qc = useQueryClient();
   const q = useQuery<any[]>({ queryKey: ["places"], queryFn: () => api("/places") });
-  const [filter, setFilter] = useState("All");
+  const params = useLocalSearchParams<{ add?: string; kind?: string }>();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const [filter, setFilter] = useState(params.kind && KINDS.includes(params.kind) ? params.kind : "All");
   const [search, setSearch] = useState("");
-  const [adding, setAdding] = useState(false);
-  const [f, setF] = useState({ name: "", kind: "Eat & drink", address: "", link: "", note: "" });
+  const [adding, setAdding] = useState(params.add === "1" && isAdmin);
+  const [f, setF] = useState({ name: "", kind: params.kind && KINDS.includes(params.kind) ? params.kind : "Eat & Drink", address: "", link: "", note: "" });
   const [saving, setSaving] = useState(false);
+  const [pick, setPick] = useState<any>(null);
+
+  const pickLunch = () => {
+    const pool = (q.data ?? []).filter((p) => p.kind === "Eat & Drink");
+    if (!pool.length) return toast("No Eat & Drink favourites yet", "error");
+    const others = pool.length > 1 ? pool.filter((p) => p.place_id !== pick?.place_id) : pool;
+    setPick(others[Math.floor(Math.random() * others.length)]);
+  };
 
   const list = useMemo(() => {
     const s = search.trim().toLowerCase();
     return (q.data ?? [])
-      .filter((p) => filter === "All" || p.kind === filter || (p.kind === "Eat & drink" && filter !== "All"))
+      .filter((p) => filter === "All" || p.kind === filter)
       .filter((p) => !s || `${p.name} ${p.address} ${p.note}`.toLowerCase().includes(s))
       .sort((a, b) => b.like_count - a.like_count || a.name.localeCompare(b.name));
   }, [q.data, filter, search]);
@@ -38,7 +52,7 @@ export default function Places() {
     try {
       await api("/places", { method: "POST", body: f });
       toast(`${f.name.trim()} added. Thanks!`, "success");
-      setF({ name: "", kind: "Eat & drink", address: "", link: "", note: "" });
+      setF({ name: "", kind: "Eat & Drink", address: "", link: "", note: "" });
       setAdding(false);
       qc.invalidateQueries({ queryKey: ["places"] });
     } catch (e: any) {
@@ -79,7 +93,7 @@ export default function Places() {
         <Field label="Why we love it (optional)" value={f.note} onChangeText={(v) => setF({ ...f, note: v })} placeholder="e.g. Best flat white, great for team lunches" multiline testID="place-note-input" />
         <View style={{ flexDirection: "row", gap: 8 }}>
           <Button label="Cancel" variant="ghost" onPress={() => setAdding(false)} style={{ flex: 1 }} testID="place-cancel" />
-          <Button label="Add place" icon="add" loading={saving} onPress={add} style={{ flex: 1 }} testID="place-save" />
+          <Button label="Add favourite" icon="add" loading={saving} onPress={add} style={{ flex: 1 }} testID="place-save" />
         </View>
       </KeyboardAwareScrollView>
     );
@@ -98,20 +112,39 @@ export default function Places() {
       testID="places-screen"
       ListHeaderComponent={
         <View style={{ gap: 10, marginBottom: 4 }}>
-          <Button label="Add a favourite place" icon="add-circle-outline" onPress={() => setAdding(true)} testID="places-add-button" />
-          <TextInput value={search} onChangeText={setSearch} placeholder="Search places" placeholderTextColor={colors.muted} style={styles.search} testID="places-search" />
+          {isAdmin && <Button label="Add a favourite" icon="add-circle-outline" onPress={() => setAdding(true)} testID="places-add-button" />}
+          <Button label={pick ? "Pick again" : "Pick Friday lunch for us"} icon="shuffle" variant="secondary" onPress={pickLunch} testID="places-lunch-pick" />
+          {pick && (
+            <View style={styles.pickCard} testID="places-lunch-result">
+              <Text style={styles.pickKicker}>🎉 Friday lunch is at</Text>
+              <Text style={styles.pickName}>{pick.name}</Text>
+              {!!pick.address && <Text style={styles.pickSub}>{pick.address}</Text>}
+              {!!pick.note && <Text style={styles.pickSub}>{pick.note}</Text>}
+              <View style={styles.row}>
+                {!!pick.link && (
+                  <Pressable onPress={() => openLink(pick.link)} style={styles.linkBtn} testID="places-lunch-open">
+                    <Text style={styles.pickLink}>Open map/website</Text>
+                  </Pressable>
+                )}
+                <Pressable onPress={() => setPick(null)} style={styles.linkBtn} testID="places-lunch-close">
+                  <Text style={styles.pickLink}>Close</Text>
+                </Pressable>
+              </View>
+            </View>
+          )}
+          <TextInput value={search} onChangeText={setSearch} placeholder="Search favourites" placeholderTextColor={colors.muted} style={styles.search} testID="places-search" />
           <View style={styles.chips}>
-            {["All", "Eat", "Drink"].map((k) => (
+            {["All", ...KINDS].map((k) => (
               <Chip key={k} label={k} selected={filter === k} onPress={() => setFilter(k)} testID={`places-filter-${k}`} />
             ))}
           </View>
         </View>
       }
-      ListEmptyComponent={<EmptyState icon="restaurant-outline" title="No places yet" subtitle="Add the team's favourite spots to eat and drink." />}
+      ListEmptyComponent={<EmptyState icon="star-outline" title="No favourites yet" subtitle={isAdmin ? "Add the team's favourite spots to eat, grab a coffee or work and meet." : "Admins can add the team's favourite spots here."} />}
       renderItem={({ item }) => (
         <View style={styles.card} testID={`place-${item.place_id}`}>
           <View style={styles.row}>
-            <Ionicons name={item.kind === "Drink" ? "wine-outline" : item.kind === "Eat" ? "restaurant-outline" : "fast-food-outline"} size={22} color={colors.brandPrimary} />
+            <Ionicons name={KIND_ICON[item.kind] ?? "star-outline"} size={22} color={colors.brandPrimary} />
             <View style={{ flex: 1 }}>
               <Text style={styles.name}>{item.name}</Text>
               <Text style={styles.sub}>{[item.kind, item.address].filter(Boolean).join(" · ")}</Text>
@@ -154,4 +187,9 @@ const useStyles = makeStyles((c) => ({
   likeBtn: { minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 4 },
   linkBtn: { minHeight: 44, paddingHorizontal: 12, justifyContent: "center" },
   link: { fontSize: 14, fontWeight: "700", color: c.brandPrimary },
+  pickCard: { backgroundColor: c.brandPrimary, borderRadius: 16, padding: 16, gap: 4 },
+  pickKicker: { fontSize: 13, fontWeight: "600", color: c.onBrandPrimary, opacity: 0.9 },
+  pickName: { fontSize: 22, fontWeight: "800", color: c.onBrandPrimary },
+  pickSub: { fontSize: 14, color: c.onBrandPrimary, opacity: 0.9 },
+  pickLink: { fontSize: 14, fontWeight: "700", color: c.onBrandPrimary, textDecorationLine: "underline" },
 }));
