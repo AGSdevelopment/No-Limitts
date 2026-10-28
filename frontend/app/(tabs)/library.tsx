@@ -35,6 +35,7 @@ export default function Library() {
     { icon: "folder-open-outline", label: "Company Drive", to: "/drive", id: "drive" },
   ];
   const admin: Row[] = [
+    { icon: "stats-chart-outline", label: "Compliance dashboard", to: "/compliance", id: "compliance" },
     { icon: "create-outline", label: "Post company update", to: "/compose?type=update", id: "post-update" },
     { icon: "document-attach-outline", label: "Add policy or procedure", to: "/compose?type=policy", id: "post-policy" },
     { icon: "calendar-number-outline", label: "Create event", to: "/compose?type=event", id: "post-event" },

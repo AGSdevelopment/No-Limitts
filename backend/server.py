@@ -685,6 +685,77 @@ async def remind_policy(policy_id: str, admin=Depends(admin_user)):
     return {"reminded": len(pending)}
 
 
+@api.get("/compliance")
+async def compliance(admin=Depends(admin_user)):
+    """Per-staff policy acknowledgement, certificate status and CPD hours (this year)."""
+    users = await db.users.find({"hidden": {"$ne": True}}, {"_id": 0, "user_id": 1, "name": 1, "picture": 1,
+                                                            "staff_group": 1, "role": 1}).sort("name", 1).to_list(2000)
+    policies = await db.policies.find({}, {"_id": 0, "policy_id": 1, "title": 1, "acknowledged_by": 1}).to_list(1000)
+    certs = await db.certificates.find({"is_deleted": {"$ne": True}}, {"_id": 0, "owner_id": 1, "title": 1,
+                                                                      "expiry_date": 1}).to_list(10000)
+    year_start = cpd_year_start()
+    hours = {}
+    async for lg in db.cpd_logs.find({"date": {"$gte": year_start}}, {"_id": 0, "user_id": 1, "hours": 1}):
+        hours[lg["user_id"]] = hours.get(lg["user_id"], 0) + lg["hours"]
+    rows = []
+    for u in users:
+        uid = u["user_id"]
+        pending = [p["title"] for p in policies if uid not in (p.get("acknowledged_by") or [])]
+        mine = [{"title": c["title"], "expiry_date": c["expiry_date"], **cert_status(c["expiry_date"])}
+                for c in certs if c.get("owner_id") == uid]
+        expired = [c for c in mine if c["status"] == "expired"]
+        expiring = [c for c in mine if c["status"] == "expiring"]
+        rows.append({**u, "policies_total": len(policies), "policies_pending": pending,
+                     "certs_total": len(mine), "certs_expired": expired, "certs_expiring": expiring,
+                     "cpd_hours": round(hours.get(uid, 0), 2),
+                     "needs_attention": bool(pending or expired or expiring)})
+    n = len(rows) or 1
+    ack_total = sum(r["policies_total"] - len(r["policies_pending"]) for r in rows)
+    return {"rows": rows, "year": date.today().year, "summary": {
+        "staff": len(rows),
+        "policy_pct": round(100 * ack_total / (n * len(policies))) if policies else 100,
+        "fully_acknowledged": sum(1 for r in rows if not r["policies_pending"]),
+        "expired_certs": sum(len(r["certs_expired"]) for r in rows),
+        "expiring_certs": sum(len(r["certs_expiring"]) for r in rows),
+        "avg_cpd": round(sum(r["cpd_hours"] for r in rows) / n, 1),
+        "needs_attention": sum(1 for r in rows if r["needs_attention"])}}
+
+
+async def policy_reminder_loop():
+    """Every Monday 9am Perth: one reminder per person listing the policies they still haven't acknowledged."""
+    while True:
+        try:
+            local = datetime.now(DIGEST_TZ)
+            if local.weekday() == 0 and local.hour >= 9:
+                year, week, _ = local.isocalendar()
+                key = f"policy_remind_{year}_{week}"
+                if not await db.meta.find_one({"key": key}):
+                    await db.meta.insert_one({"key": key, "created_at": now_iso()})
+                    policies = await db.policies.find({}, {"_id": 0, "title": 1, "acknowledged_by": 1}).to_list(1000)
+                    sent = 0
+                    async for u in db.users.find({"hidden": {"$ne": True}}, P):
+                        pending = [p["title"] for p in policies if u["user_id"] not in (p.get("acknowledged_by") or [])]
+                        if not pending:
+                            continue
+                        n = len(pending)
+                        await notify([u["user_id"]], "policy", "Weekly reminder: policies to acknowledge",
+                                     f"{n} polic{'y' if n == 1 else 'ies'} still need your acknowledgement", "/policies")
+                        if u.get("email") and not u["email"].endswith("@example.com"):
+                            items = "".join(f"<li>{escape(t)}</li>" for t in pending[:30])
+                            more = f"<p>…and {n - 30} more.</p>" if n > 30 else ""
+                            await send_email(to=u["email"], subject=f"Reminder: {n} polic{'y' if n == 1 else 'ies'} to acknowledge", html=(
+                                "<div style='font-family:Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px'>"
+                                f"<h2 style='color:#205890'>Policies waiting for you</h2><p>Hi {escape(u['name'].split(' ')[0])},</p>"
+                                f"<p>Please read and acknowledge these in StaffHub → Library → Policies &amp; procedures:</p>"
+                                f"<ul>{items}</ul>{more}</div>"))
+                        sent += 1
+                    await db.meta.update_one({"key": key}, {"$set": {"reminded": sent}})
+                    logger.info(f"Weekly policy reminders sent to {sent} staff")
+        except Exception as e:
+            logger.error(f"Policy reminder loop error: {e}")
+        await asyncio.sleep(600)
+
+
 @api.get("/policies/{policy_id}/file")
 async def policy_file(policy_id: str, request: Request, token: Optional[str] = None):
     user = await user_from_token(bearer(request) or token)
@@ -2498,6 +2569,7 @@ async def startup():
     asyncio.create_task(digest_loop())
     asyncio.create_task(socials_loop())
     asyncio.create_task(task_reminder_loop())
+    asyncio.create_task(policy_reminder_loop())
 
 
 @app.on_event("shutdown")

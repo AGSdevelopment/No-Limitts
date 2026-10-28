@@ -89,6 +89,9 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Policy versions: POST /api/policies/{id}/version (multipart: file PDF/Word → object storage, change_note, content; PDF text auto-extracted) → version+1, previous kept in versions[], acknowledged_by reset to admin, staff notified to re-acknowledge
 - Acknowledgement tracker: GET /api/policies/{id}/acks (acknowledged/pending, hidden users excluded), POST /api/policies/{id}/remind (in-app + email to pending); UI in src/components/policy-admin.tsx on policy detail (admin buttons)
 
+- Weekly policy reminders: policy_reminder_loop Monday 9am Perth (meta policy_remind_<y>_<w>), one in-app + email per person listing pending policies
+- Compliance dashboard (/compliance, admin, Library → Admin): GET /api/compliance → per staff pending policies, expired/expiring certs, CPD hours this year + summary stats; filters & search
+
 ## Backlog
 - P0: Add Google Drive OAuth credentials and connect
 - P1: Phone push notifications (Firebase file + build)
