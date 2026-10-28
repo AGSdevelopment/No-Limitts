@@ -255,16 +255,16 @@ MOBILE_CSS = """<meta name="viewport" content="width=device-width,initial-scale=
  /* tables become stacked cards */
  html body .tblwrap,html body .scrollbox{overflow:visible;max-height:none;background:none;border:none}
  table.sh-cards,table.sh-cards tbody,table.sh-cards tr,table.sh-cards td{display:block;width:100%}
- table.sh-cards tr.sh-head{display:none}
- table.sh-cards tr{background:var(--surface);border:1px solid var(--border);border-radius:14px;margin:0 0 10px;padding:6px 12px;box-shadow:0 1px 2px rgba(20,35,58,.05)}
+ table.sh-cards tr.sh-head{display:none!important}
+ table.sh-cards tr{background:var(--surface);border:1px solid var(--border);border-radius:14px;margin:0 0 10px;padding:8px 12px 10px;box-shadow:0 1px 2px rgba(20,35,58,.05);display:grid!important;grid-template-columns:1fr 1fr;column-gap:12px}
  table.sh-cards tr.tot{background:var(--tint-sky)}
- table.sh-cards td{border:none;white-space:normal;text-align:right;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:6px 0;min-height:32px;position:static!important;box-shadow:none!important;max-width:none!important;min-width:0!important;background:none!important}
- table.sh-cards td+td{border-top:1px solid var(--border)}
- table.sh-cards td::before{content:attr(data-label);color:var(--ink-2);font-size:12.5px;font-weight:600;text-align:left;flex:1 1 45%}
- table.sh-cards td.sh-title{font-size:16px;font-weight:700;color:var(--navy);text-align:left;justify-content:flex-start;padding-top:8px}
+ table.sh-cards td{border:none;white-space:normal;text-align:left;display:flex;flex-direction:column;align-items:flex-start;justify-content:flex-start;gap:1px;padding:6px 0;min-height:0;position:static!important;box-shadow:none!important;max-width:none!important;min-width:0!important;background:none!important;font-size:14.5px;font-weight:600;overflow-wrap:anywhere}
+table.sh-cards td.sh-wide{grid-column:1 / -1}
+ table.sh-cards td::before{content:attr(data-label);color:var(--ink-3);font-size:11.5px;font-weight:500;text-align:left;line-height:1.25}
+ table.sh-cards td.sh-title{grid-column:1 / -1;font-size:16px;font-weight:700;color:var(--navy);padding:4px 0 6px;margin-bottom:2px;border-bottom:1px solid var(--border)}
  table.sh-cards td.sh-title::before{display:none}
  table.sh-cards td:empty{display:none}
- table.sh-cards td input,table.sh-cards td select{max-width:55%}
+ table.sh-cards td input,table.sh-cards td select{width:100%;max-width:100%}
  .topscroll{display:none}
  html body .sh-toggle{display:flex;width:100%;align-items:center;justify-content:space-between;min-height:44px;margin-top:10px;padding:10px 14px;border-radius:12px;border:1px solid var(--border);background:var(--surface);color:var(--navy);font:inherit;font-weight:700}
  html body:not(.sh-open) .uploads, html body:not(.sh-open) .note, html body:not(.sh-open) .sharebar{display:none!important}
@@ -283,7 +283,7 @@ MOBILE_CSS = """<meta name="viewport" content="width=device-width,initial-scale=
    var labels=[]; Array.prototype.forEach.call(head.cells,function(c){ var n=c.colSpan||1; for(var k=0;k<n;k++) labels.push(c.innerText.replace(/\\s+/g,' ').trim()); });
    head.classList.add('sh-head'); t.classList.add('sh-cards');
    Array.prototype.forEach.call(rows,function(r){ if(r===head||r.querySelector('th')&&!r.querySelector('td')){ if(r!==head) r.classList.add('sh-head'); return; }
-    var col=0; Array.prototype.forEach.call(r.cells,function(c,idx){ if(!c.hasAttribute('data-label')) c.setAttribute('data-label',labels[col]||''); if(idx===0) c.classList.add('sh-title'); col+=c.colSpan||1; });
+    var col=0; Array.prototype.forEach.call(r.cells,function(c,idx){ if(!c.hasAttribute('data-label')) c.setAttribute('data-label',labels[col]||''); if(idx===0) c.classList.add('sh-title'); else if((c.colSpan||1)>2||c.querySelector('textarea')||c.innerText.trim().length>22) c.classList.add('sh-wide'); col+=c.colSpan||1; });
    });
   });
  }
