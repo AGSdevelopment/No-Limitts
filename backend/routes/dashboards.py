@@ -9,7 +9,7 @@ DEFAULTS = [
      "url": "https://www.aspireandgrowtherapyservices.com.au/therapist-dashboard", "roles": ["admin"], "groups": [],
      "embed": "agts"},
     {"dashboard_id": "participant-plans", "name": "Participant plans & safety",
-     "url": "https://www.aspireandgrowtherapyservices.com.au/therapist-dashboard", "roles": [], "groups": [],
+     "url": "https://www.aspireandgrowtherapyservices.com.au/therapist-dashboard", "roles": ["admin"], "groups": [],
      "embed": "agts-nk", "user_emails": ["nikki@aspireandgrow.com.au"]},
 ]
 
@@ -21,10 +21,10 @@ async def ensure_dashboards():
             await db.dashboards.insert_one({**d, "created_at": now_iso()})
         else:
             await db.dashboards.update_one({"dashboard_id": d["dashboard_id"]}, {"$set": {"embed": d.get("embed", "")}})
-        if emails is not None:  # shared with named people only
+        if emails is not None:  # shared with the page's roles plus named people
             users = await db.users.find({"email": {"$in": emails}}, {"_id": 0, "user_id": 1}).to_list(20)
             await db.dashboards.update_one({"dashboard_id": d["dashboard_id"]},
-                                           {"$set": {"roles": [], "users": [u["user_id"] for u in users]}})
+                                           {"$set": {"roles": d["roles"], "users": [u["user_id"] for u in users]}})
 
 
 def allowed(d: dict, user: dict) -> bool:
