@@ -3,7 +3,7 @@ from datetime import date
 from fastapi import APIRouter, Depends
 from core import P, current_user, db
 from routes.certificates import with_status
-from routes.events import event_fields, visible_events
+from routes.events import event_fields, photo_highlights, visible_events
 
 router = APIRouter(prefix="/api")
 
@@ -25,5 +25,6 @@ async def dashboard(user=Depends(current_user)):
     latest_social = await db.updates.find_one({"source": {"$in": ["facebook", "instagram", "linkedin"]}}, P,
                                               sort=[("created_at", -1)])
     return {"cert_alerts": alerts, "cert_total": len(certs), "events": events, "open_tasks": tasks[:5],
+            "photo_highlights": await photo_highlights(user),
             "open_task_count": len(tasks), "updates": updates, "unread_notifications": unread,
             "pending_policies": pending_policies, "latest_social": latest_social}

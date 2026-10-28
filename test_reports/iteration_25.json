@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 25 covered recurring events, places limits with a waitlist, event chat and Home event photos, on the backend (16 pytest tests, -n 0) and the frontend (390x844). 13 of 16 backend tests passed. The 3 failures are real waitlist bugs. Working: weekly/fortnightly/monthly series (Jan 31 -> Feb 28 -> Mar 31), created=N, occurrences capped at 12, bad repeat and capacity 0 return 400, one notification per series, series delete (this and later only), going/waitlist/auto-promotion with the 'You're off the waitlist!' notification, queue order kept when a waitlisted person re-sends Going, comments (create, notify, delete permissions, check-in 404) and photo_highlights (newest first, private check-in photos excluded). UI: the create form (places, Repeats and 2/4/6/8/12 chips), the '2 events created' toast, places-left text, chat send and delete, the waitlist toast, 'On the waitlist' in responses, auto-promotion after withdraw, series delete, and the Home 'Event photos' strip (tap opens the event) all work. One bug shows in the UI: a waitlisted user who taps 'Update RSVP' gets 'Unknown RSVP option'. No deprecated Expo packages detected.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/events/{id}/rsvp (+ event/[id].tsx save)", "issue": "A waitlisted user opens the event page. No RSVP option is selected because the screen's status value is 'waitlist', but 'Update RSVP' is still enabled. Tapping it (for example to change the details comment) sends status='waitlist', and the API rejects it with 400 'Unknown RSVP option'. Reproduced in the UI as admin.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "POST /api/events/{id}/rsvp", "issue": "Queue jumping. Line 180 keeps the old reply time whenever the user had any earlier reply and is now waitlisted. So someone who answered Maybe early and later switches to Going on a full event gets their old Maybe time and goes ahead of people who joined the waitlist before them. Fix: keep the old time only if mine.status == 'waitlist', otherwise use now_iso(). Test: test_maybe_then_going_does_not_jump_queue."},
+      {"endpoint": "POST /api/events/{id}/rsvp (no body, legacy toggle)", "issue": "A waitlisted user can never leave the waitlist by toggling. The toggle only removes a 'going' reply, so a 'waitlist' reply becomes 'going' and is then forced back to 'waitlist'. Treat waitlist like going when toggling off. Test: test_legacy_toggle_can_leave_waitlist."},
+      {"endpoint": "DELETE /api/events/{id}?series=true", "issue": "Only people who replied to the tapped event are told about the cancellation. People who replied to later events in the same series are not told."},
+      {"endpoint": "photo_highlights()", "issue": "Loads every event that has photos, with the full photo lists, then sorts in Python. This will get slow as photos grow. Consider an aggregation ($unwind, $sort, $limit)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "event/[id].tsx RSVP card", "issue": "For a waitlisted user no option is selected, yet 'Update RSVP' is enabled and fails with 'Unknown RSVP option'. Fix: when my_rsvp.status is 'waitlist', show 'Going' as selected (or send 'going'). The backend already keeps their queue place when they send Going.", "testID": "event-rsvp-save", "priority": "HIGH"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/event-new", "issues": ["Occurrence chips are 38x36 px ('2') and other chips are 36 px tall, below the 44 px minimum touch target."]},
+      {"screen": "/event/[id]", "issues": ["The text reads 'Full (1 places)'; it should say '1 place' for one."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter25_series_waitlist_comments_highlights.py", "/app/test_reports/pytest/pytest_iter25.xml"],
+  "action_items": [
+    "event/[id].tsx: for a waitlisted user, map status 'waitlist' to 'going' in the useEffect, or send 'going' in save(), so 'Update RSVP' works.",
+    "routes/events.py rsvp(): set 'at' to mine['at'] only when mine['status'] == 'waitlist'; otherwise use now_iso().",
+    "routes/events.py rsvp(): in the no-body toggle, treat a 'waitlist' reply as on, so toggling removes it.",
+    "Optional: notify people who replied to the later events in a series when it is deleted; make chips at least 44 px tall; fix the 'places' plural."
+  ],
+  "critical_code_review_comments": [
+    "rsvp() keeps the old reply time for any earlier reply, which lets people jump the queue (see minor issues).",
+    "promote_waitlist sorts by r['at']. Any old reply with no 'at' value would raise a TypeError, so use r.get('at') or ''.",
+    "Capacity counts only rsvps with status 'going' and ignores the old attendees-only list. This only matters for old events."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter25_series_waitlist_comments_highlights.py"],
+  "success_rate": {"backend": "81% (13/16, all 3 failures are real bugs)", "frontend": "95% (all requested flows pass except Update RSVP while waitlisted)"},
+  "seed_data_creation": "A temporary hidden user TEST_user_evt25c with session TEST_session_evt25c, plus TEST_evt25 events and notifications. All removed after the tests (0 left). A 1x1 test PNG uploaded to object storage is still there; its event has been deleted.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run: pytest /app/backend/tests/test_iter25_series_waitlist_comments_highlights.py -n 0. The 3 tests named legacy_toggle_can_leave_waitlist, maybe_then_going_does_not_jump_queue and waitlist_status_rejected_by_api should pass once the fixes are in. The server clock reads 2026-10-28. Clean up with: notifications whose body or title matches TEST_(evt25|cmt25) and events whose title matches ^TEST_evt25.",
+  "rca_of_issue": "Update RSVP bug: event/[id].tsx useEffect sets status to my_rsvp.status ('waitlist'). This is not one of the RSVP options, so no chip is selected, but the button is still enabled. The backend's RSVP_STATUSES list excludes 'waitlist', so the request returns 400. Steps: cap=1, user A Going, user B Going (waitlisted), B reloads the page, edits the details and taps Update RSVP -> 'Unknown RSVP option' toast."
+}

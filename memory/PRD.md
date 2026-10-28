@@ -125,3 +125,4 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Events: any staff can create (purpose, food & drink option, conditions); RSVP Going/Maybe/Can't go with a comment visible to all; event detail /event/[id]; organiser/admin delete
 - Upload screen "Resource to share (no expiry)" mode -> POST /api/resources/upload (CPD Resources / Drive folders / My CPD)
 - Event reminders day before 9am Perth to Going/Maybe (in-app + email), event photos (attendees/organiser/admin), Add to calendar (Google link + .ics), Past events tab
+- Event chat comments, Home "Event photos" highlights (dashboard.photo_highlights), recurring events (weekly/fortnightly/monthly, 2-12, series delete), capacity + waitlist with auto-promotion

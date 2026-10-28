@@ -11,6 +11,12 @@ import { Button, Chip, Field, dmyToIso } from "@/src/components/ui";
 import { makeStyles } from "@/src/theme";
 
 export const CATERING = ["Food & drink provided", "BYO", "To be arranged"];
+const REPEATS = [
+  { key: "", label: "Doesn't repeat" },
+  { key: "weekly", label: "Weekly" },
+  { key: "fortnightly", label: "Fortnightly" },
+  { key: "monthly", label: "Monthly" },
+];
 
 export default function NewEvent() {
   const router = useRouter();
@@ -18,7 +24,7 @@ export default function NewEvent() {
   const styles = useStyles();
   const toast = useToast();
   const qc = useQueryClient();
-  const [f, setF] = useState({ title: "", date: "", time: "", location: "", description: "", catering: "", conditions: "" });
+  const [f, setF] = useState({ title: "", date: "", time: "", location: "", description: "", catering: "", conditions: "", capacity: "", repeat: "", occurrences: 4 });
   const [saving, setSaving] = useState(false);
   const set = (k: keyof typeof f) => (v: string) => setF({ ...f, [k]: v });
 
@@ -26,12 +32,14 @@ export default function NewEvent() {
     if (!f.title.trim()) return toast("Give the event a name", "error");
     const iso = dmyToIso(f.date);
     if (!iso) return toast("Enter the date as dd-mm-yyyy", "error");
+    const cap = f.capacity.trim() ? parseInt(f.capacity, 10) : null;
+    if (cap !== null && (!cap || cap < 1)) return toast("Places must be a number above 0", "error");
     setSaving(true);
     try {
-      const ev = await api("/events", { method: "POST", body: { ...f, date: iso } });
+      const ev = await api("/events", { method: "POST", body: { ...f, date: iso, capacity: cap, occurrences: f.repeat ? f.occurrences : 1 } });
       qc.invalidateQueries({ queryKey: ["events"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
-      toast("Event created. Everyone has been invited to RSVP.", "success");
+      toast(ev.created > 1 ? `${ev.created} events created. Everyone has been invited to RSVP.` : "Event created. Everyone has been invited to RSVP.", "success");
       router.replace(`/event/${ev.event_id}`);
     } catch (e: any) {
       toast(e.message, "error");
@@ -55,6 +63,23 @@ export default function NewEvent() {
         ))}
       </View>
       <Field label="Other details or conditions" value={f.conditions} onChangeText={set("conditions")} placeholder="e.g. Bring a plate to share, partners welcome" multiline testID="event-conditions-input" />
+      <Field label="Places available (optional)" value={f.capacity} onChangeText={set("capacity")} placeholder="Leave empty for unlimited; extra people join a waitlist" keyboardType="number-pad" testID="event-capacity-input" />
+      <Text style={styles.label}>Repeats</Text>
+      <View style={styles.chips}>
+        {REPEATS.map((r) => (
+          <Chip key={r.key} label={r.label} selected={f.repeat === r.key} onPress={() => setF({ ...f, repeat: r.key })} testID={`event-repeat-${r.key || "none"}`} />
+        ))}
+      </View>
+      {!!f.repeat && (
+        <>
+          <Text style={styles.label}>How many times in total?</Text>
+          <View style={styles.chips}>
+            {[2, 4, 6, 8, 12].map((n) => (
+              <Chip key={n} label={`${n}`} selected={f.occurrences === n} onPress={() => setF({ ...f, occurrences: n })} testID={`event-occurrences-${n}`} />
+            ))}
+          </View>
+        </>
+      )}
       <Button label="Create event" icon="calendar" loading={saving} onPress={submit} testID="event-create-button" />
     </KeyboardAwareScrollView>
   );

@@ -5,7 +5,7 @@ import { Image } from "expo-image";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { api, openLink } from "@/src/api";
+import { API_URL, api, getApiToken, openLink } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { HeaderIcon, TabHeader } from "@/src/components/header";
 import { SOCIAL_BRAND } from "@/src/components/social-post";
@@ -161,7 +161,7 @@ export default function Home() {
               {d.events.map((e: any) => {
                 const dt = new Date(`${e.date}T00:00:00`);
                 return (
-                  <Card key={e.event_id} testID={`home-event-${e.event_id}`} onPress={() => router.push("/events")} style={styles.eventCard}>
+                  <Card key={e.event_id} testID={`home-event-${e.event_id}`} onPress={() => router.push(`/event/${e.event_id}`)} style={styles.eventCard}>
                     <View style={styles.dateBox}>
                       <Text style={styles.dateMonth}>{dt.toLocaleDateString(undefined, { month: "short" }).toUpperCase()}</Text>
                       <Text style={styles.dateDay}>{dt.getDate()}</Text>
@@ -172,6 +172,20 @@ export default function Home() {
                 );
               })}
             </ScrollView>
+          )}
+
+          {d.photo_highlights?.length > 0 && (
+            <>
+              <SectionHeader title="Event photos" action="See all" onAction={() => router.push("/events")} testID="home-photos-see-all" />
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -16 }} contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }} testID="home-photo-highlights">
+                {d.photo_highlights.map((p: any) => (
+                  <Pressable key={p.photo_id} onPress={() => router.push(`/event/${p.event_id}`)} style={styles.photoCard} testID={`home-photo-${p.photo_id}`}>
+                    <Image source={{ uri: `${API_URL}/events/${p.event_id}/photos/${p.photo_id}?token=${encodeURIComponent(getApiToken() ?? "")}` }} style={styles.photo} contentFit="cover" transition={200} />
+                    <Text style={styles.photoTitle} numberOfLines={1}>{p.event_title}</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </>
           )}
 
           <SectionHeader title="Company updates" action="See all" onAction={() => router.push("/updates")} testID="home-updates-see-all" />
@@ -221,6 +235,9 @@ const useStyles = makeStyles((c) => ({
   updateTitle: { fontSize: 17, fontWeight: "700", color: c.onSurface, marginBottom: 4 },
   updateBody: { fontSize: 14, color: c.onSurfaceSecondary, lineHeight: 20 },
   social: { flexDirection: "row", gap: 12, alignItems: "center", backgroundColor: c.surface, borderRadius: 16, borderWidth: 1, borderColor: c.border, padding: 12 },
+  photoCard: { width: 140, gap: 6 },
+  photo: { width: 140, height: 140, borderRadius: 14, backgroundColor: c.surfaceSecondary },
+  photoTitle: { fontSize: 13, fontWeight: "600", color: c.onSurface },
   socialImg: { width: 76, height: 76, borderRadius: 12, backgroundColor: c.surfaceSecondary },
   socialIconBox: { alignItems: "center", justifyContent: "center" },
   socialHead: { flexDirection: "row", alignItems: "center", gap: 6 },

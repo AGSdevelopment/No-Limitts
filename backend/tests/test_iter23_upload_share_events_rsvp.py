@@ -164,7 +164,7 @@ class TestEvents:
         for k, v in body.items():
             assert d[k] == v
         assert d["created_by_id"] == EMP_ID and d["can_delete"] is True
-        assert d["counts"] == {"going": 0, "maybe": 0, "not_going": 0} and d["my_rsvp"] is None
+        assert d["counts"] == {"going": 0, "maybe": 0, "not_going": 0, "waitlist": 0} and d["my_rsvp"] is None
         STATE["evt"] = d["event_id"]
         g = requests.get(f"{BASE_URL}/api/events/{d['event_id']}", headers=ADMIN).json()
         assert g["title"] == body["title"] and g["catering"] == "BYO"
@@ -185,12 +185,12 @@ class TestEvents:
         r = requests.post(f"{BASE_URL}/api/events/{eid}/rsvp", headers=EMP, json={"status": "maybe", "comment": "Late"})
         assert r.status_code == 200 and r.json()["my_rsvp"]["status"] == "maybe" and r.json()["going"] is False
         r = requests.post(f"{BASE_URL}/api/events/{eid}/rsvp", headers=EMP, json={"status": "going", "comment": "In!"})
-        assert r.json()["counts"] == {"going": 1, "maybe": 0, "not_going": 0}
+        assert r.json()["counts"] == {"going": 1, "maybe": 0, "not_going": 0, "waitlist": 0}
         assert len([x for x in r.json()["rsvps"] if x["user_id"] == EMP_ID]) == 1
         r = requests.post(f"{BASE_URL}/api/events/{eid}/rsvp", headers=ADMIN, json={"status": "not_going",
                                                                                    "comment": "Away"})
         a = r.json()
-        assert a["counts"] == {"going": 1, "maybe": 0, "not_going": 1} and a["my_rsvp"]["status"] == "not_going"
+        assert a["counts"] == {"going": 1, "maybe": 0, "not_going": 1, "waitlist": 0} and a["my_rsvp"]["status"] == "not_going"
         e = next(x for x in a["rsvps"] if x["user_id"] == EMP_ID)
         assert e["status"] == "going" and e["comment"] == "In!" and e["name"]
         lst = requests.get(f"{BASE_URL}/api/events", headers=EMP).json()

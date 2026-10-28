@@ -27,7 +27,7 @@ export default function Events() {
     try {
       const r = await api(`/events/${e.event_id}/rsvp`, { method: "POST" });
       qc.invalidateQueries({ queryKey: ["events"] });
-      toast(r.going ? "You're going!" : "RSVP removed", r.going ? "success" : "info");
+      toast(r.waitlisted ? "It's full, so you're on the waitlist" : r.going ? "You're going!" : "RSVP removed", r.going ? "success" : "info");
     } catch (err: any) {
       toast(err.message, "error");
     }
@@ -81,6 +81,8 @@ export default function Events() {
                   {!!item.catering && <Text style={styles.sub}>🍽 {item.catering}</Text>}
                   <Text style={styles.sub}>
                     {item.counts?.going ?? item.attendee_count} going{item.counts?.maybe ? ` · ${item.counts.maybe} maybe` : ""}
+                    {item.capacity ? (item.places_left ? ` · ${item.places_left} places left` : " · Full, waitlist open") : ""}
+                    {item.repeat ? ` · repeats ${item.repeat}` : ""}
                   </Text>
                   {item.checkin_for || past ? (
                     past && item.photos?.length ? <Text style={styles.myRsvp}>📷 {item.photos.length} photo{item.photos.length > 1 ? "s" : ""} · tap to view</Text> : null

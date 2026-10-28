@@ -1,12 +1,12 @@
 import { useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, Text, TextInput, View } from "react-native";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { API_URL, authHeaders, getApiToken, openLink } from "@/src/api";
+import { API_URL, api, authHeaders, getApiToken, openLink } from "@/src/api";
 import { useToast } from "@/src/components/toast";
-import { Button, Ionicons } from "@/src/components/ui";
+import { Avatar, Button, Ionicons, timeAgo } from "@/src/components/ui";
 import { makeStyles, useTheme } from "@/src/theme";
 import { uploadForm } from "@/src/utils/upload";
 
@@ -135,4 +135,80 @@ const useStyles = makeStyles((c) => ({
   big: { width: "100%", aspectRatio: 1, borderRadius: 12, backgroundColor: c.surfaceSecondary },
   viewerRow: { flexDirection: "row", alignItems: "center" },
   iconBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+}));
+
+// Chat on the event page: lifts, food, plans.
+export function EventComments({ ev, userId, isAdmin }: { ev: any; userId?: string; isAdmin: boolean }) {
+  const styles = useCommentStyles();
+  const { colors } = useTheme();
+  const toast = useToast();
+  const qc = useQueryClient();
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+
+  const send = async () => {
+    if (!text.trim()) return;
+    setSending(true);
+    try {
+      await api(`/events/${ev.event_id}/comments`, { method: "POST", body: { text } });
+      setText("");
+      qc.invalidateQueries({ queryKey: ["event", ev.event_id] });
+    } catch (e: any) {
+      toast(e.message, "error");
+    } finally {
+      setSending(false);
+    }
+  };
+  const remove = async (id: string) => {
+    try {
+      await api(`/events/${ev.event_id}/comments/${id}`, { method: "DELETE" });
+      qc.invalidateQueries({ queryKey: ["event", ev.event_id] });
+    } catch (e: any) {
+      toast(e.message, "error");
+    }
+  };
+
+  const comments: any[] = ev.comments ?? [];
+  return (
+    <View style={styles.card} testID="event-comments">
+      <Text style={styles.section}>Chat{comments.length ? ` · ${comments.length}` : ""}</Text>
+      {comments.length === 0 && <Text style={styles.meta}>Sort out lifts, food and plans here.</Text>}
+      {comments.map((c) => (
+        <View key={c.comment_id} style={styles.row} testID={`event-comment-${c.comment_id}`}>
+          <Avatar name={c.name} picture={c.picture} size={32} />
+          <View style={styles.bubble}>
+            <Text style={styles.name}>
+              {c.name} <Text style={styles.meta}>· {timeAgo(c.created_at)}</Text>
+            </Text>
+            <Text style={styles.text}>{c.text}</Text>
+          </View>
+          {(isAdmin || c.user_id === userId) && (
+            <Pressable onPress={() => remove(c.comment_id)} style={styles.iconBtn} accessibilityLabel="Delete message" testID={`event-comment-delete-${c.comment_id}`}>
+              <Ionicons name="trash-outline" size={18} color={colors.muted} />
+            </Pressable>
+          )}
+        </View>
+      ))}
+      <View style={styles.inputRow}>
+        <TextInput value={text} onChangeText={setText} placeholder="Write a message…" placeholderTextColor={colors.muted} style={styles.input} multiline testID="event-comment-input" />
+        <Pressable onPress={send} disabled={sending || !text.trim()} style={[styles.send, (sending || !text.trim()) && { opacity: 0.5 }]} accessibilityLabel="Send message" testID="event-comment-send">
+          <Ionicons name="send" size={18} color={colors.onBrandPrimary} />
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+const useCommentStyles = makeStyles((c) => ({
+  card: { backgroundColor: c.surface, borderRadius: 16, padding: 16, gap: 10 },
+  section: { fontSize: 15, fontWeight: "700", color: c.onSurface },
+  meta: { fontSize: 12, color: c.muted, fontWeight: "400" },
+  row: { flexDirection: "row", gap: 8, alignItems: "flex-start" },
+  bubble: { flex: 1, backgroundColor: c.surfaceSecondary, borderRadius: 12, padding: 10, gap: 2 },
+  name: { fontSize: 13, fontWeight: "700", color: c.onSurface },
+  text: { fontSize: 14, color: c.onSurface, lineHeight: 20 },
+  iconBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  inputRow: { flexDirection: "row", gap: 8, alignItems: "flex-end" },
+  input: { flex: 1, minHeight: 44, maxHeight: 120, borderRadius: 12, backgroundColor: c.surfaceSecondary, paddingHorizontal: 12, paddingVertical: 10, fontSize: 16, color: c.onSurface },
+  send: { width: 44, height: 44, borderRadius: 22, backgroundColor: c.brandPrimary, alignItems: "center", justifyContent: "center" },
 }));

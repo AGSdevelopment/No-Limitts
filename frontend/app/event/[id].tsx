@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
-import { AddToCalendar, EventPhotos } from "@/src/components/event-extras";
+import { AddToCalendar, EventComments, EventPhotos } from "@/src/components/event-extras";
 import { useToast } from "@/src/components/toast";
 import { Avatar, Button, Chip, ConfirmSheet, EmptyState, ErrorState, Field, Ionicons, Loading, formatDate } from "@/src/components/ui";
 import { makeStyles, useTheme } from "@/src/theme";
@@ -17,7 +17,7 @@ const OPTIONS = [
   { key: "maybe", label: "Maybe", icon: "help-circle" },
   { key: "not_going", label: "Can't go", icon: "close-circle" },
 ] as const;
-
+const STATUS_LABEL: Record<string, string> = { going: "Going", maybe: "Maybe", not_going: "Can't go", waitlist: "On the waitlist" };
 export default function EventDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useAuth();
@@ -31,11 +31,11 @@ export default function EventDetail() {
   const [status, setStatus] = useState<string>("");
   const [comment, setComment] = useState("");
   const [saving, setSaving] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<false | "one" | "series">(false);
 
   useEffect(() => {
     if (q.data?.my_rsvp) {
-      setStatus(q.data.my_rsvp.status);
+      setStatus(q.data.my_rsvp.status === "waitlist" ? "going" : q.data.my_rsvp.status);
       setComment(q.data.my_rsvp.comment ?? "");
     }
   }, [q.data?.my_rsvp]);
@@ -44,16 +44,16 @@ export default function EventDetail() {
   if (q.isError) return <ErrorState message="Couldn't load this event." onRetry={() => q.refetch()} />;
   if (!q.data) return <EmptyState icon="calendar-outline" title="Event not found" />;
   const ev = q.data;
-  const toneOf = (s: string) => (s === "going" ? colors.success : s === "maybe" ? colors.warningText : colors.error);
+  const toneOf = (s: string) => (s === "going" ? colors.success : s === "maybe" || s === "waitlist" ? colors.warningText : colors.error);
 
   const save = async (nextStatus = status) => {
     if (!nextStatus) return toast("Choose Going, Maybe or Can't go", "error");
     setSaving(true);
     try {
-      await api(`/events/${id}/rsvp`, { method: "POST", body: { status: nextStatus, comment } });
+      const r = await api(`/events/${id}/rsvp`, { method: "POST", body: { status: nextStatus, comment } });
       qc.invalidateQueries({ queryKey: ["event", id] });
       qc.invalidateQueries({ queryKey: ["events"] });
-      toast("Your RSVP has been saved", "success");
+      toast(r.waitlisted ? "It's full, so you're on the waitlist. We'll tell you if a place opens up." : "Your RSVP has been saved", r.waitlisted ? "info" : "success");
     } catch (e: any) {
       toast(e.message, "error");
     } finally {
@@ -76,7 +76,7 @@ export default function EventDetail() {
 
   const remove = async () => {
     try {
-      await api(`/events/${id}`, { method: "DELETE" });
+      await api(`/events/${id}${confirmDelete === "series" ? "?series=true" : ""}`, { method: "DELETE" });
       qc.invalidateQueries({ queryKey: ["events"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
       toast("Event deleted", "success");
@@ -105,6 +105,8 @@ export default function EventDetail() {
         )}
       </View>
 
+      {!ev.checkin_for && <EventComments ev={ev} userId={user?.user_id} isAdmin={user?.role === "admin"} />}
+
       {!ev.checkin_for && (
         <EventPhotos
           ev={ev}
@@ -116,6 +118,7 @@ export default function EventDetail() {
 
       <View style={styles.card}>
         <Text style={styles.section}>Your RSVP</Text>
+        {ev.my_rsvp?.status === "waitlist" && <Text style={[styles.meta, { color: colors.warningText }]} testID="event-my-waitlist">You&apos;re on the waitlist. We&apos;ll let you know if a place opens up.</Text>}
         <View style={styles.chips}>
           {OPTIONS.map((o) => (
             <Chip key={o.key} label={o.label} selected={status === o.key} onPress={() => setStatus(o.key)} testID={`event-rsvp-${o.key}`} />
@@ -129,22 +132,25 @@ export default function EventDetail() {
       <View style={styles.card}>
         <Text style={styles.section} testID="event-rsvp-counts">
           {ev.counts.going} going · {ev.counts.maybe} maybe · {ev.counts.not_going} can&apos;t go
+          {ev.counts.waitlist ? ` · ${ev.counts.waitlist} waitlist` : ""}
         </Text>
+        {ev.capacity ? <Text style={styles.meta} testID="event-places-left">{ev.places_left ? `${ev.places_left} of ${ev.capacity} places left` : `Full (${ev.capacity} place${ev.capacity === 1 ? "" : "s"}). New "Going" replies join the waitlist.`}</Text> : null}
         {ev.rsvps.length === 0 && <Text style={styles.meta}>No responses yet. Be the first!</Text>}
         {ev.rsvps.map((r: any) => (
           <View key={r.user_id} style={styles.response} testID={`event-response-${r.user_id}`}>
             <Avatar name={r.name} picture={r.picture} size={36} />
             <View style={{ flex: 1 }}>
               <Text style={styles.name}>{r.name}</Text>
-              <Text style={[styles.status, { color: toneOf(r.status) }]}>{OPTIONS.find((o) => o.key === r.status)?.label}</Text>
+              <Text style={[styles.status, { color: toneOf(r.status) }]}>{STATUS_LABEL[r.status]}</Text>
               {!!r.comment && <Text style={styles.comment}>{r.comment}</Text>}
             </View>
           </View>
         ))}
       </View>
 
-      {ev.can_delete && !ev.checkin_for && <Button label="Delete event" icon="trash-outline" variant="ghost" onPress={() => setConfirmDelete(true)} testID="event-delete" />}
-      <ConfirmSheet visible={confirmDelete} title="Delete this event?" message="Everyone who responded will be told it's cancelled." confirmLabel="Delete event" onConfirm={remove} onClose={() => setConfirmDelete(false)} />
+      {ev.can_delete && !ev.checkin_for && <Button label="Delete event" icon="trash-outline" variant="ghost" onPress={() => setConfirmDelete("one")} testID="event-delete" />}
+      {ev.can_delete && !!ev.series_id && <Button label="Delete this and all later repeats" icon="trash-outline" variant="ghost" onPress={() => setConfirmDelete("series")} testID="event-delete-series" />}
+      <ConfirmSheet visible={!!confirmDelete} title={confirmDelete === "series" ? "Delete this and later repeats?" : "Delete this event?"} message="Everyone who responded will be told it's cancelled." confirmLabel="Delete" onConfirm={remove} onClose={() => setConfirmDelete(false)} />
     </KeyboardAwareScrollView>
   );
 }

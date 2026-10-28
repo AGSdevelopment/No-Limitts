@@ -18,6 +18,7 @@ router = APIRouter(prefix="/api")
 
 CATERING = ("", "Food & drink provided", "BYO", "To be arranged")
 RSVP_STATUSES = ("going", "maybe", "not_going")
+REPEATS = {"": 0, "weekly": 7, "fortnightly": 14, "monthly": -1}
 
 
 class EventIn(BaseModel):
@@ -28,6 +29,13 @@ class EventIn(BaseModel):
     time: str = ""
     catering: str = ""
     conditions: str = ""
+    capacity: Optional[int] = None  # max places; extra "going" RSVPs join a waitlist
+    repeat: str = ""  # "", weekly, fortnightly, monthly
+    occurrences: int = 1
+
+
+class CommentIn(BaseModel):
+    text: str
 
 
 class RsvpIn(BaseModel):
@@ -64,7 +72,9 @@ def shape(d: dict, user: dict) -> dict:
     d["rsvps"] = rsvps
     d["photos"] = [{k: v for k, v in p.items() if k != "storage_path"} for p in d.get("photos") or []]
     d["my_rsvp"] = next((r for r in rsvps if r["user_id"] == user["user_id"]), None)
-    d["counts"] = {k: sum(1 for r in rsvps if r["status"] == k) for k in RSVP_STATUSES}
+    d["counts"] = {k: sum(1 for r in rsvps if r["status"] == k) for k in (*RSVP_STATUSES, "waitlist")}
+    d["places_left"] = max(d["capacity"] - d["counts"]["going"], 0) if d.get("capacity") else None
+    d["comments"] = d.get("comments") or []
     if not rsvps:
         d["counts"]["going"] = d["attendee_count"]
     d["can_delete"] = user["role"] == "admin" or d.get("created_by_id") == user["user_id"]
@@ -91,24 +101,52 @@ async def create_event(body: EventIn, user=Depends(current_user)):
         raise HTTPException(400, "Title is required")
     if body.catering not in CATERING:
         raise HTTPException(400, "Unknown food & drink option")
-    doc = {"event_id": new_id("evt"), "title": body.title.strip()[:200], "description": body.description.strip()[:3000],
-           "location": body.location.strip()[:300], "date": body.date, "time": body.time.strip()[:60],
-           "catering": body.catering, "conditions": body.conditions.strip()[:1000], "attendees": [], "rsvps": [],
-           "created_by": user["name"], "created_by_id": user["user_id"], "created_at": now_iso()}
-    await db.events.insert_one(dict(doc))
+    if body.repeat not in REPEATS:
+        raise HTTPException(400, "Unknown repeat option")
+    if body.capacity is not None and not (1 <= body.capacity <= 1000):
+        raise HTTPException(400, "Places must be between 1 and 1000")
+    count = max(1, min(body.occurrences, 12)) if body.repeat else 1
+    first = date.fromisoformat(body.date)
+    series_id = new_id("ser") if count > 1 else None
+    docs = []
+    for i in range(count):
+        day = first + timedelta(days=REPEATS[body.repeat] * i) if REPEATS[body.repeat] > 0 else add_months(first, i)
+        doc = {"event_id": new_id("evt"), "title": body.title.strip()[:200], "description": body.description.strip()[:3000],
+               "location": body.location.strip()[:300], "date": day.isoformat(), "time": body.time.strip()[:60],
+               "catering": body.catering, "conditions": body.conditions.strip()[:1000], "capacity": body.capacity,
+               "series_id": series_id, "repeat": body.repeat if count > 1 else "", "attendees": [], "rsvps": [],
+               "comments": [], "created_by": user["name"], "created_by_id": user["user_id"], "created_at": now_iso()}
+        await db.events.insert_one(dict(doc))
+        docs.append(doc)
+    extra = f" (and {count - 1} more, repeating {body.repeat})" if count > 1 else ""
     await notify(await all_user_ids(user["user_id"]), "event", f"New event from {user['name'].split(' ')[0]}",
-                 f"{doc['title']} on {dmy(doc['date'])}. Tap to RSVP.", f"/event/{doc['event_id']}")
-    return shape(doc, user)
+                 f"{docs[0]['title']} on {dmy(docs[0]['date'])}{extra}. Tap to RSVP.", f"/event/{docs[0]['event_id']}")
+    return {**shape(docs[0], user), "created": count}
+
+
+def add_months(d: date, months: int) -> date:
+    y, m = divmod(d.month - 1 + months, 12)
+    for day in (d.day, 30, 29, 28):
+        try:
+            return date(d.year + y, m + 1, day)
+        except ValueError:
+            continue
 
 
 @router.delete("/events/{event_id}")
-async def delete_event(event_id: str, user=Depends(current_user)):
+async def delete_event(event_id: str, series: bool = False, user=Depends(current_user)):
     ev = await db.events.find_one({"event_id": event_id, "checkin_for": {"$exists": False}}, P)
     if not ev:
         raise HTTPException(404, "Event not found")
     if user["role"] != "admin" and ev.get("created_by_id") != user["user_id"]:
         raise HTTPException(403, "Only the organiser or an admin can delete this event")
-    await db.events.delete_one({"event_id": event_id})
+    if series and ev.get("series_id"):
+        later = await db.events.find({"series_id": ev["series_id"], "date": {"$gte": ev["date"]}},
+                                     {"_id": 0, "rsvps": 1}).to_list(50)
+        ev["rsvps"] = [r for e in later for r in e.get("rsvps") or []]
+        await db.events.delete_many({"series_id": ev["series_id"], "date": {"$gte": ev["date"]}})
+    else:
+        await db.events.delete_one({"event_id": event_id})
     ids = [r["user_id"] for r in ev.get("rsvps") or [] if r["status"] != "not_going" and r["user_id"] != user["user_id"]]
     if ids:
         await notify(ids, "event", "Event cancelled", f"{ev['title']} on {dmy(ev['date'])} has been cancelled", "/events")
@@ -124,20 +162,50 @@ async def rsvp(event_id: str, body: Optional[RsvpIn] = None, user=Depends(curren
     uid = user["user_id"]
     if body is None:
         mine = next((r for r in ev.get("rsvps") or [] if r["user_id"] == uid), None)
-        status = None if (mine and mine["status"] == "going") or (not mine and uid in ev.get("attendees", [])) \
+        status = None if (mine and mine["status"] in ("going", "waitlist")) or (not mine and uid in ev.get("attendees", [])) \
             else "going"
         comment = (mine or {}).get("comment", "")
     else:
         status, comment = body.status or None, body.comment.strip()[:500]
+        if status == "waitlist":
+            status = "going"  # joining the waitlist is decided by the server
         if status and status not in RSVP_STATUSES:
             raise HTTPException(400, "Unknown RSVP option")
+    mine = next((r for r in ev.get("rsvps") or [] if r["user_id"] == uid), None)
+    if status == "going" and ev.get("capacity") and (mine or {}).get("status") != "going":
+        taken = sum(1 for r in ev.get("rsvps") or [] if r["status"] == "going")
+        if taken >= ev["capacity"]:
+            status = "waitlist"
+    if mine and mine["status"] == "waitlist" and status == "going":
+        status = "waitlist"  # keep their place in the queue
     await db.events.update_one({"event_id": event_id}, {"$pull": {"rsvps": {"user_id": uid}, "attendees": uid}})
     if status:
         await db.events.update_one({"event_id": event_id}, {"$push": {"rsvps": {
             "user_id": uid, "name": user["name"], "picture": user.get("picture"), "status": status,
-            "comment": comment, "at": now_iso()}}, **({"$addToSet": {"attendees": uid}} if status == "going" else {})})
+            "comment": comment, "at": mine["at"] if status == "waitlist" and mine and mine["status"] == "waitlist"
+            else now_iso()}},
+            **({"$addToSet": {"attendees": uid}} if status == "going" else {})})
+    await promote_waitlist(event_id)
     ev = await db.events.find_one({"event_id": event_id}, event_fields(user))
-    return {"going": status == "going", **shape(ev, user)}
+    return {"going": status == "going", "waitlisted": status == "waitlist", **shape(ev, user)}
+
+
+async def promote_waitlist(event_id: str):
+    """Move the earliest waitlisted people into free places and tell them."""
+    ev = await db.events.find_one({"event_id": event_id}, P)
+    if not ev or not ev.get("capacity"):
+        return
+    rsvps = ev.get("rsvps") or []
+    free = ev["capacity"] - sum(1 for r in rsvps if r["status"] == "going")
+    queue = sorted([r for r in rsvps if r["status"] == "waitlist"], key=lambda r: r["at"])[:max(free, 0)]
+    for r in queue:
+        res = await db.events.update_one({"event_id": event_id, "rsvps": {"$elemMatch": {
+            "user_id": r["user_id"], "status": "waitlist"}}}, {"$set": {"rsvps.$.status": "going"},
+                                                             "$addToSet": {"attendees": r["user_id"]}})
+        if res.modified_count:
+            await notify([r["user_id"]], "event", "You're off the waitlist!",
+                         f"A place opened up: you're now going to {ev['title']} on {dmy(ev['date'])}",
+                         f"/event/{event_id}")
 
 
 # ---- Event reminders (day before, 9am Perth) to everyone Going or Maybe
@@ -267,3 +335,46 @@ async def event_ics(event_id: str, request: Request, token: Optional[str] = None
             f"DESCRIPTION:{ics_escape(desc)}\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n")
     return Response(content=body, media_type="text/calendar",
                     headers={"Content-Disposition": f'attachment; filename="{event_id}.ics"'})
+
+
+
+# ---- Event comments (chat on the event page)
+@router.post("/events/{event_id}/comments")
+async def add_comment(event_id: str, body: CommentIn, user=Depends(current_user)):
+    text = body.text.strip()[:1000]
+    if not text:
+        raise HTTPException(400, "Write a message")
+    ev = await db.events.find_one({"event_id": event_id, "checkin_for": {"$exists": False}, **visible_events(user)}, P)
+    if not ev:
+        raise HTTPException(404, "Event not found")
+    c = {"comment_id": new_id("cmt"), "user_id": user["user_id"], "name": user["name"], "picture": user.get("picture"),
+         "text": text, "created_at": now_iso()}
+    await db.events.update_one({"event_id": event_id}, {"$push": {"comments": c}})
+    ids = {r["user_id"] for r in ev.get("rsvps") or [] if r["status"] in ("going", "maybe", "waitlist")}
+    ids |= {x["user_id"] for x in ev.get("comments") or []}
+    if ev.get("created_by_id"):
+        ids.add(ev["created_by_id"])
+    ids.discard(user["user_id"])
+    if ids:
+        await notify(list(ids), "event", f"{user['name'].split(' ')[0]} on {ev['title']}", text[:140],
+                     f"/event/{event_id}")
+    return c
+
+
+@router.delete("/events/{event_id}/comments/{comment_id}")
+async def delete_comment(event_id: str, comment_id: str, user=Depends(current_user)):
+    q = {"comment_id": comment_id} if user["role"] == "admin" else {"comment_id": comment_id, "user_id": user["user_id"]}
+    res = await db.events.update_one({"event_id": event_id}, {"$pull": {"comments": q}})
+    if not res.modified_count:
+        raise HTTPException(404, "Comment not found")
+    return {"ok": True}
+
+
+async def photo_highlights(user: dict, limit: int = 8) -> list:
+    out = []
+    async for ev in db.events.find({"photos.0": {"$exists": True}, "checkin_for": {"$exists": False},
+                                    **visible_events(user)}, {"_id": 0, "event_id": 1, "title": 1, "photos": 1}):
+        for p in ev["photos"]:
+            out.append({"event_id": ev["event_id"], "event_title": ev["title"], "photo_id": p["photo_id"],
+                        "name": p["name"], "created_at": p["created_at"]})
+    return sorted(out, key=lambda x: x["created_at"], reverse=True)[:limit]
