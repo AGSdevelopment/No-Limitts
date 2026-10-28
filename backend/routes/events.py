@@ -611,10 +611,24 @@ async def apply_lock(ev: dict, opt: dict, actor_id: str, auto: bool = False):
 
 
 async def poll_close_loop():
-    """Lock in the leading option once a poll's closing date has passed (Perth time)."""
+    """Lock in the leading option once a poll's closing date has passed (Perth time), and remind
+    staff who haven't voted the day before it closes."""
     while True:
         try:
-            today = datetime.now(DIGEST_TZ).date().isoformat()
+            now_local = datetime.now(DIGEST_TZ)
+            today = now_local.date().isoformat()
+            if now_local.hour >= 9:
+                tomorrow = (now_local.date() + timedelta(days=1)).isoformat()
+                async for ev in db.events.find({"poll.closed": False, "poll.closes_on": {"$in": [today, tomorrow]},
+                                                "poll.reminded": {"$ne": True}}, P):
+                    await db.events.update_one({"event_id": ev["event_id"]}, {"$set": {"poll.reminded": True}})
+                    voted = {v for o in ev["poll"]["options"] for v in (o.get("votes") or [])}
+                    ids = [u for u in await all_user_ids(ev["created_by_id"]) if u not in voted]
+                    if ids:
+                        when = "today" if ev["poll"]["closes_on"] == today else "tomorrow"
+                        await notify(ids, "event", f"Last chance to vote: {ev['title']}",
+                                     f"Voting closes at the end of {when} ({dmy(ev['poll']['closes_on'])}). Have your say!",
+                                     f"/event/{ev['event_id']}")
             async for ev in db.events.find({"poll.closed": False, "poll.closes_on": {"$nin": ["", None], "$lt": today}}, P):
                 opts = ev["poll"]["options"]
                 best = max(opts, key=lambda o: len(o.get("votes") or []))  # ties: first option listed wins

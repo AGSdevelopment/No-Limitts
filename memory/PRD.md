@@ -133,8 +133,8 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Staff can suggest Trusted Referral Partners (status pending, admins notified; admin Approve/Reject inline; suggester notified on approval); postcode filter on referral list (same / ±10 / ±50 / all nearest-first); Home 'Fresh recommendations' (latest written reviews, 30 days); Activities 'Make it a team event' prefills /event-new
 - Staff can also suggest Suppliers & Activities (pending approval like referrals)
 - Activities 'Start a team vote': tick 2–6 activities → POST /api/events/activity-vote creates event (date_tbd provisional date, poll kind 'activity'); locking sets title + location
-- Poll closing date (poll.closes_on, optional on date/venue/activity polls): poll_close_loop (10 min) auto-locks the leading option after that day (ties → first listed; no votes → organiser notified, deadline cleared); poll.auto_locked flag
-- Referral map honours the Same/Nearby/Wider chips (radius param, postcode-number distance)
+- Poll closing date (poll.closes_on, optional on date/venue/activity polls): poll_close_loop (10 min) sends a one-off 'Last chance to vote' notification (after 9am Perth, the day before / closing day) to staff who haven't voted (poll.reminded flag), and auto-locks the leading option after that day (ties → first listed; no votes → organiser notified, deadline cleared); poll.auto_locked flag
+- Referral map honours the Same/Nearby/Wider chips (radius param, postcode-number distance); each pin popup has 'Get directions' (Google Maps directions URL; native WebView opens external links via Linking)
 - Referral Partners map (List/Map toggle): backend HTML page /api/referral-map using free OpenStreetMap (Leaflet tiles) + Nominatim geocoding (1 req/s, cached in db.geocache and entry.geo; geocoded on add/edit), iframe on web / WebView on native
 - Weekly Company Drive digest email (Mondays 8am Perth): new Templates/Resources + top-rated Suppliers; admin preview on Integrations
 - Emerging Therapist Pathway (/pathway): 9 supervision steps + self-set CPD goals; admin sees it on staff profile

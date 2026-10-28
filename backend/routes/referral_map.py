@@ -124,6 +124,7 @@ D.pins.forEach(p => {
   if (p.address) box.appendChild(el('div', '📍 ' + p.address));
   if (p.phone) { const a = el('a', '📞 ' + p.phone); a.href = 'tel:' + p.phone.replace(/\\s/g, ''); const d = el('div'); d.appendChild(a); box.appendChild(d); }
   if (/^https?:\\/\\//.test(p.link)) { const a = el('a', 'Website'); a.href = p.link; a.target = '_blank'; const d = el('div'); d.appendChild(a); box.appendChild(d); }
+  { const a = el('a', '🧭 Get directions'); a.href = 'https://www.google.com/maps/dir/?api=1&destination=' + p.lat + ',' + p.lng; a.target = '_blank'; a.rel = 'noopener'; a.style.fontWeight = '700'; const d = el('div'); d.appendChild(a); box.appendChild(d); }
   L.marker([p.lat, p.lng], {title: p.name}).addTo(map).bindPopup(box);
   pts.push([p.lat, p.lng]);
 });
