@@ -92,6 +92,24 @@ export function EventPhotos({ ev, canAdd, userId, isAdmin }: { ev: any; canAdd: 
   };
 
   const photos: any[] = ev.photos ?? [];
+  const [photoText, setPhotoText] = useState("");
+  const like = async (p: any) => {
+    try {
+      await api(`/events/${ev.event_id}/photos/${p.photo_id}/like`, { method: "POST" });
+      qc.invalidateQueries({ queryKey: ["event", ev.event_id] });
+    } catch (e: any) {
+      toast(e.message, "error");
+    }
+  };
+  const commentPhoto = async (p: any) => {
+    try {
+      await api(`/events/${ev.event_id}/photos/${p.photo_id}/comments`, { method: "POST", body: { text: photoText } });
+      setPhotoText("");
+      qc.invalidateQueries({ queryKey: ["event", ev.event_id] });
+    } catch (e: any) {
+      toast(e.message, "error");
+    }
+  };
   const selected = photos.find((p) => p.photo_id === open);
   return (
     <View style={styles.card} testID="event-photos">
@@ -108,12 +126,28 @@ export function EventPhotos({ ev, canAdd, userId, isAdmin }: { ev: any; canAdd: 
         <View style={{ gap: 8 }} testID="event-photo-viewer">
           <Image source={{ uri: src(selected) }} style={styles.big} contentFit="contain" />
           <View style={styles.viewerRow}>
+            <Pressable onPress={() => like(selected)} style={styles.likeBtn} accessibilityLabel="Like photo" testID="event-photo-like">
+              <Ionicons name={selected.liked ? "heart" : "heart-outline"} size={22} color={selected.liked ? colors.error : colors.muted} />
+              <Text style={styles.meta}>{selected.like_count}</Text>
+            </Pressable>
             <Text style={[styles.meta, { flex: 1 }]}>Added by {selected.name}</Text>
             {(isAdmin || selected.user_id === userId) && (
               <Pressable onPress={() => remove(selected)} style={styles.iconBtn} accessibilityLabel="Delete photo" testID="event-photo-delete">
                 <Ionicons name="trash-outline" size={20} color={colors.error} />
               </Pressable>
             )}
+          </View>
+          {selected.comments.map((c: any) => (
+            <Text key={c.comment_id} style={styles.photoComment}>
+              <Text style={{ fontWeight: "700" }}>{c.name} </Text>
+              {c.text}
+            </Text>
+          ))}
+          <View style={styles.viewerRow}>
+            <TextInput value={photoText} onChangeText={setPhotoText} placeholder="Add a comment…" placeholderTextColor={colors.muted} style={styles.photoInput} testID="event-photo-comment-input" />
+            <Pressable onPress={() => commentPhoto(selected)} disabled={!photoText.trim()} style={[styles.iconBtn, !photoText.trim() && { opacity: 0.4 }]} accessibilityLabel="Post comment" testID="event-photo-comment-send">
+              <Ionicons name="send" size={20} color={colors.brandPrimary} />
+            </Pressable>
           </View>
         </View>
       )}
@@ -135,6 +169,9 @@ const useStyles = makeStyles((c) => ({
   big: { width: "100%", aspectRatio: 1, borderRadius: 12, backgroundColor: c.surfaceSecondary },
   viewerRow: { flexDirection: "row", alignItems: "center" },
   iconBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  likeBtn: { minWidth: 44, minHeight: 44, flexDirection: "row", alignItems: "center", gap: 4 },
+  photoComment: { fontSize: 14, color: c.onSurface, lineHeight: 20 },
+  photoInput: { flex: 1, minHeight: 44, borderRadius: 12, backgroundColor: c.surfaceSecondary, paddingHorizontal: 12, fontSize: 16, color: c.onSurface },
 }));
 
 // Chat on the event page: lifts, food, plans.

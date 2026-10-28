@@ -69,7 +69,8 @@ async def compliance_export(request: Request, token: Optional[str] = None):
 
 
 STAFF_GROUP_LABELS = {"support_office": "Support Office", "therapist_employee": "Therapist Employee",
-                      "therapist_contractor": "Therapist Contractor", "support_worker_employee": "Support Worker Employee",
+                      "therapist_contractor": "Therapist Contractor", "emerging_therapist": "Emerging Therapist",
+                      "support_worker_employee": "Support Worker Employee",
                       "support_worker_contractor": "Support Worker Contractor",
                       "new_starter_employee": "New Starter Employee", "new_starter_contractor": "New Starter Contractor"}
 

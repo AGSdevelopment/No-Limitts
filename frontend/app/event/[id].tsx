@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { AddToCalendar, EventComments, EventPhotos } from "@/src/components/event-extras";
+import { EventAttendance, EventPoll } from "@/src/components/event-organiser";
 import { useToast } from "@/src/components/toast";
 import { Avatar, Button, Chip, ConfirmSheet, EmptyState, ErrorState, Field, Ionicons, Loading, formatDate } from "@/src/components/ui";
 import { makeStyles, useTheme } from "@/src/theme";
@@ -97,6 +98,7 @@ export default function EventDetail() {
         {!!ev.catering && <Detail icon="restaurant-outline" text={ev.catering} />}
         {!!ev.conditions && <Detail icon="information-circle-outline" text={ev.conditions} />}
         <Text style={styles.meta}>Organised by {ev.created_by}</Text>
+        {ev.can_delete && !ev.checkin_for && <Button label="Edit event" icon="create-outline" variant="secondary" onPress={() => router.push(`/event-new?edit=${ev.event_id}`)} testID="event-edit" />}
         {!ev.checkin_for && ev.date >= new Date().toLocaleDateString("en-CA", { timeZone: "Australia/Perth" }) && (
           <>
             <Text style={styles.meta}>Add to my calendar</Text>
@@ -105,6 +107,8 @@ export default function EventDetail() {
         )}
       </View>
 
+      {!ev.checkin_for && <EventPoll ev={ev} isOrganiser={!!ev.can_delete} />}
+      {!ev.checkin_for && <EventAttendance key={(ev.attended ?? []).length} ev={ev} isOrganiser={!!ev.can_delete} />}
       {!ev.checkin_for && <EventComments ev={ev} userId={user?.user_id} isAdmin={user?.role === "admin"} />}
 
       {!ev.checkin_for && (

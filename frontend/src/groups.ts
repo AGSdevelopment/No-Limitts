@@ -3,6 +3,7 @@ export const STAFF_GROUPS = [
   { key: "support_office", label: "Support Office" },
   { key: "therapist_employee", label: "Therapist Employees" },
   { key: "therapist_contractor", label: "Therapist Contractors" },
+  { key: "emerging_therapist", label: "Emerging Therapists" },
   { key: "support_worker_employee", label: "Support Worker Employees" },
   { key: "support_worker_contractor", label: "Support Worker Contractors" },
   { key: "new_starter_employee", label: "New Starter Employees" },

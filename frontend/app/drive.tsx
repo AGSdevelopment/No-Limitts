@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { FlatList, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from "react-native";
+import { useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -40,6 +41,7 @@ export default function CompanyDrive() {
   const styles = useStyles();
   const { colors } = useTheme();
   const toast = useToast();
+  const router = useRouter();
   const [path, setPath] = useState<Crumb[]>([]);
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
@@ -65,6 +67,7 @@ export default function CompanyDrive() {
     setQuery("");
   };
   const spaceTabs = (
+    <>
     <View style={styles.spaceRow} testID="drive-space-switch">
       {SPACES.map((s) => (
         <Pressable
@@ -78,6 +81,13 @@ export default function CompanyDrive() {
         </Pressable>
       ))}
     </View>
+    <View style={styles.spaceRow}>
+      <Pressable testID="drive-places-button" onPress={() => router.push("/places")} style={[styles.spaceBtn, { flex: 1 }]}>
+        <Ionicons name="restaurant-outline" size={18} color={colors.brandPrimary} />
+        <Text style={styles.spaceText} numberOfLines={1}>AGTS favourite places to eat & drink</Text>
+      </Pressable>
+    </View>
+    </>
   );
 
   const togglePin = async (item: Item) => {

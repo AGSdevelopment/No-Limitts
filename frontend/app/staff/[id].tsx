@@ -93,6 +93,13 @@ export default function StaffProfile() {
         {cpd.total_logs > cpd.logs.length && <Text style={styles.empty}>Showing the latest {cpd.logs.length} of {cpd.total_logs}.</Text>}
       </Section>
 
+      <Section title={`Team events attended · ${q.data.events_attended?.length ?? 0}`} styles={styles}>
+        {!q.data.events_attended?.length && <Text style={styles.empty}>No attendance recorded yet.</Text>}
+        {(q.data.events_attended ?? []).slice(0, 10).map((e: any) => (
+          <Row key={e.event_id} icon="people-outline" color={colors.brandPrimary} title={e.title} sub={formatDate(e.date)} styles={styles} />
+        ))}
+      </Section>
+
       <Section title="Check-in history" styles={styles}>
         {checkins.length === 0 && <Text style={styles.empty}>No check-ins yet.</Text>}
         {checkins.map((c: any) => (

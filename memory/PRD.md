@@ -126,3 +126,8 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Upload screen "Resource to share (no expiry)" mode -> POST /api/resources/upload (CPD Resources / Drive folders / My CPD)
 - Event reminders day before 9am Perth to Going/Maybe (in-app + email), event photos (attendees/organiser/admin), Add to calendar (Google link + .ics), Past events tab
 - Event chat comments, Home "Event photos" highlights (dashboard.photo_highlights), recurring events (weekly/fortnightly/monthly, 2-12, series delete), capacity + waitlist with auto-promotion
+- Edit events (PATCH, notifies responders, capacity change promotes waitlist), date/venue polls with lock-in, photo likes & comments, attendance ticking (profile shows events attended)
+- AGTS favourite places to eat & drink (/places, button on Company Drive): add, like, filter, delete own/admin
+- Emerging Therapist staff group (emerging_therapist) added; admins choose which forms it sees
+- Upload: CPD Resources type is required (button disabled + hint) when "Add to CPD Resources" is on
+- Polls: no relock, no replacing open poll, voters tracked by user id; photo like notifies once; edit can't move event into the past

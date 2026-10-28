@@ -50,6 +50,8 @@ async def profile_data(user_id: str) -> dict:
                       "acknowledged": user_id in (p.get("acknowledged_by") or [])} for p in policies],
         "checkins": checkins, "starter": starter,
         "open_tasks": await db.tasks.count_documents({"assignee_id": user_id, "status": "open"}),
+        "events_attended": await db.events.find({"attended.user_id": user_id}, {"_id": 0, "event_id": 1, "title": 1,
+                                                                                  "date": 1}).sort("date", -1).to_list(200),
     }
 
 

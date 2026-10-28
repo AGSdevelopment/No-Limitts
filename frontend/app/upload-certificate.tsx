@@ -286,8 +286,13 @@ export default function UploadCertificate() {
             <Text style={styles.shareTitle}>Add to CPD Resources</Text>
             <Text style={styles.pickSub}>Everyone can open it from the CPD Resource Library</Text>
           </View>
-          <Switch testID="upload-share-cpd-switch" value={shareCpd} onValueChange={setShareCpd} trackColor={{ true: colors.brandPrimary, false: colors.surfaceTertiary }} />
+          <Switch testID="upload-share-cpd-switch" value={shareCpd} onValueChange={(v) => { setShareCpd(v); if (!v) setShareType(""); }} trackColor={{ true: colors.brandPrimary, false: colors.surfaceTertiary }} />
         </View>
+        {shareCpd && (
+          <Text style={[styles.shareTitle, !shareType && { color: colors.errorText }]} testID="upload-share-type-required">
+            What type is it? (required)
+          </Text>
+        )}
         {shareCpd && (
           <View style={styles.typeRow}>
             {CPD_TYPES.map((t) => (
@@ -306,7 +311,8 @@ export default function UploadCertificate() {
         ))}
       </View>
       {error && <Text style={styles.error} testID="upload-error">{error}</Text>}
-      <Button label={mode === "resource" ? "Share resource" : "Upload certificate"} icon="cloud-upload-outline" loading={saving} onPress={submit} testID="upload-submit-button" />
+      <Button label={mode === "resource" ? "Share resource" : "Upload certificate"} icon="cloud-upload-outline" loading={saving} disabled={shareCpd && !shareType} onPress={submit} testID="upload-submit-button" />
+      {shareCpd && !shareType && <Text style={styles.typeHint}>Choose Course, Webinar, Case Study or Resource link to continue.</Text>}
       <Modal visible={!!camSheet} transparent animationType="fade" onRequestClose={() => setCamSheet(null)}>
         <Pressable style={styles.scrim} onPress={() => setCamSheet(null)} />
         <View style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]} testID="camera-permission-sheet">
@@ -351,6 +357,7 @@ const useStyles = makeStyles((c) => ({
   cpdTitle: { fontSize: 15, fontWeight: "600", color: c.onSurface },
   shareTitle: { fontSize: 14, fontWeight: "600", color: c.onSurface },
   modeRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 },
+  typeHint: { fontSize: 13, color: c.errorText, textAlign: "center", marginTop: 8 },
   typeRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   error: { fontSize: 14, color: c.errorText, marginBottom: 12 },
 }));

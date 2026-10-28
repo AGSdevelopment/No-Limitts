@@ -33,8 +33,8 @@ def clean_category(value: str) -> str:
     return value
 
 
-STAFF_GROUPS = ("support_office", "therapist_employee", "therapist_contractor", "support_worker_employee",
-                "support_worker_contractor", "new_starter_employee", "new_starter_contractor")
+STAFF_GROUPS = ("support_office", "therapist_employee", "therapist_contractor", "emerging_therapist",
+                "support_worker_employee", "support_worker_contractor", "new_starter_employee", "new_starter_contractor")
 
 
 def clean_audiences(values: List[str]) -> List[str]:

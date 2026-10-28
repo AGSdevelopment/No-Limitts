@@ -1,0 +1,51 @@
+{
+  "summary": "Iteration 26: event edit (PATCH + notify + capacity/waitlist + reminded_for reset), date/venue polls (create/vote toggle/lock), photo likes & comments, attendance check-in + staff profile events_attended, and AGTS favourite places (CRUD/like/filters/search) plus Drive button. Backend 14/14 pytest pass. Frontend all requested flows pass on a 375x667 viewport: organiser Edit event prefilled form ('Edit event' title, no Repeats, 'Save changes' updates the event and the responder is notified), date poll created through the UI (dd-mm-yyyy validation works) with vote, voter names and 'Lock in' (sets date, shows 'Poll result' with a trophy, voting disabled), photo viewer heart toggle and comment, 'Who turned up?' checklist on past events only (non-organisers see 'Who came · N'), staff profile 'Team events attended · 1', Drive 'AGTS favourite places to eat & drink' button -> /places with add/validation/duplicate toast/like/Eat-Drink filters/search/owner-only delete. No critical bugs. Only minor UX and logic notes below. No deprecated Expo packages found.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/events/{id}/poll/{option_id}/lock", "issue": "There is no check for poll.closed, so an organiser can lock again with a different option after the poll is closed. That silently changes the date or venue and notifies every staff member again."},
+      {"endpoint": "POST /api/events/{id}/poll", "issue": "Creating a poll when one already exists overwrites it without warning, and all existing votes are lost (open or closed). Consider returning 409 or requiring an explicit replace."},
+      {"endpoint": "POST /api/events/{id}/poll/{option_id}/vote", "issue": "voter_names is pulled by name ($pull by user['name']). If two staff share the same name, one person un-voting removes both names. Derive voter names from the user_ids in votes instead."},
+      {"endpoint": "POST /api/events/{id}/photos/{pid}/like", "issue": "Every like after an unlike sends the photo owner another 'X liked your photo' notification, so toggling can spam the owner. Consider de-duplicating."},
+      {"endpoint": "PATCH /api/events/{id}", "issue": "The date is not checked against today, so an organiser can move a future event into the past. This may be intended so attendance can be recorded, but it is not validated."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "event/[id] poll", "issues": ["'Lock in <option>' runs straight away with no confirmation, and it notifies the whole company. A stray tap locks the poll. Add a confirm step.", "A 'Lock in' ghost button under every option makes a long list. Consider one 'Lock in winner' action or a confirm sheet."]},
+      {"screen": "event/[id] past event", "issues": ["'Poll the team / Start a date or venue poll' still shows on past events.", "'Who turned up?' only lists people who RSVPed. The organiser (if they did not RSVP) and walk-ins cannot be ticked."]},
+      {"screen": "places", "issues": ["The delete (trash) button removes a place immediately with no confirmation, including places other people have liked.", "In the add form, the 'Type' chips sit tight against the next 'Address or suburb' label (little bottom spacing)."]},
+      {"screen": "drive", "issues": ["The 'AGTS favourite places to eat & drink' button uses the same outlined style as the Therapist/Participants folder tabs, so it reads like a third tab rather than a link to another screen. Consider a distinct style or a chevron icon."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter26_edit_poll_photolikes_attendance_places.py",
+    "/app/backend/tests/seed_iter26_ui.py",
+    "/app/test_reports/pytest/pytest_iter26.xml"
+  ],
+  "action_items": [
+    "(Minor) lock_poll: reject with 400 if poll.closed is already true, or confirm a re-lock.",
+    "(Minor) create_poll: return 409 if a poll exists, or warn in the UI before replacing it.",
+    "(Minor) vote: build voters from user_ids rather than pulling voter_names by name.",
+    "(UX) Add confirmation before 'Lock in' on polls and before deleting a place.",
+    "(UX) Hide 'Start a date or venue poll' on past events. Optionally let the organiser add themselves or non-RSVP staff to the attendance list."
+  ],
+  "critical_code_review_comments": [
+    "events.py is 585 lines, close to the 700-line limit. Consider moving polls, photo social and attendance into routes/event_social.py.",
+    "lock_poll and create_poll use all_user_ids() to notify every user, including hidden or test users. This is consistent with create_event.",
+    "like_photo returns like_count from a stale read, which is fine for a single user. places like returns only {liked} and the client refetches, which is OK."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter26_edit_poll_photolikes_attendance_places.py (new)",
+    "/app/backend/tests/seed_iter26_ui.py (new)"
+  ],
+  "success_rate": {"backend": "100% (14/14)", "frontend": "100% of requested flows"},
+  "seed_data_creation": "Temporary hidden user TEST_user_evt26c (session TEST_session_evt26c) and events evt_test26fut / evt_test26past were inserted directly in Mongo (seed_iter26_ui.py seed). All were removed with 'python seed_iter26_ui.py clean': events, places and the 71 notifications matching TEST_evt26 (poll/lock notify all users) are gone. One 1x1 test PNG remains in object storage with no DB reference.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run the backend tests with: cd /app/backend && python -m pytest tests/test_iter26_edit_poll_photolikes_attendance_places.py -n 0. The frontend env key is EXPO_PUBLIC_BACKEND_URL. Web login: localStorage auth_token = JSON string of the session token. For UI tests on the event page, seed with tests/seed_iter26_ui.py seed (organiser = Erin Employee) and clean afterwards.",
+  "rca_of_issue": ""
+}

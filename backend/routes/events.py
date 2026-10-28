@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from pydantic import BaseModel
-from typing import Optional
+from typing import List, Optional
 from core import (DIGEST_TZ, MAX_UPLOAD_BYTES, P, all_user_ids, bearer, current_user, db, dmy, logger, new_id, notify,
                   now_iso, user_from_token)
 from email_service import send_email
@@ -36,6 +36,27 @@ class EventIn(BaseModel):
 
 class CommentIn(BaseModel):
     text: str
+
+
+class EventEditIn(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    location: Optional[str] = None
+    date: Optional[str] = None
+    time: Optional[str] = None
+    catering: Optional[str] = None
+    conditions: Optional[str] = None
+    capacity: Optional[int] = None
+    clear_capacity: bool = False
+
+
+class PollIn(BaseModel):
+    kind: str  # date | venue
+    options: List[str]
+
+
+class AttendanceIn(BaseModel):
+    user_ids: List[str]
 
 
 class RsvpIn(BaseModel):
@@ -75,6 +96,17 @@ def shape(d: dict, user: dict) -> dict:
     d["counts"] = {k: sum(1 for r in rsvps if r["status"] == k) for k in (*RSVP_STATUSES, "waitlist")}
     d["places_left"] = max(d["capacity"] - d["counts"]["going"], 0) if d.get("capacity") else None
     d["comments"] = d.get("comments") or []
+    for p in d["photos"]:
+        p["like_count"] = len(p.get("likes") or [])
+        p["liked"] = user["user_id"] in (p.get("likes") or [])
+        p.pop("likes", None)
+        p["comments"] = p.get("comments") or []
+    if d.get("poll"):
+        d["poll"] = {**d["poll"], "options": [{"option_id": o["option_id"], "label": o["label"],
+                                               "votes": len(o.get("votes") or []),
+                                               "voted": user["user_id"] in (o.get("votes") or []),
+                                               "voters": [v["name"] for v in o.get("voters") or []]} for o in d["poll"]["options"]]}
+    d["attended"] = d.get("attended") or []
     if not rsvps:
         d["counts"]["going"] = d["attendee_count"]
     d["can_delete"] = user["role"] == "admin" or d.get("created_by_id") == user["user_id"]
@@ -378,3 +410,184 @@ async def photo_highlights(user: dict, limit: int = 8) -> list:
             out.append({"event_id": ev["event_id"], "event_title": ev["title"], "photo_id": p["photo_id"],
                         "name": p["name"], "created_at": p["created_at"]})
     return sorted(out, key=lambda x: x["created_at"], reverse=True)[:limit]
+
+
+
+async def organiser_event(event_id: str, user: dict) -> dict:
+    ev = await db.events.find_one({"event_id": event_id, "checkin_for": {"$exists": False}}, P)
+    if not ev:
+        raise HTTPException(404, "Event not found")
+    if user["role"] != "admin" and ev.get("created_by_id") != user["user_id"]:
+        raise HTTPException(403, "Only the organiser or an admin can do this")
+    return ev
+
+
+def responders(ev: dict, exclude: str) -> list:
+    ids = {r["user_id"] for r in ev.get("rsvps") or []}
+    for o in (ev.get("poll") or {}).get("options", []):
+        ids |= set(o.get("votes") or [])
+    ids.discard(exclude)
+    return list(ids)
+
+
+# ---- Edit an event
+@router.patch("/events/{event_id}")
+async def edit_event(event_id: str, body: EventEditIn, user=Depends(current_user)):
+    ev = await organiser_event(event_id, user)
+    upd = {}
+    for k, n in (("title", 200), ("description", 3000), ("location", 300), ("time", 60), ("conditions", 1000)):
+        v = getattr(body, k)
+        if v is not None:
+            upd[k] = v.strip()[:n]
+    if "title" in upd and not upd["title"]:
+        raise HTTPException(400, "Title is required")
+    if body.catering is not None:
+        if body.catering not in CATERING:
+            raise HTTPException(400, "Unknown food & drink option")
+        upd["catering"] = body.catering
+    if body.date is not None:
+        try:
+            if date.fromisoformat(body.date) < datetime.now(DIGEST_TZ).date() and body.date != ev["date"]:
+                raise HTTPException(400, "Pick today or a future date")
+        except ValueError:
+            raise HTTPException(400, "Date must be YYYY-MM-DD")
+        upd["date"] = body.date
+        if body.date != ev["date"]:
+            upd["reminded_for"] = None
+    if body.clear_capacity:
+        upd["capacity"] = None
+    elif body.capacity is not None:
+        if not (1 <= body.capacity <= 1000):
+            raise HTTPException(400, "Places must be between 1 and 1000")
+        upd["capacity"] = body.capacity
+    changed = [k for k, v in upd.items() if k != "reminded_for" and ev.get(k) != v]
+    if not changed:
+        return shape(ev, user)
+    await db.events.update_one({"event_id": event_id}, {"$set": upd})
+    if "capacity" in changed:
+        if upd["capacity"] is None:  # unlimited: everyone waiting gets in
+            await db.events.update_one({"event_id": event_id}, {"$set": {"capacity": 100000}})
+            await promote_waitlist(event_id)
+            await db.events.update_one({"event_id": event_id}, {"$set": {"capacity": None}})
+        else:
+            await promote_waitlist(event_id)
+    labels = {"title": "name", "description": "purpose", "location": "location", "date": "date", "time": "time",
+              "catering": "food & drink", "conditions": "details", "capacity": "places"}
+    what = ", ".join(labels[k] for k in changed)
+    ids = responders(ev, user["user_id"])
+    if ids:
+        title = upd.get("title") or ev["title"]
+        await notify(ids, "event", f"{title} has changed", f"Updated: {what}. Tap to see the latest details.",
+                     f"/event/{event_id}")
+    return shape(await db.events.find_one({"event_id": event_id}, event_fields(user)), user)
+
+
+# ---- Polls (dates or venues)
+@router.post("/events/{event_id}/poll")
+async def create_poll(event_id: str, body: PollIn, user=Depends(current_user)):
+    ev = await organiser_event(event_id, user)
+    if body.kind not in ("date", "venue"):
+        raise HTTPException(400, "Poll on a date or a venue")
+    if ev.get("poll") and not ev["poll"].get("closed"):
+        raise HTTPException(409, "This event already has an open poll")
+    labels = list(dict.fromkeys(o.strip()[:120] for o in body.options if o.strip()))
+    if not (2 <= len(labels) <= 6):
+        raise HTTPException(400, "Add 2 to 6 options")
+    if body.kind == "date":
+        try:
+            labels = [date.fromisoformat(x).isoformat() for x in labels]
+        except ValueError:
+            raise HTTPException(400, "Date options must be YYYY-MM-DD")
+    poll = {"kind": body.kind, "closed": False, "created_at": now_iso(),
+            "options": [{"option_id": new_id("opt"), "label": x, "votes": [], "voters": []} for x in labels]}
+    await db.events.update_one({"event_id": event_id}, {"$set": {"poll": poll}})
+    await notify(await all_user_ids(user["user_id"]), "event", f"Vote: {ev['title']}",
+                 f"Help pick the {'date' if body.kind == 'date' else 'venue'}. Tap to vote.", f"/event/{event_id}")
+    return shape(await db.events.find_one({"event_id": event_id}, event_fields(user)), user)
+
+
+@router.post("/events/{event_id}/poll/{option_id}/vote")
+async def vote(event_id: str, option_id: str, user=Depends(current_user)):
+    ev = await db.events.find_one({"event_id": event_id, "poll.options.option_id": option_id, **visible_events(user)}, P)
+    if not ev:
+        raise HTTPException(404, "Poll option not found")
+    if ev["poll"].get("closed"):
+        raise HTTPException(400, "Voting has closed")
+    opt = next(o for o in ev["poll"]["options"] if o["option_id"] == option_id)
+    uid = user["user_id"]
+    if uid in (opt.get("votes") or []):
+        upd = {"$pull": {"poll.options.$.votes": uid, "poll.options.$.voters": {"user_id": uid}}}
+    else:
+        upd = {"$addToSet": {"poll.options.$.votes": uid},
+               "$push": {"poll.options.$.voters": {"user_id": uid, "name": user["name"]}}}
+    await db.events.update_one({"event_id": event_id, "poll.options.option_id": option_id}, upd)
+    return shape(await db.events.find_one({"event_id": event_id}, event_fields(user)), user)
+
+
+@router.post("/events/{event_id}/poll/{option_id}/lock")
+async def lock_poll(event_id: str, option_id: str, user=Depends(current_user)):
+    ev = await organiser_event(event_id, user)
+    opt = next((o for o in (ev.get("poll") or {}).get("options", []) if o["option_id"] == option_id), None)
+    if not opt:
+        raise HTTPException(404, "Poll option not found")
+    if ev["poll"].get("closed"):
+        raise HTTPException(400, "This poll is already locked in")
+    field = "date" if ev["poll"]["kind"] == "date" else "location"
+    await db.events.update_one({"event_id": event_id}, {"$set": {field: opt["label"], "poll.closed": True,
+                                                                "poll.locked_option_id": option_id,
+                                                                **({"reminded_for": None} if field == "date" else {})}})
+    ids = list(set(responders(ev, user["user_id"])) | set(await all_user_ids(user["user_id"])))
+    shown = dmy(opt["label"]) if field == "date" else opt["label"]
+    await notify(ids, "event", f"Locked in: {ev['title']}", f"The {'date' if field == 'date' else 'venue'} is {shown}",
+                 f"/event/{event_id}")
+    return shape(await db.events.find_one({"event_id": event_id}, event_fields(user)), user)
+
+
+# ---- Photo likes & comments
+@router.post("/events/{event_id}/photos/{photo_id}/like")
+async def like_photo(event_id: str, photo_id: str, user=Depends(current_user)):
+    ev = await db.events.find_one({"event_id": event_id, "photos.photo_id": photo_id, **visible_events(user)}, P)
+    if not ev:
+        raise HTTPException(404, "Photo not found")
+    photo = next(p for p in ev["photos"] if p["photo_id"] == photo_id)
+    liked = user["user_id"] in (photo.get("likes") or [])
+    await db.events.update_one({"event_id": event_id, "photos.photo_id": photo_id},
+                               {("$pull" if liked else "$addToSet"): {"photos.$.likes": user["user_id"]}})
+    if not liked and photo["user_id"] != user["user_id"] and user["user_id"] not in (photo.get("like_notified") or []):
+        await db.events.update_one({"event_id": event_id, "photos.photo_id": photo_id},
+                                   {"$addToSet": {"photos.$.like_notified": user["user_id"]}})
+        await notify([photo["user_id"]], "event", f"{user['name'].split(' ')[0]} liked your photo",
+                     ev["title"], f"/event/{event_id}")
+    return {"liked": not liked, "like_count": len(photo.get("likes") or []) + (-1 if liked else 1)}
+
+
+@router.post("/events/{event_id}/photos/{photo_id}/comments")
+async def comment_photo(event_id: str, photo_id: str, body: CommentIn, user=Depends(current_user)):
+    text = body.text.strip()[:500]
+    if not text:
+        raise HTTPException(400, "Write a comment")
+    ev = await db.events.find_one({"event_id": event_id, "photos.photo_id": photo_id, **visible_events(user)}, P)
+    if not ev:
+        raise HTTPException(404, "Photo not found")
+    photo = next(p for p in ev["photos"] if p["photo_id"] == photo_id)
+    c = {"comment_id": new_id("pcm"), "user_id": user["user_id"], "name": user["name"], "text": text,
+         "created_at": now_iso()}
+    await db.events.update_one({"event_id": event_id, "photos.photo_id": photo_id}, {"$push": {"photos.$.comments": c}})
+    if photo["user_id"] != user["user_id"]:
+        await notify([photo["user_id"]], "event", f"{user['name'].split(' ')[0]} commented on your photo", text[:140],
+                     f"/event/{event_id}")
+    return c
+
+
+# ---- Attendance
+@router.put("/events/{event_id}/attendance")
+async def set_attendance(event_id: str, body: AttendanceIn, user=Depends(current_user)):
+    ev = await organiser_event(event_id, user)
+    if ev["date"] > datetime.now(DIGEST_TZ).date().isoformat():
+        raise HTTPException(400, "You can tick attendance on or after the day of the event")
+    ids = list(dict.fromkeys(body.user_ids))
+    users = await db.users.find({"user_id": {"$in": ids}}, {"_id": 0, "user_id": 1, "name": 1}).to_list(1000)
+    att = [{"user_id": u["user_id"], "name": u["name"]} for u in users]
+    await db.events.update_one({"event_id": event_id}, {"$set": {"attended": att, "attendance_by": user["name"],
+                                                                "attendance_at": now_iso()}})
+    return {"attended": att}

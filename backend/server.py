@@ -6,7 +6,7 @@ import json
 from core import HIDDEN_TEST_USERS, ROOT_DIR, client, db, logger, new_id, now_iso
 from storage import init_storage
 from routes import (auth, users, notifications, certificates, chat, updates, policies, compliance, events, tasks,
-                    dashboard, drive, gchat, calendar, forms, socials, cpd, ai, digest, profile)
+                    dashboard, drive, gchat, calendar, forms, socials, cpd, ai, digest, profile, places)
 from routes.certificates import expiry_loop
 from routes.policies import policy_reminder_loop
 from routes.compliance import cert_reminder_loop
@@ -28,7 +28,7 @@ async def health():
 
 
 for module in (auth, users, notifications, certificates, chat, updates, policies, compliance, events, tasks,
-               dashboard, drive, gchat, calendar, forms, socials, cpd, ai, digest, profile):
+               dashboard, drive, gchat, calendar, forms, socials, cpd, ai, digest, profile, places):
     app.include_router(module.router)
 
 
