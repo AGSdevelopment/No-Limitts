@@ -4,6 +4,7 @@ Runs the team's own dashboard engine (assets/therapist-dashboard.html, unchanged
 stylesheet, and plays the role of the Wix page: data is read from / saved to the same Wix CMS collection
 (`TherapistDashboard`) so updates made on the website show here and vice versa. Admins only.
 Until WIX_API_KEY + WIX_SITE_ID are set, data is kept in StaffHub (`agts_dashboard_parts`)."""
+import asyncio
 import json
 import os
 from pathlib import Path
@@ -153,21 +154,114 @@ MOBILE_CSS = """<meta name="viewport" content="width=device-width,initial-scale=
 
 
 @router.get("/agts-dashboard/engine", response_class=HTMLResponse)
-async def engine(request: Request, token: Optional[str] = None):
+async def engine(request: Request, token: Optional[str] = None, view: str = ""):
     await require_admin_token(request, token)
     html = ENGINE.read_text(encoding="utf-8")
     html = html.replace("<head>", "<head>" + MOBILE_CSS, 1)
+    # Participant plans & safety (Nikki) view: the engine already renders it into #v-nk; give it a tab and a home
+    html = html.replace('<button class="tab" data-v="set">Settings</button>',
+                        '<button class="tab" data-v="set">Settings</button>\n    <button class="tab" data-v="nk">Plans &amp; safety</button>', 1)
+    html = html.replace('<div class="view" id="v-set">', '<div class="view" id="v-nk"><div class="empty">Loading…</div></div>\n  <div class="view" id="v-set">', 1)
+    if view == "nk":
+        html = html.replace("</body>", """<style>#tabs,.uploads,.note,#shToggle,.sharebar,.top .controls,#periodLine{display:none!important}</style>
+<script>document.addEventListener('DOMContentLoaded',function(){ var h=document.querySelector('h1'); if(h) h.textContent='Participant Plans & Safety';
+ var p=document.getElementById('periodLine'); if(p) p.textContent="Plan reviews, risk assessments and emergency plans for Nikki's participants";
+ setTimeout(function(){ if(typeof show==='function') show('nk'); },0); });</script></body>""", 1)
     return HTMLResponse(html, headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
 
 
+# ---- Background: Friday upload reminder + below-hours-target alerts
+async def _admin_ids() -> list:
+    return [u["user_id"] for u in await db.users.find({"role": "admin", "hidden": {"$ne": True}}, {"_id": 0, "user_id": 1}).to_list(100)]
+
+
+def _serial_to_date(s: int):
+    from datetime import date, timedelta
+    return date(1899, 12, 30) + timedelta(days=int(s))
+
+
+def hours_alerts(billing_json: str, settings_json: str) -> tuple:
+    """Same maths as the dashboard's scorecard (statsFor/hoursFrom): returns (window_end_serial, [(key, full, h4, target)])."""
+    d = json.loads(billing_json)
+    st = json.loads(settings_json) if settings_json else {}
+    ths = st.get("therapists") or {}
+    rows = []
+    for a in d.get("rows", []):
+        full = str(d["fulls"][a[3]] or "").strip()
+        code = str(d["codes"][a[4]] or "")
+        p = code.split("_")
+        cat = "km" if len(p) > 1 and p[1] == "799" else {"PT": "tt", "CA": "ca", "NF": "nf", "TH": "nf", "RR": "nf"}.get(p[-1], "ds")
+        rows.append({"sd": a[0], "key": full.split()[0] if full else "", "cat": cat, "tot": a[6] or 0})
+    if not rows:
+        return None, []
+    mx = max(r["sd"] for r in rows)
+    E = mx - ((_serial_to_date(mx).weekday() - 3) % 7)  # last Thursday on/before latest service date
+    S4, S12 = E - 27, E - 83
+    out = []
+    for k, t in ths.items():
+        mine = [r for r in rows if r["key"] == k]
+        if not mine or not t.get("target") or not t.get("rate"):
+            continue
+        first = min(r["sd"] for r in mine)
+        w = lambda S: max(0, min((E - S + 1) / 7, -(-(E - max(first, S) + 1) // 7)))
+        w4, w12 = w(S4), w(S12)
+        if w12 < 6 or not w4:
+            continue  # new starters are flagged differently on the dashboard
+        r4 = [r for r in mine if S4 <= r["sd"] <= E]
+        tot = sum(r["tot"] for r in r4)
+        tt = sum(r["tot"] for r in r4 if r["cat"] == "tt")
+        km = sum(r["tot"] for r in r4 if r["cat"] == "km")
+        rate = float(t["rate"])
+        h4 = ((tot - tt - km) / rate + tt / (rate / 2)) / w4
+        if h4 / float(t["target"]) < 0.9:
+            out.append((k, t.get("full") or k, round(h4, 1), t["target"]))
+    return E, out
+
+
+async def dashboard_loop():
+    from datetime import datetime, timedelta
+    from core import DIGEST_TZ, notify
+    while True:
+        try:
+            local = datetime.now(DIGEST_TZ)
+            async with httpx.AsyncClient(timeout=30) as client:
+                # Friday 9am reminder unless this week's export is already in
+                if local.weekday() == 4 and local.hour >= 9:
+                    key = f"agts_upload_reminder_{local.date().isoformat()}"
+                    if not await db.meta.find_one({"key": key}):
+                        await db.meta.insert_one({"key": key, "created_at": now_iso()})
+                        prev = await read_part(client, "preview")
+                        upd = (prev or {}).get("updated") or ""
+                        fresh = upd and upd[:10] >= (local.date() - timedelta(days=1)).isoformat()
+                        if not fresh:
+                            await notify(await _admin_ids(), "dashboard", "Upload this week's End of Week export",
+                                         "Keep the Therapist dashboard current: open it, tap Show uploads & data status and add the export.",
+                                         "/dashboard/therapist-dashboard")
+                # Below hours target alerts, once per therapist per dashboard week
+                bill, sett = await read_part(client, "billing"), await read_part(client, "settings")
+                if bill and bill.get("data"):
+                    E, low = hours_alerts(bill["data"], (sett or {}).get("data") or "")
+                    for k, full, h4, target in low:
+                        akey = f"agts_hours_alert_{k}_{E}"
+                        if await db.meta.find_one({"key": akey}):
+                            continue
+                        await db.meta.insert_one({"key": akey, "created_at": now_iso()})
+                        await notify(await _admin_ids(), "dashboard", f"{full} is below their hours target",
+                                     f"Averaging {h4} of {target} hrs/wk over the last 4 weeks (to {_serial_to_date(E).strftime('%d %b %Y')}).",
+                                     "/dashboard/therapist-dashboard")
+        except Exception as e:
+            logger.error(f"AGTS dashboard loop error: {e}")
+        await asyncio.sleep(3600)
+
+
 @router.get("/agts-dashboard/app", response_class=HTMLResponse)
-async def app_page(request: Request, token: Optional[str] = None):
+async def app_page(request: Request, token: Optional[str] = None, view: str = ""):
     """Wrapper that hosts the engine in a frame and relays load/save messages, like the Wix page did."""
     await require_admin_token(request, token)
     t = json.dumps(token or "")
     html = """<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="referrer" content="no-referrer"><style>html,body{margin:0;height:100%;background:#f4f8fb}iframe{border:0;width:100%;height:100%;display:block}</style></head>
-<body><iframe id="f" src="engine?token=__TOK__"></iframe><script>
+<body><iframe id="f" src="engine?token=__TOK____VIEW__"></iframe><script>
 const TOKEN=__T__; const f=document.getElementById('f');
 const api=(p,o={})=>fetch(p,{...o,headers:{'Authorization':'Bearer '+TOKEN,'Content-Type':'application/json'}}).then(async r=>{const j=await r.json().catch(()=>({})); if(!r.ok) throw new Error(j.detail||('Error '+r.status)); return j;});
 let loading=false;
@@ -179,5 +273,5 @@ window.addEventListener('message',async e=>{ if(e.source!==f.contentWindow) retu
 });
 </script></body></html>"""
     from urllib.parse import quote
-    return HTMLResponse(html.replace("__TOK__", quote(token or "")).replace("__T__", t),
+    return HTMLResponse(html.replace("__TOK__", quote(token or "")).replace("__VIEW__", "&view=nk" if view == "nk" else "").replace("__T__", t),
                         headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})

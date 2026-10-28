@@ -8,6 +8,7 @@ from storage import init_storage
 from routes import (auth, users, notifications, certificates, chat, updates, policies, compliance, events, tasks,
                     dashboard, drive, gchat, calendar, forms, socials, cpd, ai, digest, profile, places, pathway, directory, referral_map, dashboards, agts_dashboard)
 from routes.dashboards import ensure_dashboards
+from routes.agts_dashboard import dashboard_loop
 from routes.places import migrate_place_kinds
 from routes.directory import ensure_share_channel
 from routes.certificates import expiry_loop
@@ -181,6 +182,7 @@ async def startup():
     asyncio.create_task(probation_reminder_loop())
     asyncio.create_task(event_reminder_loop())
     asyncio.create_task(poll_close_loop())
+    asyncio.create_task(dashboard_loop())
 
 
 @app.on_event("shutdown")

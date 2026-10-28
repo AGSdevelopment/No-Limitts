@@ -8,6 +8,9 @@ DEFAULTS = [
     {"dashboard_id": "therapist-dashboard", "name": "Therapist dashboard",
      "url": "https://www.aspireandgrowtherapyservices.com.au/therapist-dashboard", "roles": ["admin"], "groups": [],
      "embed": "agts"},
+    {"dashboard_id": "participant-plans", "name": "Participant plans & safety",
+     "url": "https://www.aspireandgrowtherapyservices.com.au/therapist-dashboard", "roles": ["admin"], "groups": [],
+     "embed": "agts-nk"},
 ]
 
 
