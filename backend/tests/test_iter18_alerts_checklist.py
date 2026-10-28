@@ -173,7 +173,7 @@ def test_completion_alert_once_only():
             result["notes"], result["sent"] = list(notes), list(sent)
             u = await db.users.find_one({"user_id": EMP_ID}, {"_id": 0})
             result["completed_at"] = u.get("starter_completed_at")
-            result["admins_visible"] = [a["user_id"] async for a in db.users.find({"role": "admin", "hidden": {"$ne": True}}, {"_id": 0, "user_id": 1})]
+            result["admins_visible"] = [a["user_id"] async for a in db.users.find({"role": "admin", "hidden": True}, {"_id": 0, "user_id": 1})]
         finally:
             rc.notify, rc.send_email = orig_notify, orig_email
             await db.policies.update_many({"policy_id": {"$nin": pols_before}}, {"$pull": {"acknowledged_by": EMP_ID}})
@@ -189,8 +189,8 @@ def test_completion_alert_once_only():
     assert res["completed_at"]
     assert len(res["notes"]) == 1, res["notes"]
     uids, ntype, title, link = res["notes"][0]
-    assert ntype == "starter" and title == "New Starter checklist complete" and link == "/compliance"
+    assert ntype == "starter" and title == "New Starter checklist complete" and link == f"/starter/{EMP_ID}"
     assert set(uids) == set(res["admins_visible"])
-    # FINDING: hidden test admin is excluded from recipients
+    # hidden test user -> only hidden test admins alerted, no email (iter19 behaviour)
     print("test admin included:", ADMIN_ID in uids, "| emails would go to:", res["sent"])
     assert all(not e.endswith("@example.com") for e in res["sent"])

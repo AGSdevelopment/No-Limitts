@@ -125,7 +125,7 @@
    ]
   },
   {
-   "title": "Cardholder \u2013 Card Issuance",
+   "title": "Cardholder – Card Issuance",
    "url": "https://form.jotform.com/team/261958881415065/cardholder---card-issuance",
    "description": "Request or record a company card issue",
    "category": "Support Office",
@@ -172,12 +172,6 @@
   {
    "email": "nikki@aspireandgrow.com.au",
    "name": "Nikki",
-   "role": "admin",
-   "staff_group": null
-  },
-  {
-   "email": "pronathi@aspireandgrow.com.au",
-   "name": "Pronathi",
    "role": "admin",
    "staff_group": null
   },

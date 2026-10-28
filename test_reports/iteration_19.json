@@ -1,0 +1,35 @@
+{
+  "summary": "Iteration 19: Tested the required certificates per staff group setting, the certificate reminder preview (preview=true only; the reminder was never sent for real), the admin starter progress view, check-in booking with private events, the completion alert link and Pronathi's removal. Backend: 16/16 new tests pass, and the iter18 suite (updated for the new alert link and recipients) also passes, 27/27 in total. Frontend (375x667): the Compliance screen shows the Required certs and Remind staff buttons, the confirm sheet appears with a count of 33 and Cancel closes it, the red '1 required missing' badge and details show, and 'View starter checklist' opens /starter/{id}. The /starter screen shows progress, the steps (the certificate step lists 'Still needed: NDIS Worker Screening'), the check-ins list and the booking form; a bad date shows an error toast and a valid dd-mm-yyyy date books the check-in and it appears in the list. On /cert-requirements, adding, case-insensitive dedupe and removing all work. No bugs blocking these features. No deprecated Expo packages.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/starter-checklist/user/{id}/checkin", "issue": "Accepts any user (not only New Starter groups) and past dates; there is no endpoint to cancel or delete a booked check-in."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "cert-requirements", "issues": ["The chip remove icon is 18x20 with hitSlop 10, about 38x40 effective, which is below the 44pt minimum", "Adding a duplicate name (case-insensitive) is silently ignored with no feedback toast"]},
+      {"screen": "compliance", "issues": ["summary.missing_required is not shown in any stat tile; the Certificates tile counts only no_certs + expired"]},
+      {"screen": "starter/[id]", "issues": ["Booked check-ins have no cancel or edit action"]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter19_cert_reqs_starter.py", "/app/backend/tests/test_iter18_alerts_checklist.py", "/app/test_reports/pytest/pytest_iter19.xml"],
+  "action_items": [
+    "Optional: enlarge the remove-chip touch target on /cert-requirements to 44pt",
+    "Optional: add a way to cancel a booked check-in, and optionally block past dates",
+    "Optional: show the count of staff missing required certificates on the compliance stats"
+  ],
+  "critical_code_review_comments": [
+    "Compliance rows exclude hidden users, so a hidden test starter never appears in the UI unless it is temporarily unhidden.",
+    "compliance_data calls starter_checklist (2 DB queries plus requirements()) for each new-starter row: an N+1 pattern that is fine at around 32 staff."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter19_cert_reqs_starter.py (new)", "/app/backend/tests/test_iter18_alerts_checklist.py (assertion updated: link is now /starter/{id} and a hidden test user only alerts hidden admins)"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "None left behind. Temporary setup: a TEST_other19 user and session, user_testemp001 temporarily unhidden and set to new_starter_employee, TEST requirement names, and check-in events and notifications. All were reverted: cert_requirements is {support_office: []}, user_testemp001 is hidden with staff_group None, there are 0 check-in events, and the employee has 19 notifications as at baseline.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run the iter19 tests with 'pytest -n 0' (xdist workers would share and tear down module DB state). Never call remind-certificates without preview=true. To see the test employee in the compliance UI, temporarily set hidden=False and staff_group=new_starter_employee, then revert."
+}

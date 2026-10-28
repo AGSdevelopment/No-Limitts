@@ -17,7 +17,10 @@ class EventIn(BaseModel):
 
 @router.get("/events")
 async def list_events(user=Depends(current_user)):
-    docs = await db.events.find({}, P).sort([("date", 1), ("time", 1)]).to_list(500)
+    # private events (e.g. new starter check-ins) only show to the people involved; admins see all
+    q = {} if user.get("role") == "admin" else {"$or": [{"private_for": {"$exists": False}},
+                                                        {"private_for": user["user_id"]}]}
+    docs = await db.events.find(q, P).sort([("date", 1), ("time", 1)]).to_list(500)
     for d in docs:
         d["going"] = user["user_id"] in d.get("attendees", [])
         d["attendee_count"] = len(d.get("attendees", []))

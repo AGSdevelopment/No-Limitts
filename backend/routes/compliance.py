@@ -3,9 +3,10 @@ import io
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
-from typing import Optional
+from pydantic import BaseModel
+from typing import List, Optional
 from html import escape
-from core import P, admin_user, bearer, current_user, db, dmy, logger, notify, now_iso, spawn, user_from_token
+from core import P, admin_user, new_id, bearer, current_user, db, dmy, logger, notify, now_iso, spawn, user_from_token
 from email_service import send_email
 from routes.certificates import cert_status
 from routes.forms import forms_query
@@ -31,7 +32,7 @@ async def compliance_export(request: Request, token: Optional[str] = None):
     ws = wb.active
     ws.title = "Staff compliance"
     head = ["Name", "Staff group", "Policies acknowledged", "Policies pending", "Pending policy titles",
-            "Certificates", "Expired", "Expiring (30 days)", "Certificate issues", f"CPD hours {d['year']}",
+            "Certificates", "Expired", "Expiring (30 days)", "Certificate issues", "Missing required certificates", f"CPD hours {d['year']}",
             "Starter checklist", "Needs attention"]
     ws.append(head)
     for c in ws[1]:
@@ -43,10 +44,10 @@ async def compliance_export(request: Request, token: Optional[str] = None):
         ws.append([r["name"], STAFF_GROUP_LABELS.get(r.get("staff_group"), "Admin" if r.get("role") == "admin" else ""),
                    r["policies_total"] - len(r["policies_pending"]), len(r["policies_pending"]),
                    "; ".join(r["policies_pending"]), r["certs_total"], len(r["certs_expired"]),
-                   len(r["certs_expiring"]), issues, r["cpd_hours"],
+                   len(r["certs_expiring"]), issues, "; ".join(r["missing_required"]), r["cpd_hours"],
                    f"{r['starter']['done']}/{r['starter']['total']}" if r.get("starter") else "",
                    "Yes" if r["needs_attention"] else "No"])
-    for col, w in zip("ABCDEFGHIJKL", (24, 22, 12, 12, 60, 12, 10, 12, 50, 12, 14, 12)):
+    for col, w in zip("ABCDEFGHIJKLM", (24, 22, 12, 12, 60, 12, 10, 12, 50, 40, 12, 14, 12)):
         ws.column_dimensions[col].width = w
     s = d["summary"]
     ws2 = wb.create_sheet("Summary")
@@ -54,6 +55,7 @@ async def compliance_export(request: Request, token: Optional[str] = None):
                 ("Policies acknowledged %", s["policy_pct"]), ("Staff fully up to date", s["fully_acknowledged"]),
                 ("Expired certificates", s["expired_certs"]), ("Expiring certificates", s["expiring_certs"]),
                 ("Staff with no certificates", s["no_certs"]),
+                ("Staff missing required certificates", s["missing_required"]),
                 (f"Average CPD hours {d['year']}", s["avg_cpd"]), ("Staff needing attention", s["needs_attention"])):
         ws2.append(row)
     ws2.column_dimensions["A"].width = 30
@@ -84,10 +86,13 @@ async def starter_checklist(user: dict) -> list:
     acked = sum(1 for p in pols if user["user_id"] in (p.get("acknowledged_by") or []))
     items.append({"key": "policies", "type": "policies", "title": "Read and acknowledge all policies & procedures",
                   "done": acked == len(pols), "progress": [acked, len(pols)]})
-    certs = await db.certificates.count_documents({"owner_id": user["user_id"], "is_deleted": {"$ne": True}})
+    mine = await db.certificates.find({"owner_id": user["user_id"], "is_deleted": {"$ne": True}},
+                                      {"_id": 0, "title": 1, "expiry_date": 1}).to_list(500)
+    missing = missing_required(mine, (await requirements()).get(user.get("staff_group") or "", []))
     items.append({"key": "certificates", "type": "certificate", "title": "Upload your training certificates",
-                  "description": "e.g. NDIS Worker Screening, Working with Children Check, First Aid",
-                  "done": certs > 0, "progress": [certs, None]})
+                  "description": ("Still needed: " + ", ".join(missing)) if missing else
+                  "e.g. NDIS Worker Screening, Working with Children Check, First Aid",
+                  "done": bool(mine) and not missing, "progress": [len(mine), None], "missing": missing})
     return items
 
 
@@ -131,7 +136,8 @@ async def check_starter_complete(user: dict):
         test_user = bool(user.get("hidden"))  # internal test accounts only alert the hidden test admins, no email
         admins = await db.users.find({"role": "admin", "hidden": True if test_user else {"$ne": True}}, P).to_list(200)
         await notify([a["user_id"] for a in admins], "starter", "New Starter checklist complete",
-                     f"{user['name']} has finished every step. Time to book their next check-in.", "/compliance")
+                     f"{user['name']} has finished every step. Tap to book their next check-in.",
+                     f"/starter/{user['user_id']}")
         for a in [] if test_user else admins:
             if a.get("email") and not a["email"].endswith("@example.com"):
                 await send_email(to=a["email"], subject=f"{user['name']} has finished the New Starter checklist", html=(
@@ -145,8 +151,9 @@ async def check_starter_complete(user: dict):
 
 async def compliance_data():
     """Per-staff policy acknowledgement, certificate status and CPD hours (this year)."""
-    users = await db.users.find({"hidden": {"$ne": True}}, {"_id": 0, "user_id": 1, "name": 1, "picture": 1,
+    users = await db.users.find({"hidden": {"$ne": True}}, {"_id": 0, "user_id": 1, "name": 1, "picture": 1, "email": 1,
                                                             "staff_group": 1, "role": 1}).sort("name", 1).to_list(2000)
+    reqs = await requirements()
     policies = await db.policies.find({}, {"_id": 0, "policy_id": 1, "title": 1, "acknowledged_by": 1}).to_list(1000)
     certs = await db.certificates.find({"is_deleted": {"$ne": True}}, {"_id": 0, "owner_id": 1, "title": 1,
                                                                       "expiry_date": 1}).to_list(10000)
@@ -165,8 +172,9 @@ async def compliance_data():
         rows.append({**u, "policies_total": len(policies), "policies_pending": pending,
                      "certs_total": len(mine), "certs_expired": expired, "certs_expiring": expiring,
                      "cpd_hours": round(hours.get(uid, 0), 2),
-                     "no_certs": not mine,
-                     "needs_attention": bool(pending or expired or expiring or not mine)})
+                     "no_certs": not mine, "missing_required": missing_required(mine, reqs.get(u.get("staff_group") or "", [])),
+                     "needs_attention": False})
+        rows[-1]["needs_attention"] = bool(pending or expired or expiring or not mine or rows[-1]["missing_required"])
         if u.get("staff_group") in NEW_STARTER_GROUPS:
             items = await starter_checklist(u)
             rows[-1]["starter"] = {"done": sum(i["done"] for i in items), "total": len(items)}
@@ -179,5 +187,132 @@ async def compliance_data():
         "expired_certs": sum(len(r["certs_expired"]) for r in rows),
         "expiring_certs": sum(len(r["certs_expiring"]) for r in rows),
         "no_certs": sum(1 for r in rows if r["no_certs"]),
+        "missing_required": sum(1 for r in rows if r["missing_required"]),
         "avg_cpd": round(sum(r["cpd_hours"] for r in rows) / n, 1),
         "needs_attention": sum(1 for r in rows if r["needs_attention"])}}
+
+
+# ---- Required certificates per staff group
+REQ_KEY = "cert_requirements"
+
+
+async def requirements() -> dict:
+    doc = await db.meta.find_one({"key": REQ_KEY}, P)
+    return (doc or {}).get("groups", {})
+
+
+def missing_required(certs: list, names: list) -> list:
+    """A requirement is met by any certificate (not expired) whose title contains the requirement's name."""
+    valid = [c["title"].lower() for c in certs if cert_status(c["expiry_date"])["status"] != "expired"]
+    return [n for n in names if not any(n.lower() in t for t in valid)]
+
+
+class RequirementsIn(BaseModel):
+    staff_group: str
+    names: List[str]
+
+
+@router.get("/cert-requirements")
+async def get_requirements(admin=Depends(admin_user)):
+    return {"groups": await requirements()}
+
+
+@router.put("/cert-requirements")
+async def set_requirements(body: RequirementsIn, admin=Depends(admin_user)):
+    if body.staff_group not in STAFF_GROUP_LABELS:
+        raise HTTPException(400, "Unknown staff group")
+    names = []
+    for n in body.names:
+        n = n.strip()[:80]
+        if n and n.lower() not in [x.lower() for x in names]:
+            names.append(n)
+    groups = await requirements()
+    groups[body.staff_group] = names
+    await db.meta.update_one({"key": REQ_KEY}, {"$set": {"groups": groups}}, upsert=True)
+    return {"groups": groups}
+
+
+# ---- Certificate reminder emails
+@router.post("/compliance/remind-certificates")
+async def remind_certificates(preview: bool = False, admin=Depends(admin_user)):
+    """In-app + email nudge to every staff member with no certificates or missing required ones.
+    preview=true only counts who would be reminded."""
+    rows = [r for r in (await compliance_data())["rows"] if r["no_certs"] or r["missing_required"]]
+    if preview:
+        return {"reminded": 0, "would_remind": len(rows)}
+    for r in rows:
+        need = ", ".join(r["missing_required"]) or "your training certificates"
+        await notify([r["user_id"]], "certificate", "Please upload your certificates", f"Still needed: {need}",
+                     "/upload-certificate")
+        if r.get("email") and not r["email"].endswith("@example.com"):
+            items = "".join(f"<li>{escape(n)}</li>" for n in r["missing_required"])
+            await send_email(to=r["email"], subject="Reminder: please upload your training certificates", html=(
+                "<div style='font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px'>"
+                f"<h2 style='color:#205890'>Certificates needed</h2><p>Hi {escape(r['name'].split(' ')[0])},</p>"
+                + (f"<p>We don't have these certificates on file for you yet:</p><ul>{items}</ul>" if items else
+                   "<p>We don't have any of your training certificates on file yet.</p>")
+                + "<p>Open StaffHub → Certificates → Upload certificate and snap a photo or attach the file. "
+                  "It only takes a minute.</p></div>"))
+    return {"reminded": len(rows)}
+
+
+# ---- Starter progress for admins + check-in booking
+@router.get("/starter-checklist/user/{user_id}")
+async def staff_checklist(user_id: str, admin=Depends(admin_user)):
+    u = await db.users.find_one({"user_id": user_id}, P)
+    if not u:
+        raise HTTPException(404, "Staff member not found")
+    items = await starter_checklist(u)
+    checkins = await db.events.find({"checkin_for": user_id}, {"_id": 0, "attendees": 0}).sort("date", 1).to_list(50)
+    return {"user": {k: u.get(k) for k in ("user_id", "name", "email", "picture", "staff_group")},
+            "items": items, "done": sum(i["done"] for i in items), "total": len(items),
+            "completed_at": u.get("starter_completed_at"), "checkins": checkins}
+
+
+class CheckinIn(BaseModel):
+    date: str
+    time: str = ""
+    location: str = ""
+    note: str = ""
+
+
+@router.post("/starter-checklist/user/{user_id}/checkin")
+async def book_checkin(user_id: str, body: CheckinIn, admin=Depends(admin_user)):
+    u = await db.users.find_one({"user_id": user_id}, P)
+    if not u:
+        raise HTTPException(404, "Staff member not found")
+    try:
+        if date.fromisoformat(body.date) < date.today():
+            raise HTTPException(400, "Pick today or a future date")
+    except ValueError:
+        raise HTTPException(400, "Date must be YYYY-MM-DD")
+    when = dmy(body.date) + (f" at {body.time.strip()}" if body.time.strip() else "")
+    doc = {"event_id": new_id("evt"), "title": f"Check-in: {u['name']} with {admin['name']}",
+           "description": body.note.strip(), "location": body.location.strip(), "date": body.date,
+           "time": body.time.strip(), "attendees": [user_id, admin["user_id"]],
+           "private_for": [user_id, admin["user_id"]], "checkin_for": user_id,
+           "created_by": admin["name"], "created_at": now_iso()}
+    await db.events.insert_one(dict(doc))
+    await notify([user_id], "event", "Check-in booked", f"{admin['name']} booked a check-in with you on {when}",
+                 "/events")
+    if u.get("email") and not u["email"].endswith("@example.com") and not u.get("hidden"):
+        await send_email(to=u["email"], subject=f"Your check-in with {admin['name']} on {when}", html=(
+            "<div style='font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px'>"
+            f"<h2 style='color:#205890'>Check-in booked</h2><p>Hi {escape(u['name'].split(' ')[0])},</p>"
+            f"<p>{escape(admin['name'])} has booked a check-in with you on <b>{escape(when)}</b>"
+            + (f" at {escape(doc['location'])}" if doc["location"] else "") + ".</p>"
+            + (f"<p>{escape(doc['description'])}</p>" if doc["description"] else "")
+            + "<p>You'll find it under Events in StaffHub.</p></div>"))
+    doc.pop("attendees")
+    return doc
+
+
+@router.delete("/starter-checklist/user/{user_id}/checkin/{event_id}")
+async def cancel_checkin(user_id: str, event_id: str, admin=Depends(admin_user)):
+    ev = await db.events.find_one({"event_id": event_id, "checkin_for": user_id}, P)
+    if not ev:
+        raise HTTPException(404, "Check-in not found")
+    await db.events.delete_one({"event_id": event_id})
+    when = dmy(ev["date"]) + (f" at {ev['time']}" if ev.get("time") else "")
+    await notify([user_id], "event", "Check-in cancelled", f"Your check-in on {when} has been cancelled", "/events")
+    return {"ok": True}

@@ -90,6 +90,24 @@ async def seed_staff_v2():
     await db.meta.insert_one({"key": "company_staff_v2", "created_at": now_iso()})
 
 
+REMOVED_STAFF = ["pronathi@aspireandgrow.com.au"]
+
+
+async def remove_staff():
+    """Delete staff who have left (also runs on the published database), with their sessions and notifications."""
+    for email in REMOVED_STAFF:
+        u = await db.users.find_one({"email": email}, {"_id": 0, "user_id": 1})
+        if not u:
+            continue
+        uid = u["user_id"]
+        await db.user_sessions.delete_many({"user_id": uid})
+        await db.notifications.delete_many({"user_id": uid})
+        await db.checklist_progress.delete_many({"user_id": uid})
+        await db.conversations.update_many({"member_ids": uid}, {"$pull": {"member_ids": uid}})
+        await db.users.delete_one({"user_id": uid})
+        logger.info(f"Removed staff member {email}")
+
+
 async def seed():
     for name, desc in (("general", "Company-wide chat for everyone"),
                        ("announcements", "Important news and notices")):
@@ -126,6 +144,7 @@ async def startup():
     await seed_company_data()
     await seed_staff_v2()
     await migrate_forms_v3()
+    await remove_staff()
     # internal test accounts stay usable but are hidden from staff everywhere
     await db.users.update_many({"user_id": {"$in": HIDDEN_TEST_USERS}}, {"$set": {"hidden": True}})
     # migrate the old single Support Office flag / audience to staff groups

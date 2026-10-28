@@ -107,3 +107,7 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Starter checklist: only New Starter groups can tick (403 otherwise)
 - Checklist completion: one-time in-app + email alert to all admins (test accounts only alert hidden test admins, no email)
 - Old stale backend tests removed; tests/test_iter17*, test_iter18* remain
+- Pronathi removed from staff (startup remove_staff migration + seed file)
+- Required certificates per staff group (/cert-requirements), missing flagged on compliance + export + starter checklist
+- Admin "Remind staff" certificate reminder (in-app + email, preview count first)
+- Starter progress view /starter/[id] for admins, with check-in booking (private event, notify starter) and cancel

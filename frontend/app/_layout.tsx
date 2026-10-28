@@ -54,6 +54,8 @@ function RootStack() {
         <Stack.Screen name="cpd" options={{ ...header, title: "CPD" }} />
         <Stack.Screen name="compliance" options={{ ...header, title: "Compliance" }} />
         <Stack.Screen name="starter-checklist" options={{ ...header, title: "New Starter checklist" }} />
+        <Stack.Screen name="starter/[id]" options={{ ...header, title: "Starter progress" }} />
+        <Stack.Screen name="cert-requirements" options={{ ...header, title: "Required certificates" }} />
         <Stack.Screen name="integrations" options={{ ...header, title: "Integrations" }} />
       </Stack.Protected>
       <Stack.Protected guard={!user}>
