@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api, openLink } from "@/src/api";
 import { useToast } from "@/src/components/toast";
-import { Button, Chip, EmptyState, ErrorState, Field, Ionicons, Loading } from "@/src/components/ui";
+import { Button, Chip, ConfirmSheet, EmptyState, ErrorState, Field, Ionicons, Loading } from "@/src/components/ui";
 import { makeStyles, useTheme } from "@/src/theme";
 
 const KINDS = ["Eat & Drink", "Coffee", "WiFi / Meet"];
@@ -69,12 +69,19 @@ export default function Places() {
       toast(e.message, "error");
     }
   };
-  const remove = async (id: string) => {
+  const [removing, setRemoving] = useState<any>(null);
+  const [removeBusy, setRemoveBusy] = useState(false);
+  const remove = async () => {
+    setRemoveBusy(true);
     try {
-      await api(`/places/${id}`, { method: "DELETE" });
+      await api(`/places/${removing.place_id}`, { method: "DELETE" });
       qc.invalidateQueries({ queryKey: ["places"] });
+      toast(`${removing.name} removed`, "info");
+      setRemoving(null);
     } catch (e: any) {
       toast(e.message, "error");
+    } finally {
+      setRemoveBusy(false);
     }
   };
 
@@ -103,6 +110,7 @@ export default function Places() {
   if (q.isError) return <ErrorState message="Couldn't load places." onRetry={() => q.refetch()} />;
 
   return (
+    <>
     <FlatList
       style={styles.root}
       data={list}
@@ -163,7 +171,7 @@ export default function Places() {
               </Pressable>
             )}
             {item.can_delete && (
-              <Pressable onPress={() => remove(item.place_id)} style={styles.likeBtn} accessibilityLabel="Remove place" testID={`place-delete-${item.place_id}`}>
+              <Pressable onPress={() => setRemoving(item)} style={styles.likeBtn} accessibilityLabel="Remove place" testID={`place-delete-${item.place_id}`}>
                 <Ionicons name="trash-outline" size={18} color={colors.muted} />
               </Pressable>
             )}
@@ -171,6 +179,16 @@ export default function Places() {
         </View>
       )}
     />
+    <ConfirmSheet
+      visible={!!removing}
+      title={`Remove ${removing?.name ?? ""}?`}
+      message="This removes the favourite for everyone, including its likes."
+      confirmLabel="Remove"
+      loading={removeBusy}
+      onConfirm={remove}
+      onClose={() => setRemoving(null)}
+    />
+    </>
   );
 }
 

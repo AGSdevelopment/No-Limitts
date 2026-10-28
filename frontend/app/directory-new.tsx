@@ -90,6 +90,7 @@ export default function DirectoryNew() {
         if (!res.ok) failed += 1;
       }
       qc.invalidateQueries({ queryKey: ["directory"] });
+      qc.invalidateQueries({ queryKey: ["directory-highlights"] });
       qc.invalidateQueries({ queryKey: ["directory-entry", params.edit] });
       toast(failed ? `Saved, but ${failed} file${failed > 1 ? "s" : ""} couldn't upload` : `${f.name.trim()} saved to ${category}`, failed ? "info" : "success");
       router.back();

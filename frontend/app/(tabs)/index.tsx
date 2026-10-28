@@ -28,6 +28,7 @@ export default function Home() {
   const isStarter = !!user?.staff_group?.startsWith("new_starter");
   const starter = useQuery<any>({ queryKey: ["starter-checklist"], queryFn: () => api("/starter-checklist"), enabled: isStarter });
   const isEmerging = user?.staff_group === "emerging_therapist";
+  const newStuff = useQuery<any[]>({ queryKey: ["directory-highlights"], queryFn: () => api("/directory/highlights") });
   const pathway = useQuery<any>({ queryKey: ["pathway"], queryFn: () => api("/pathway"), enabled: isEmerging });
   const d = q.data;
   const bottomChrome = usesNativeTabs ? insets.bottom : 0;
@@ -54,7 +55,7 @@ export default function Home() {
       ) : (
         <ScrollView
           contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: bottomChrome + 24 }}
-          refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => q.refetch()} tintColor={colors.brandPrimary} />}
+          refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => { q.refetch(); newStuff.refetch(); }} tintColor={colors.brandPrimary} />}
         >
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickRow} style={{ marginHorizontal: -16 }}>
             {actions.map((a) => (
@@ -204,6 +205,28 @@ export default function Home() {
             </>
           )}
 
+          {(newStuff.data?.length ?? 0) > 0 && (
+            <>
+              <SectionHeader title="New templates & resources" testID="home-new-resources" />
+              <View style={{ gap: 8 }}>
+                {newStuff.data!.map((e: any) => (
+                  <Card key={e.entry_id} onPress={() => router.push({ pathname: "/directory", params: { space: e.space, category: e.category } })} testID={`home-resource-${e.entry_id}`}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                      <IconBox name={e.category === "Templates" ? "copy-outline" : "library-outline"} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.resTitle} numberOfLines={1}>{e.name}</Text>
+                        <Text style={styles.resSub} numberOfLines={1}>
+                          {e.space === "therapist" ? "Therapist" : "Participants"} · {e.category} · {timeAgo(e.created_at)}{e.file_count ? ` · ${e.file_count} file${e.file_count > 1 ? "s" : ""}` : ""}
+                        </Text>
+                      </View>
+                      <Pill label="New" tone="accent" />
+                    </View>
+                  </Card>
+                ))}
+              </View>
+            </>
+          )}
+
           <SectionHeader title="Company updates" action="See all" onAction={() => router.push("/updates")} testID="home-updates-see-all" />
           {d.updates.length === 0 ? (
             <EmptyState icon="megaphone-outline" title="No updates yet" />
@@ -229,6 +252,8 @@ export default function Home() {
 
 const useStyles = makeStyles((c) => ({
   root: { flex: 1, backgroundColor: c.surface },
+  resTitle: { fontSize: 15, fontWeight: "700", color: c.onSurface },
+  resSub: { fontSize: 13, color: c.muted },
   quickRow: { paddingHorizontal: 16, paddingVertical: 16, gap: 12 },
   quick: { width: 76, alignItems: "center", gap: 6, flexShrink: 0 },
   quickLabel: { fontSize: 12, fontWeight: "600", color: c.onSurfaceSecondary },

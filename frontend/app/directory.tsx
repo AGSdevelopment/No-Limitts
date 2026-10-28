@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { FlatList, Linking, Pressable, RefreshControl, Text, TextInput, View } from "react-native";
+import { FlatList, Linking, Modal, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from "react-native";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { API_URL, api, getApiToken, openLink } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { useToast } from "@/src/components/toast";
-import { ConfirmSheet, EmptyState, ErrorState, Ionicons, Loading } from "@/src/components/ui";
+import { Button, ConfirmSheet, EmptyState, ErrorState, Ionicons, Loading } from "@/src/components/ui";
 import { CAT_ICON, DirSpace, SPACE_LABEL } from "@/src/directory";
 import { makeStyles, useTheme } from "@/src/theme";
 
@@ -43,6 +43,7 @@ export default function Directory() {
     try {
       await api(`/directory/${removing.entry_id}`, { method: "DELETE" });
       qc.invalidateQueries({ queryKey: ["directory", space, category] });
+      qc.invalidateQueries({ queryKey: ["directory-highlights"] });
       toast(`${removing.name} removed`, "info");
       setRemoving(null);
     } catch (e: any) {
@@ -53,6 +54,42 @@ export default function Directory() {
   };
 
   const title = `${SPACE_LABEL[space] ?? ""} · ${category}`;
+  const isReferral = category === "Trusted Referral Partner Organisations";
+  const rateable = category === "Suppliers" || category === "Activities";
+  const [picking, setPicking] = useState(false);
+  const channel = useQuery<any>({ queryKey: ["referral-share-channel"], queryFn: () => api("/directory/share-channel"), enabled: isReferral });
+  const channels = useQuery<any[]>({ queryKey: ["conversations"], queryFn: () => api("/conversations"), enabled: picking });
+
+  const [sharing, setSharing] = useState<string | null>(null);
+  const share = async (e: any) => {
+    if (sharing) return;
+    setSharing(e.entry_id);
+    try {
+      const r = await api(`/directory/${e.entry_id}/share`, { method: "POST" });
+      toast(`Shared to #${r.channel}`, "success");
+    } catch (err: any) {
+      toast(err.message, "error");
+    } finally {
+      setSharing(null);
+    }
+  };
+  const rate = async (e: any, stars: number) => {
+    try {
+      await api(`/directory/${e.entry_id}/rate`, { method: "POST", body: { stars } });
+      qc.invalidateQueries({ queryKey: ["directory", space, category] });
+    } catch (err: any) {
+      toast(err.message, "error");
+    }
+  };
+  const chooseChannel = async (id: string) => {
+    try {
+      await api("/directory/share-channel", { method: "PUT", body: { conversation_id: id } });
+      channel.refetch();
+      setPicking(false);
+    } catch (err: any) {
+      toast(err.message, "error");
+    }
+  };
 
   return (
     <View style={styles.root} testID="directory-screen">
@@ -81,9 +118,23 @@ export default function Directory() {
           keyboardShouldPersistTaps="handled"
           refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => q.refetch()} tintColor={colors.brandPrimary} />}
           ListHeaderComponent={
-            (q.data?.length ?? 0) > 3 ? (
-              <TextInput value={search} onChangeText={setSearch} placeholder={`Search ${category.toLowerCase()}`} placeholderTextColor={colors.muted} style={styles.search} testID="directory-search" />
-            ) : null
+            <View style={{ gap: 10 }}>
+              {isReferral && !channel.isLoading && (
+                <View style={styles.shareBar} testID="directory-share-channel">
+                  <Ionicons name="chatbubbles-outline" size={18} color={colors.brandPrimary} />
+                  <Text style={[styles.sub, { flex: 1 }]}>{channel.data ? `Shares go to #${channel.data.name}` : isAdmin ? "Choose the channel referrals are shared to" : "An admin needs to choose the sharing channel"}</Text>
+                  {isAdmin && (
+                    <Pressable onPress={() => setPicking(true)} style={styles.linkBtn} testID="directory-share-channel-change">
+                      <Text style={styles.link}>{channel.data ? "Change" : "Choose"}</Text>
+                    </Pressable>
+                  )}
+                </View>
+              )}
+              {rateable && (q.data?.length ?? 0) > 1 && <Text style={styles.sub}>Sorted by the team&apos;s star ratings</Text>}
+              {(q.data?.length ?? 0) > 3 && (
+                <TextInput value={search} onChangeText={setSearch} placeholder={`Search ${category.toLowerCase()}`} placeholderTextColor={colors.muted} style={styles.search} testID="directory-search" />
+              )}
+            </View>
           }
           ListEmptyComponent={
             <EmptyState
@@ -112,7 +163,20 @@ export default function Directory() {
               {!!item.contact && <Text style={styles.sub}>Contact: {item.contact}</Text>}
               {!!item.address && <Text style={styles.sub}>{item.address}</Text>}
               {!!item.note && <Text style={styles.note}>{item.note}</Text>}
+              {rateable && (
+                <View style={styles.row} testID={`directory-rating-${item.entry_id}`}>
+                  <View style={styles.stars}>
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <Pressable key={n} onPress={() => rate(item, n)} style={styles.star} accessibilityLabel={`Rate ${n} star${n > 1 ? "s" : ""}`} testID={`directory-star-${item.entry_id}-${n}`}>
+                        <Ionicons name={n <= item.my_rating ? "star" : "star-outline"} size={24} color={colors.warning} />
+                      </Pressable>
+                    ))}
+                  </View>
+                  <Text style={styles.sub}>{item.rating_count ? `${item.avg_rating} ★ · ${item.rating_count} rating${item.rating_count > 1 ? "s" : ""}` : "Be the first to rate"}</Text>
+                </View>
+              )}
               <View style={styles.actions}>
+                {isReferral && <Action icon="share-social-outline" label={sharing === item.entry_id ? "Sharing…" : "Share to chat"} onPress={() => share(item)} testID={`directory-share-${item.entry_id}`} />}
                 {!!item.phone && <Action icon="call-outline" label={item.phone} onPress={() => Linking.openURL(`tel:${item.phone.replace(/\s/g, "")}`)} testID={`directory-phone-${item.entry_id}`} />}
                 {!!item.email && <Action icon="mail-outline" label="Email" onPress={() => Linking.openURL(`mailto:${item.email}`)} testID={`directory-email-${item.entry_id}`} />}
                 {!!item.link && <Action icon="open-outline" label="Website" onPress={() => openLink(item.link)} testID={`directory-link-${item.entry_id}`} />}
@@ -128,6 +192,25 @@ export default function Directory() {
           )}
         />
       )}
+      <Modal visible={picking} transparent animationType="slide" onRequestClose={() => setPicking(false)}>
+        <Pressable style={styles.scrim} onPress={() => setPicking(false)} />
+        <View style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]} testID="directory-channel-sheet">
+          <Text style={styles.name}>Share referrals to</Text>
+          <Button label="Close" variant="ghost" onPress={() => setPicking(false)} testID="directory-channel-close" />
+          {channels.isLoading ? (
+            <Loading />
+          ) : (
+            <ScrollView style={{ maxHeight: 360 }}>
+              {(channels.data ?? []).filter((c) => c.type === "channel").map((c) => (
+                <Pressable key={c.conversation_id} onPress={() => chooseChannel(c.conversation_id)} style={styles.channelRow} testID={`directory-channel-${c.conversation_id}`}>
+                  <Text style={styles.note}>#{c.name}</Text>
+                  {channel.data?.conversation_id === c.conversation_id && <Ionicons name="checkmark" size={20} color={colors.brandPrimary} />}
+                </Pressable>
+              ))}
+            </ScrollView>
+          )}
+        </View>
+      </Modal>
       <ConfirmSheet
         visible={!!removing}
         title={`Remove ${removing?.name ?? ""}?`}
@@ -168,4 +251,12 @@ const useStyles = makeStyles((c) => ({
   actionText: { fontSize: 13, fontWeight: "600", color: c.brandPrimary, flexShrink: 1 },
   file: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44, paddingHorizontal: 10, borderRadius: 10, backgroundColor: c.surfaceSecondary },
   fileName: { flex: 1, fontSize: 14, color: c.onSurface },
+  shareBar: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: c.surface, borderRadius: 12, paddingLeft: 12, minHeight: 48 },
+  linkBtn: { minHeight: 44, paddingHorizontal: 12, justifyContent: "center" },
+  link: { fontSize: 14, fontWeight: "700", color: c.brandPrimary },
+  stars: { flexDirection: "row" },
+  star: { width: 40, height: 44, alignItems: "center", justifyContent: "center" },
+  scrim: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)" },
+  sheet: { backgroundColor: c.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 16, gap: 8 },
+  channelRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 48, borderBottomWidth: 1, borderBottomColor: c.border },
 }));

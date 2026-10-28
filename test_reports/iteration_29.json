@@ -1,0 +1,39 @@
+{
+  "summary": "Iteration 29: tested star ratings, Referral Quick Share to a fixed channel, Home 'New templates & resources' highlights, and the confirm step for removing AGTS places. Backend: 5/5 pytest pass (run serially with -n 0; the repo's pytest.ini enables xdist, and parallel workers break the module fixture). Frontend: all 7 requested flows pass at 375x667. All share testing used a temporary TEST_ channel without a webhook, because 'Allied Health' and 'Celebrate the Wins' have gchat_webhook set, so a share there also posts to real Google Chat. No deprecated Expo packages detected.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/directory/{id}/share", "issue": "No duplicate or throttle guard: each call posts a new channel message. With the UI's lack of a busy state, a double-tap posts twice. If the chosen channel has gchat_webhook, the share is also mirrored to external Google Chat (may be intended)."},
+      {"endpoint": "POST /api/directory/{id}/share", "issue": "conversations.last_message stores the multi-line text with \\n characters. The chat list uses numberOfLines=1, so this is only cosmetic."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Home highlights cache", "issue": "directory-new.tsx (line ~92) invalidates ['directory'] but not ['directory-highlights']. That is a separate key, not matched by prefix. directory.tsx delete doesn't invalidate it either. On native the Home tab stays mounted and refetchOnFocus is off, so a newly added or removed Template/Resource won't show on Home until pull-to-refresh. On web it updated during my test, probably because my navigation remounted Home.", "affected_testIDs": ["home-new-resources"]}
+    ],
+    "design_issues": [
+      {"screen": "/directory (Referral)", "issues": ["'Share to chat' posts immediately with no confirmation and no loading/disabled state, so a double-tap sends duplicate posts to a real team channel.", "The channel picker sheet has no Close/Cancel button; it can only be dismissed by tapping the scrim or with back.", "The long header title 'Therapist · Trusted Referral Partner Organisations' is truncated at 375px."]},
+      {"screen": "/directory (Suppliers/Activities)", "issues": ["The list re-sorts as soon as you rate, so the card you just tapped jumps position (Alpha moved from 2nd to 1st and back). This is disorienting; consider delaying the re-sort or keeping the position until refresh.", "Rating can't be cleared, because tapping the same star again does nothing. Minor."]},
+      {"screen": "Home", "issues": ["The 'New' pill on home-resource cards sits top-aligned rather than vertically centred with the text block. Minor."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter29_ratings_share_highlights.py", "/app/backend/tests/seed_iter29_ui.py", "/app/test_reports/pytest/pytest_iter29.xml"],
+  "action_items": [
+    "Invalidate ['directory-highlights'] after directory add/edit/delete (directory-new.tsx save, directory.tsx remove) so Home reflects changes on native.",
+    "Add a busy/disabled state, and optionally a confirm, to the 'Share to chat' button to prevent duplicate channel posts.",
+    "Optional: add a Close button to directory-channel-sheet; consider not re-sorting immediately after rating."
+  ],
+  "critical_code_review_comments": [
+    "Routes /directory/highlights and /directory/share-channel are correctly declared before /directory/{entry_id}.",
+    "The raw ratings dict is popped in shape(), so it is never exposed. Edit uses $set of FIELDS only, so ratings survive edits (verified).",
+    "share_channel() handles a deleted channel by returning null, and PUT rejects DMs and unknown IDs with 404 (verified)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter29_ratings_share_highlights.py (new)", "/app/backend/tests/seed_iter29_ui.py (new)"],
+  "success_rate": {"backend": "100% (5/5)", "frontend": "100% of requested flows"},
+  "seed_data_creation": "Temporary TEST_ directory entries, a TEST_ place and channel conv_TEST_refshare were created and then fully removed. The referral_share_channel settings doc was deleted (unset, as in production). No messages were posted to real channels, and real channels' last_message/last_at are unchanged.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run iter29 pytest with '-n 0' (pytest.ini uses xdist). Never share to real channels: Allied Health and Celebrate the Wins mirror to Google Chat via gchat_webhook. Use seed_iter29_ui.py seed/clean, which creates and removes conv_TEST_refshare."
+}

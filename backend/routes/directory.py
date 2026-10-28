@@ -1,6 +1,7 @@
 """Company Drive directories (Suppliers, Templates, Referral Partners, Activities, Resources) with file attachments.
 Everyone can view; admins add, edit and remove."""
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
@@ -15,6 +16,10 @@ CATEGORIES = {
     "therapist": ["Suppliers", "Templates", "Trusted Referral Partner Organisations"],
     "participant": ["Suppliers", "Activities", "Resources"],
 }
+RATEABLE = ("Suppliers", "Activities")
+HIGHLIGHT = (("therapist", "Templates"), ("participant", "Resources"))
+REFERRAL = "Trusted Referral Partner Organisations"
+SHARE_KEY = "referral_share_channel"
 FIELDS = ("name", "contact", "phone", "email", "address", "link", "note")
 
 
@@ -42,6 +47,11 @@ def clean(body: EntryIn) -> dict:
 
 
 def shape(d: dict, user: dict) -> dict:
+    ratings = d.pop("ratings", None) or {}
+    if d["category"] in RATEABLE:
+        d["rating_count"] = len(ratings)
+        d["avg_rating"] = round(sum(ratings.values()) / len(ratings), 1) if ratings else 0
+        d["my_rating"] = ratings.get(user["user_id"], 0)
     d["files"] = [{k: v for k, v in f.items() if k != "storage_path"} for f in d.get("files") or []]
     d["can_edit"] = user["role"] == "admin"
     return d
@@ -55,7 +65,44 @@ async def categories(user=Depends(current_user)):
 @router.get("/directory")
 async def list_entries(space: str, category: str, user=Depends(current_user)):
     docs = await db.directory.find({"space": space, "category": category}, P).sort("name", 1).to_list(1000)
-    return [shape(d, user) for d in docs]
+    out = [shape(d, user) for d in docs]
+    if category in RATEABLE:
+        out.sort(key=lambda d: (-d["avg_rating"], -d["rating_count"]))
+    return out
+
+
+@router.get("/directory/highlights")
+async def highlights(user=Depends(current_user)):
+    """New Templates (Therapist) and Resources (Participants) from the last 14 days, for the Home screen."""
+    since = (datetime.now(timezone.utc) - timedelta(days=14)).isoformat()
+    q = {"$or": [{"space": s, "category": c} for s, c in HIGHLIGHT], "created_at": {"$gte": since}}
+    docs = await db.directory.find(q, {"_id": 0, "entry_id": 1, "space": 1, "category": 1, "name": 1, "note": 1,
+                                       "created_at": 1, "files": 1}).sort("created_at", -1).to_list(8)
+    return [{**{k: v for k, v in d.items() if k != "files"}, "file_count": len(d.get("files") or [])} for d in docs]
+
+
+class ShareChannelIn(BaseModel):
+    conversation_id: str
+
+
+async def share_channel():
+    s = await db.settings.find_one({"key": SHARE_KEY}, P)
+    conv = s and await db.conversations.find_one({"conversation_id": s["conversation_id"], "type": "channel"}, P)
+    return conv
+
+
+@router.get("/directory/share-channel")
+async def get_share_channel(user=Depends(current_user)):
+    conv = await share_channel()
+    return {"conversation_id": conv["conversation_id"], "name": conv["name"]} if conv else None
+
+
+@router.put("/directory/share-channel")
+async def set_share_channel(body: ShareChannelIn, admin=Depends(admin_user)):
+    if not await db.conversations.find_one({"conversation_id": body.conversation_id, "type": "channel"}):
+        raise HTTPException(404, "Channel not found")
+    await db.settings.update_one({"key": SHARE_KEY}, {"$set": {"conversation_id": body.conversation_id}}, upsert=True)
+    return await get_share_channel(admin)
 
 
 @router.get("/directory/{entry_id}")
@@ -87,6 +134,42 @@ async def delete_entry(entry_id: str, admin=Depends(admin_user)):
     if not (await db.directory.delete_one({"entry_id": entry_id})).deleted_count:
         raise HTTPException(404, "Entry not found")
     return {"ok": True}
+
+
+class RateIn(BaseModel):
+    stars: int
+
+
+@router.post("/directory/{entry_id}/rate")
+async def rate_entry(entry_id: str, body: RateIn, user=Depends(current_user)):
+    d = await db.directory.find_one({"entry_id": entry_id}, {"_id": 0, "category": 1})
+    if not d:
+        raise HTTPException(404, "Entry not found")
+    if d["category"] not in RATEABLE:
+        raise HTTPException(400, "Only suppliers and activities can be rated")
+    if not 1 <= body.stars <= 5:
+        raise HTTPException(400, "Rate from 1 to 5 stars")
+    await db.directory.update_one({"entry_id": entry_id}, {"$set": {f"ratings.{user['user_id']}": body.stars}})
+    return await get_entry(entry_id, user)
+
+
+@router.post("/directory/{entry_id}/share")
+async def share_entry(entry_id: str, user=Depends(current_user)):
+    from routes.chat import MessageIn, send_message
+    d = await db.directory.find_one({"entry_id": entry_id}, P)
+    if not d:
+        raise HTTPException(404, "Entry not found")
+    if d["category"] != REFERRAL:
+        raise HTTPException(400, "Only referral partners can be shared")
+    conv = await share_channel()
+    if not conv:
+        raise HTTPException(400, "An admin needs to choose the referral sharing channel first")
+    lines = [f"🤝 Referral partner: {d['name']}"]
+    for label, k in (("Contact", "contact"), ("Phone", "phone"), ("Email", "email"), ("Address", "address"), ("Website", "link"), ("Notes", "note")):
+        if d.get(k):
+            lines.append(f"{label}: {d[k]}")
+    await send_message(conv["conversation_id"], MessageIn(text="\n".join(lines)), user)
+    return {"ok": True, "channel": conv["name"], "conversation_id": conv["conversation_id"]}
 
 
 @router.post("/directory/{entry_id}/files")
