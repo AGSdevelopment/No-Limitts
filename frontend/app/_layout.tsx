@@ -2,7 +2,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { useFonts } from "expo-font";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { LogBox, StyleSheet, View, ActivityIndicator } from "react-native";
+import { Image, LogBox, StyleSheet, View, ActivityIndicator } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 
@@ -22,7 +22,8 @@ function RootStack() {
   const { colors } = useTheme();
   if (loading) {
     return (
-      <View style={[styles.root, styles.center, { backgroundColor: colors.background }]} testID="auth-loading">
+      <View style={[styles.root, styles.center, { backgroundColor: colors.background, gap: 24 }]} testID="auth-loading">
+        <Image source={require("../assets/images/splash-image.png")} style={styles.splashLogo} resizeMode="contain" />
         <ActivityIndicator size="large" color={colors.brandPrimary} />
       </View>
     );
@@ -106,4 +107,5 @@ export default function RootLayout() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   center: { alignItems: "center", justifyContent: "center" },
+  splashLogo: { width: 260, height: 260 },
 });

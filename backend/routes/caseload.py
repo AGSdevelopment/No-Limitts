@@ -36,6 +36,22 @@ def find(fields: list, *words) -> str:
     return ""
 
 
+async def team_header(c: httpx.AsyncClient, base: str) -> dict:
+    """The case note form lives in a Jotform Team workspace; team forms are only readable with the jf-team-id header.
+    Finds (and caches) the team that can read the form."""
+    if "team" in _cache:
+        return _cache["team"]
+    candidates = [{}]
+    r = await c.get(f"{base}/team/user/me")
+    if r.status_code == 200:
+        candidates += [{"jf-team-id": t["id"]} for t in (r.json().get("content") or []) if t.get("id")]
+    for h in candidates:
+        if (await c.get(f"{base}/form/{FORM_ID}", headers=h)).status_code == 200:
+            _cache["team"] = h
+            return h
+    return {}
+
+
 async def fetch_rows() -> list:
     """Last ~1000 submissions, cached for 5 minutes (Jotform has daily API limits)."""
     if _cache["rows"] is not None and time.time() - _cache["at"] < 300:
@@ -43,8 +59,9 @@ async def fetch_rows() -> list:
     base = (os.environ.get("JOTFORM_BASE_URL") or "https://nolimitts.jotform.com/API").rstrip("/")  # No Limitts Enterprise API
     rows = []
     async with httpx.AsyncClient(timeout=20, headers={"APIKEY": os.environ["JOTFORM_API_KEY"].strip()}) as c:
+        team = await team_header(c, base)
         for offset in range(0, 1000, 500):
-            r = await c.get(f"{base}/form/{FORM_ID}/submissions",
+            r = await c.get(f"{base}/form/{FORM_ID}/submissions", headers=team,
                             params={"offset": offset, "limit": 500, "orderby": "created_at",
                                     "filter": json.dumps({"status:ne": "DELETED"})})
             r.raise_for_status()
@@ -76,6 +93,7 @@ async def caseload(user=Depends(current_user), refresh: Optional[bool] = False):
         return {"configured": False, "participants": []}
     if refresh:
         _cache["rows"] = None
+        _cache.pop("team", None)
     try:
         rows = await fetch_rows()
     except httpx.HTTPStatusError as e:

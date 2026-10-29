@@ -217,3 +217,5 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Upload screen: removed "Count towards my CPD hours" option
 - App background is now #F7A51D (theme token `background`, cards stay white; `muted` darkened for contrast)
 - Caseload (Jotform form 262772090420048) deferred: key returns 401
+- Caseload fixed: Jotform case note form lives in Team workspace "No limitts"; backend auto-discovers team via /team/user/me and sends `jf-team-id` header (cached). Form currently has 0 submissions.
+- Branded splash: native splash bg #F7A51D (imageWidth 260); in-app loading screen shows logo on orange. Tab bar uses `background` token.
