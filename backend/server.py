@@ -9,6 +9,7 @@ from routes import (auth, users, notifications, certificates, chat, updates, pol
                     dashboard, drive, teams, calendar, forms, socials, cpd, ai, digest, profile, places, pathway, directory, referral_map,
                     celebrations, caseload)
 from routes.celebrations import celebration_reminder_loop
+from routes.caseload import handover_alert_loop
 from routes.compliance import starter_reminder_loop
 from routes.teams import weekly_wrap_loop
 from routes.places import migrate_place_kinds
@@ -315,6 +316,7 @@ async def startup():
     asyncio.create_task(event_reminder_loop())
     asyncio.create_task(poll_close_loop())
     asyncio.create_task(celebration_reminder_loop())
+    asyncio.create_task(handover_alert_loop())
 
 
 @app.on_event("shutdown")

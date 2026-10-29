@@ -1,4 +1,5 @@
 """Caseload: participants and their case notes from Jotform (Coordinator Case Note Form + Day-to-Day Support Worker case notes)."""
+import asyncio
 import json
 import os
 import re
@@ -12,7 +13,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from pydantic import BaseModel
-from core import bearer, current_user, db, dmy, logger, now_iso, user_from_token
+from core import bearer, current_user, db, dmy, logger, notify, now_iso, user_from_token
 from email_service import send_email
 from pdf_brand import FIRST_TOP, add_logo
 import ai_service
@@ -392,6 +393,88 @@ async def participants_template(request: Request, token: Optional[str] = None):
     wb.save(buf)
     return Response(content=buf.getvalue(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     headers={"Content-Disposition": 'attachment; filename="No Limitts participants template.xlsx"'})
+
+
+@router.get("/participants/export")
+async def export_participants(request: Request, token: Optional[str] = None):
+    """Spreadsheet of who's assigned to which participant (for rostering)."""
+    user = await user_from_token(bearer(request) or token)
+    if not user or not can_manage(user):
+        raise HTTPException(403, "Only Service & Support Coordinators and Admins")
+    import io
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill
+    listed = await db.participants.find({}, {"_id": 0}).sort("name", 1).to_list(5000)
+    ids = list({i for p in listed for i in p.get("assigned_ids", [])})
+    staff = {u["user_id"]: u async for u in db.users.find({"user_id": {"$in": ids}}, {"_id": 0, "user_id": 1, "name": 1, "email": 1, "phone": 1})}
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "By participant"
+    ws.append(["Participant", "Support Workers", "Number assigned", "Added"])
+    for p in listed:
+        names = [staff[i]["name"] for i in p.get("assigned_ids", []) if i in staff]
+        ws.append([p["name"], ", ".join(names), len(names), dmy((p.get("created_at") or "")[:10]) if p.get("created_at") else ""])
+    ws2 = wb.create_sheet("By Support Worker")
+    ws2.append(["Support Worker", "Email", "Phone", "Participants", "Number of participants"])
+    for uid, u in sorted(staff.items(), key=lambda x: x[1]["name"].lower()):
+        mine = [p["name"] for p in listed if uid in p.get("assigned_ids", [])]
+        ws2.append([u["name"], u.get("email") or "", u.get("phone") or "", ", ".join(mine), len(mine)])
+    for sheet, widths in ((ws, (30, 70, 16, 14)), (ws2, (28, 34, 16, 70, 22))):
+        for c in sheet[1]:
+            c.font, c.fill = Font(bold=True, color="FFFFFF"), PatternFill("solid", fgColor="673E8D")
+        for col, w in zip("ABCDE", widths):
+            sheet.column_dimensions[col].width = w
+        sheet.freeze_panes = "A2"
+    buf = io.BytesIO()
+    wb.save(buf)
+    return Response(content=buf.getvalue(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="No Limitts assignments {date.today().isoformat()}.xlsx"'})
+
+
+async def check_new_handovers():
+    """Alert assigned Support Workers in-app when a new Shift Handover is submitted for their participant."""
+    base = jot_base()
+    async with httpx.AsyncClient(timeout=20, headers={"APIKEY": os.environ["JOTFORM_API_KEY"].strip()}) as c:
+        team = await team_header(c, base)
+        forms = [f for f in await case_forms(c, team) if f["kind"] == "day" and "handover" in f["title"].lower()]
+        for form in forms:
+            r = await c.get(f"{base}/form/{form['form_id']}/submissions", headers=team,
+                            params={"limit": 100, "orderby": "created_at", "filter": json.dumps({"status:ne": "DELETED"})})
+            if r.status_code != 200:
+                continue
+            subs = r.json().get("content") or []
+            seen_key = f"handover_seen_{form['form_id']}"
+            meta = await db.meta.find_one({"key": seen_key})
+            seen = set(meta.get("ids", [])) if meta else None
+            ids = [s.get("id") for s in subs]
+            if seen is not None:
+                for s in subs:
+                    if s.get("id") in seen:
+                        continue
+                    named = {a.get("name"): as_text(a.get("answer")) for a in (s.get("answers") or {}).values() if "answer" in a}
+                    who = named.get(form["p_name"]) or ""
+                    p = await db.participants.find_one({"key": participant_key(who)}, {"_id": 0}) if who else None
+                    if not p or not p.get("assigned_ids"):
+                        continue
+                    author_email = (named.get(form["e_name"]) or "").lower()
+                    author = named.get(form["a_name"]) or "A Support Worker"
+                    targets = [u["user_id"] async for u in db.users.find({"user_id": {"$in": p["assigned_ids"]}}, {"_id": 0, "user_id": 1, "email": 1})
+                               if (u.get("email") or "").lower() != author_email or not author_email]
+                    await notify(targets, "handover", f"New shift handover: {p['name']}",
+                                 f"{author} posted a shift handover. Read it before your shift.", "/caseload")
+            keep = list(dict.fromkeys(ids + list(seen or [])))[:500]
+            await db.meta.update_one({"key": seen_key}, {"$set": {"key": seen_key, "ids": keep, "updated_at": now_iso()}}, upsert=True)
+
+
+async def handover_alert_loop():
+    await asyncio.sleep(60)
+    while True:
+        if configured():
+            try:
+                await check_new_handovers()
+            except Exception as e:
+                logger.error(f"Handover alert check failed: {type(e).__name__}: {e}")
+        await asyncio.sleep(600)
 
 
 @router.delete("/participants/{participant_id}")

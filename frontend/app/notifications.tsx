@@ -10,6 +10,7 @@ import { makeStyles, useTheme } from "@/src/theme";
 
 const ICONS: Record<string, IconName> = {
   certificate: "ribbon",
+  handover: "swap-horizontal",
   message: "chatbubble",
   update: "megaphone",
   policy: "shield-checkmark",

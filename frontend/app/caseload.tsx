@@ -132,6 +132,11 @@ export default function Caseload() {
                 <Ionicons name="download-outline" size={16} color={colors.brandPrimary} />
                 <Text style={styles.templateText}>Download the participant spreadsheet template</Text>
               </Pressable>
+              <Pressable onPress={() => openLink(`${API_URL}/participants/export?token=${encodeURIComponent(getApiToken() ?? "")}`)}
+                style={styles.templateLink} testID="caseload-export">
+                <Ionicons name="grid-outline" size={16} color={colors.brandPrimary} />
+                <Text style={styles.templateText}>Download assignments spreadsheet (for rostering)</Text>
+              </Pressable>
             </>
           )}
           {worker && <Text style={styles.meta}>Participants you&apos;re assigned to. Tap one to write a case note or read their Support Worker notes.</Text>}
