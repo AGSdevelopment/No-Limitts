@@ -289,7 +289,8 @@ async def caseload(user=Depends(current_user), refresh: Optional[bool] = False):
                 h["acks"] = [{"name": a["name"], "at": a["at"]} for a in got]
                 h["waiting"] = [a["name"] for a in p["assigned"] if a["user_id"] not in done]
     out.sort(key=lambda p: (p["last_date"], p["name"]), reverse=True)
-    return {"configured": configured(), "can_manage": can_manage(user), "worker": worker, "participants": out}
+    intros = [p["participant_id"] for p in listed if worker and user["user_id"] not in p.get("intro_seen_ids", [])]
+    return {"configured": configured(), "can_manage": can_manage(user), "worker": worker, "intros": intros, "participants": out}
 
 
 class ParticipantIn(BaseModel):
@@ -365,11 +366,31 @@ async def add_participant(body: ParticipantIn, user=Depends(manager)):
 async def assign_participant(participant_id: str, body: AssignIn, user=Depends(manager)):
     ids = list(dict.fromkeys(body.user_ids))
     valid = [u["user_id"] async for u in db.users.find({"user_id": {"$in": ids}, "user_type": "support_worker"}, {"_id": 0, "user_id": 1})]
-    res = await db.participants.update_one({"participant_id": participant_id},
-                                           {"$set": {"assigned_ids": valid, "updated_at": now_iso()}})
-    if not res.matched_count:
+    p = await db.participants.find_one({"participant_id": participant_id}, {"_id": 0})
+    if not p:
         raise HTTPException(404, "Participant not found")
+    before = set(p.get("assigned_ids", []))
+    # Anyone taken off (and later re-added) gets the intro again
+    seen = [i for i in p.get("intro_seen_ids", []) if i in valid]
+    await db.participants.update_one({"participant_id": participant_id},
+                                     {"$set": {"assigned_ids": valid, "intro_seen_ids": seen, "updated_at": now_iso()}})
+    await welcome_workers([i for i in valid if i not in before], p)
     return {"assigned_ids": valid}
+
+
+async def welcome_workers(user_ids: list, p: dict):
+    """New Worker Intro: tell newly assigned Support Workers to read the participant's profile."""
+    if user_ids:
+        await notify(user_ids, "participant", f"New participant: {p['name']}",
+                     f"You've been assigned to support {p['name']}. Read their profile before your first shift.",
+                     f"/participant/{p['participant_id']}")
+
+
+@router.post("/participants/{participant_id}/intro-seen")
+async def intro_seen(participant_id: str, user=Depends(current_user)):
+    await db.participants.update_one({"participant_id": participant_id, "assigned_ids": user["user_id"]},
+                                     {"$addToSet": {"intro_seen_ids": user["user_id"]}})
+    return {"ok": True}
 
 
 @router.post("/participants/import")
@@ -419,11 +440,13 @@ async def import_participants(file: UploadFile = File(...), user=Depends(manager
         if existing:
             new_ids = list(dict.fromkeys(existing.get("assigned_ids", []) + ids))
             await db.participants.update_one({"key": key}, {"$set": {"assigned_ids": new_ids, "updated_at": now_iso()}})
+            await welcome_workers([i for i in new_ids if i not in existing.get("assigned_ids", [])], existing)
             updated.append({"row": n, "name": existing["name"], "assigned": len(new_ids), "unknown": unknown})
         else:
-            await db.participants.insert_one({"participant_id": f"par_{secrets.token_hex(6)}", "name": name, "key": key,
-                                              "assigned_ids": list(dict.fromkeys(ids)), "created_by": user.get("name") or "",
-                                              "created_at": now_iso()})
+            doc = {"participant_id": f"par_{secrets.token_hex(6)}", "name": name, "key": key,
+                   "assigned_ids": list(dict.fromkeys(ids)), "created_by": user.get("name") or "", "created_at": now_iso()}
+            await db.participants.insert_one(dict(doc))
+            await welcome_workers(doc["assigned_ids"], doc)
             added.append({"row": n, "name": name, "assigned": len(set(ids)), "unknown": unknown})
     return {"added": added, "updated": updated, "skipped": skipped}
 

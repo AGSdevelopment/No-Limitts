@@ -41,6 +41,56 @@ export function ConfirmSheet({ visible, title, sub, confirmLabel, busy, onConfir
   );
 }
 
+export function IntroSheet({ participantId, onDone, onOpenProfile }: { participantId: string | null; onDone: () => void; onOpenProfile: (id: string) => void }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  const q = useQuery<any>({ queryKey: ["participant", participantId], queryFn: () => api(`/participants/${participantId}`), enabled: !!participantId, retry: false });
+  const [busy, setBusy] = useState(false);
+  const seen = async (open: boolean) => {
+    setBusy(true);
+    try {
+      await api(`/participants/${participantId}/intro-seen`, { method: "POST" });
+    } catch {
+      // Not critical: they'll just see the intro again next time
+    }
+    setBusy(false);
+    if (open && participantId) onOpenProfile(participantId);
+    onDone();
+  };
+  const p = q.data?.profile;
+  const bits = p ? [
+    { icon: "flag-outline", label: "Goals", text: p.goals },
+    { icon: "hand-left-outline", label: "Support needs", text: p.support_needs },
+    { icon: "chatbubbles-outline", label: "Communication", text: p.communication },
+    { icon: "medkit-outline", label: "Health & alerts", text: p.health_alerts },
+  ].filter((b) => b.text) : [];
+  return (
+    <Sheet visible={!!participantId} onClose={() => seen(false)} title={q.data ? `Meet ${q.data.name}` : "Your new participant"}
+      sub="You've just been assigned to support this participant. Here's what to know before your first shift." testID="intro-sheet">
+      {q.isLoading ? <Loading /> : (
+        <ScrollView style={{ maxHeight: 360 }} contentContainerStyle={{ gap: 10 }}>
+          {!!p?.about && <Text style={styles.introBody}>{p.about}</Text>}
+          {bits.map((b) => (
+            <View key={b.label} style={{ gap: 2 }}>
+              <View style={styles.introHead}>
+                <Ionicons name={b.icon as any} size={16} color={b.label === "Health & alerts" ? colors.errorText : colors.brandPrimary} />
+                <Text style={styles.name}>{b.label}</Text>
+              </View>
+              <Text style={styles.introBody} numberOfLines={4}>{b.text}</Text>
+            </View>
+          ))}
+          {!!p?.contacts?.length && (
+            <Text style={styles.sub}>Key contacts: {p.contacts.map((c: any) => (c.relationship ? `${c.name} (${c.relationship})` : c.name)).join(", ")}</Text>
+          )}
+          {!p?.about && !bits.length && <Text style={styles.sub}>Their coordinator hasn&apos;t added profile details yet. Check their notes and handovers.</Text>}
+        </ScrollView>
+      )}
+      <Button label="Read full profile" icon="person-circle-outline" loading={busy} onPress={() => seen(true)} testID="intro-open-profile" />
+      <Button label="Got it" variant="ghost" disabled={busy} onPress={() => seen(false)} testID="intro-got-it" />
+    </Sheet>
+  );
+}
+
 export function ImportResultSheet({ result, onClose }: { result: { added: any[]; updated: any[]; skipped: any[] } | null; onClose: () => void }) {
   const styles = useStyles();
   const unknown = [...(result?.added ?? []), ...(result?.updated ?? [])].filter((r) => r.unknown?.length);
@@ -190,4 +240,6 @@ const useStyles = makeStyles((c) => ({
   search: { minHeight: 44, borderRadius: 12, backgroundColor: c.surfaceSecondary, paddingHorizontal: 14, fontSize: 15, color: c.onSurface },
   row: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 52, paddingVertical: 4 },
   name: { fontSize: 15, fontWeight: "600", color: c.onSurface },
+  introHead: { flexDirection: "row", alignItems: "center", gap: 6 },
+  introBody: { fontSize: 14, color: c.onSurface, lineHeight: 20 },
 }));

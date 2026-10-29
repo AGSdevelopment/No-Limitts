@@ -42,6 +42,10 @@ export default function ParticipantProfile() {
     setForm(Object.fromEntries(SECTIONS.map((s) => [s.key, p[s.key] ?? ""])));
     setContacts(p.contacts ?? []);
   }, [q.data, editing]);
+  useEffect(() => {
+    // A Support Worker opening the profile counts as having seen the new-participant intro
+    if (q.data && !q.data.can_edit) api(`/participants/${id}/intro-seen`, { method: "POST" }).catch(() => {});
+  }, [q.data, id]);
 
   if (q.isLoading) return <Loading />;
   if (q.isError) return <ErrorState message={(q.error as any)?.message ?? "Couldn't load this profile"} onRetry={q.refetch} />;

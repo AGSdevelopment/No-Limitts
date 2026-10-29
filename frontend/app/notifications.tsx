@@ -11,6 +11,7 @@ import { makeStyles, useTheme } from "@/src/theme";
 const ICONS: Record<string, IconName> = {
   certificate: "ribbon",
   handover: "swap-horizontal",
+  participant: "person-add",
   message: "chatbubble",
   update: "megaphone",
   policy: "shield-checkmark",

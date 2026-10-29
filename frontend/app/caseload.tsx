@@ -9,7 +9,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { API_URL, api, authHeaders, getApiToken, openLink } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { StaffEmailSheet } from "@/src/components/staff-email-sheet";
-import { AddParticipantSheet, AssignSheet, CaseFormsSheet, ConfirmSheet, ImportResultSheet } from "@/src/components/participant-sheets";
+import { AddParticipantSheet, AssignSheet, CaseFormsSheet, ConfirmSheet, ImportResultSheet, IntroSheet } from "@/src/components/participant-sheets";
 import * as DocumentPicker from "expo-document-picker";
 import { uploadForm } from "@/src/utils/upload";
 import { useToast } from "@/src/components/toast";
@@ -38,6 +38,7 @@ export default function Caseload() {
   const [removing, setRemoving] = useState<any>(null);
   const [removeBusy, setRemoveBusy] = useState(false);
   const [acking, setAcking] = useState<string | null>(null);
+  const [introDone, setIntroDone] = useState<string[]>([]);
 
   const ack = async (item: any) => {
     setAcking(item.handover.id);
@@ -279,6 +280,9 @@ export default function Caseload() {
       sub="They'll be taken off the participant list and Support Workers will lose access. Case notes in Jotform aren't deleted."
       confirmLabel="Remove participant" busy={removeBusy} onConfirm={remove} onClose={() => setRemoving(null)} />
     <ImportResultSheet result={imported} onClose={() => setImported(null)} />
+    <IntroSheet participantId={q.data.intros?.find((i: string) => !introDone.includes(i)) ?? null}
+      onDone={() => { setIntroDone((d) => [...d, q.data.intros.find((i: string) => !d.includes(i))]); q.refetch(); }}
+      onOpenProfile={(id) => router.push(`/participant/${id}`)} />
     </>
   );
 }
