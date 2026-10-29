@@ -24,12 +24,27 @@ export default function Socials() {
 
   if (q.isLoading) return <Loading />;
   if (q.isError) return <ErrorState message="Couldn't load socials." onRetry={() => q.refetch()} />;
-  const { links, posts, status } = q.data;
-  const anyConnected = status.meta.connected || status.linkedin.connected;
+  const { links, websites, posts, status } = q.data;
+  const anyConnected = status.meta.connected;
 
   const header = (
     <View style={{ gap: 12, marginBottom: 8 }}>
-      {(["instagram", "facebook", "linkedin"] as const).map((k) => (
+      <Text style={[styles.section, { marginTop: 0 }]}>Our websites</Text>
+      {(websites ?? []).map((w: any) => (
+        <Pressable key={w.url} testID={`socials-website-${w.label}`} onPress={() => openLink(w.url)} style={({ pressed }) => [styles.account, pressed && { opacity: 0.85 }]}>
+          <View style={[styles.brandIcon, { backgroundColor: colors.brandPrimary }]}>
+            <Ionicons name="globe-outline" size={24} color="#FFFFFF" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.accountName}>{w.label}</Text>
+            <Text style={styles.accountHandle} numberOfLines={1}>{w.url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "")}</Text>
+          </View>
+          <Text style={styles.follow}>Visit</Text>
+          <Ionicons name="open-outline" size={18} color={colors.brandPrimary} />
+        </Pressable>
+      ))}
+      <Text style={styles.section}>Follow us</Text>
+      {(["instagram", "facebook"] as const).map((k) => (
         <Pressable
           key={k}
           testID={`socials-open-${k}`}
@@ -67,7 +82,7 @@ export default function Socials() {
         contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: bottomChrome + 24, flexGrow: 1 }}
         refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => q.refetch()} tintColor={colors.brandPrimary} />}
         ListEmptyComponent={
-          <EmptyState icon="images-outline" title="No posts yet" subtitle="New Instagram, Facebook and LinkedIn posts will show up here." testID="socials-empty" />
+          <EmptyState icon="images-outline" title="No posts yet" subtitle="New Instagram and Facebook posts will show up here." testID="socials-empty" />
         }
         renderItem={({ item }) => <SocialPost item={item} />}
       />

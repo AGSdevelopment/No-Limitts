@@ -13,7 +13,7 @@ from core import spawn, DIGEST_TZ, HIDDEN_TEST_USERS, MAX_UPLOAD_BYTES, P, admin
 from routes.drive import clean_pdf_text, drive_svc_or_409
 from email_service import send_email
 from storage import APP_NAME, get_object, put_object
-import google_services as gs
+import ms_services as gs
 
 router = APIRouter(prefix="/api")
 

@@ -3,10 +3,12 @@ from fastapi.concurrency import run_in_threadpool
 from starlette.middleware.cors import CORSMiddleware
 import asyncio
 import json
-from core import HIDDEN_TEST_USERS, ROOT_DIR, client, db, logger, new_id, now_iso
+from core import HIDDEN_TEST_USERS, P, ROOT_DIR, SEED_USERS, client, db, logger, new_id, now_iso, type_fields
 from storage import init_storage
 from routes import (auth, users, notifications, certificates, chat, updates, policies, compliance, events, tasks,
-                    dashboard, drive, gchat, calendar, forms, socials, cpd, ai, digest, profile, places, pathway, directory, referral_map)
+                    dashboard, drive, teams, calendar, forms, socials, cpd, ai, digest, profile, places, pathway, directory, referral_map,
+                    celebrations)
+from routes.celebrations import celebration_reminder_loop
 from routes.places import migrate_place_kinds
 from routes.directory import ensure_share_channel
 from routes.certificates import expiry_loop
@@ -16,7 +18,6 @@ from routes.profile import probation_reminder_loop
 from routes.events import event_reminder_loop, poll_close_loop
 from routes.tasks import task_reminder_loop
 from routes.drive import drive_index_loop
-from routes.gchat import gchat_loop
 from routes.socials import socials_loop
 from routes.digest import digest_loop, resource_digest_loop
 
@@ -30,7 +31,8 @@ async def health():
 
 
 for module in (auth, users, notifications, certificates, chat, updates, policies, compliance, events, tasks,
-               dashboard, drive, gchat, calendar, forms, socials, cpd, ai, digest, profile, places, pathway, directory, referral_map):
+               dashboard, drive, teams, calendar, forms, socials, cpd, ai, digest, profile, places, pathway, directory, referral_map,
+               celebrations):
     app.include_router(module.router)
 
 
@@ -113,6 +115,49 @@ async def restore_staff():
     await db.meta.insert_one({"key": "restore_staff_v1", "created_at": now_iso()})
 
 
+async def migrate_no_limitts():
+    """One-time switch to No Limitts: remove the old Aspire & Grow staff and their data, set user types,
+    add the named Executives, fold old staff groups into Support Worker, drop Google/LinkedIn leftovers."""
+    if await db.meta.find_one({"key": "no_limitts_v1"}):
+        return
+    old = [u["user_id"] async for u in db.users.find({"email": {"$regex": "@aspireandgrow\\.com\\.au$"},
+                                                       "hidden": {"$ne": True}}, {"user_id": 1})]
+    if old:
+        ids = {"$in": old}
+        for col, field in (("user_sessions", "user_id"), ("notifications", "user_id"), ("certificates", "owner_id"),
+                           ("cpd_logs", "user_id"), ("cpd_goals", "user_id"), ("checklist_progress", "user_id"),
+                           ("conv_reads", "user_id"), ("ai_messages", "user_id"), ("pathways", "user_id"),
+                           ("tasks", "assignee_id"), ("celebration_posts", "user_id"), ("messages", "sender_id")):
+            await db[col].delete_many({field: ids})
+        dms = [c["conversation_id"] async for c in db.conversations.find({"type": "dm", "member_ids": ids}, {"conversation_id": 1})]
+        await db.messages.delete_many({"conversation_id": {"$in": dms}})
+        await db.conversations.delete_many({"conversation_id": {"$in": dms}})
+        await db.conversations.update_many({}, {"$pull": {"member_ids": ids}})
+        await db.users.delete_many({"user_id": ids})
+    for email, (name, t) in SEED_USERS.items():
+        if not await db.users.find_one({"email": email}):
+            await db.users.insert_one({"user_id": new_id("user"), "email": email, "name": name, "picture": None,
+                                       "job_title": "", "created_at": now_iso(), **type_fields(t)})
+    async for u in db.users.find({"user_type": {"$exists": False}}, P):
+        t = ("executive" if u.get("executive") else "admin" if u.get("role") == "admin"
+             else "support_office" if u.get("staff_group") == "support_office" else "support_worker")
+        await db.users.update_one({"user_id": u["user_id"]}, {"$set": type_fields(t)})
+    async for f in db.forms.find({"audiences": {"$elemMatch": {"$nin": ["support_office", "support_worker"]}}}):
+        new = sorted({a if a == "support_office" else "support_worker" for a in f["audiences"]})
+        await db.forms.update_one({"_id": f["_id"]}, {"$set": {"audiences": new}})
+    req = await db.meta.find_one({"key": "cert_requirements"})
+    if req:
+        groups = req.get("groups", {})
+        sw = sorted({n for k, v in groups.items() if k != "support_office" for n in v})
+        await db.meta.update_one({"_id": req["_id"]}, {"$set": {"groups": {"support_office": groups.get("support_office", []),
+                                                                          "support_worker": sw}}})
+    await db.integrations.delete_many({"key": {"$regex": "^(google_|linkedin)"}})
+    await db.updates.delete_many({"source": "linkedin"})
+    await db.conversations.update_many({}, {"$unset": {"gchat_webhook": "", "gchat_space": "", "gchat_two_way": "", "gchat_cursor": ""}})
+    await db.meta.insert_one({"key": "no_limitts_v1", "created_at": now_iso()})
+    logger.info(f"No Limitts migration: removed {len(old)} old staff")
+
+
 async def seed():
     for name, desc in (("general", "Company-wide chat for everyone"),
                        ("announcements", "Important news and notices")):
@@ -150,6 +195,7 @@ async def startup():
     await seed_staff_v2()
     await migrate_forms_v3()
     await restore_staff()
+    await migrate_no_limitts()
     await migrate_place_kinds()
     await ensure_share_channel()
     # internal test accounts stay usable but are hidden from staff everywhere
@@ -168,7 +214,6 @@ async def startup():
     except Exception as e:
         logger.error(f"Storage init failed: {e}")
     asyncio.create_task(expiry_loop())
-    asyncio.create_task(gchat_loop())
     asyncio.create_task(drive_index_loop())
     asyncio.create_task(digest_loop())
     asyncio.create_task(resource_digest_loop())
@@ -179,6 +224,7 @@ async def startup():
     asyncio.create_task(probation_reminder_loop())
     asyncio.create_task(event_reminder_loop())
     asyncio.create_task(poll_close_loop())
+    asyncio.create_task(celebration_reminder_loop())
 
 
 @app.on_event("shutdown")

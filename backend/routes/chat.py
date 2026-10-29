@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 import re
 from core import P, admin_user, current_user, db, logger, new_id, notify, now_iso, spawn
-import google_services as gs
+import ms_services as ms
 
 router = APIRouter(prefix="/api")
 
@@ -35,10 +35,9 @@ async def list_conversations(user=Depends(current_user)):
             c["picture"] = other.get("picture")
             c["other_user_id"] = other_id
         c["unread"] = unread
-        c["google_chat"] = bool(c.pop("gchat_webhook", None))
-        c["google_chat_two_way"] = bool(c.pop("gchat_two_way", False))
-        c.pop("gchat_space", None)
-        c.pop("gchat_cursor", None)
+        c["teams"] = bool(c.pop("teams_webhook", None))
+        for k in ("gchat_webhook", "gchat_two_way", "gchat_space", "gchat_cursor"):
+            c.pop(k, None)
         out.append(c)
     out.sort(key=lambda c: c.get("last_at") or c.get("created_at"), reverse=True)
     return out
@@ -113,12 +112,12 @@ async def send_message(conv_id: str, body: MessageIn, user=Depends(current_user)
                                                 "last_at": msg["created_at"]}})
     await db.conv_reads.update_one({"user_id": user["user_id"], "conversation_id": conv_id},
                                    {"$set": {"last_read_at": msg["created_at"]}}, upsert=True)
-    if conv["type"] == "channel" and conv.get("gchat_webhook"):
+    if conv["type"] == "channel" and conv.get("teams_webhook"):
         try:
-            hook = gs.decrypt(conv["gchat_webhook"])
-            spawn(gs.post_to_gchat(hook, f"*{user['name']}* in #{conv['name']} (No Limitts):\n{text[:4000]}"))
+            hook = ms.decrypt(conv["teams_webhook"])
+            spawn(ms.post_to_teams(hook, f"**{user['name']}** in #{conv['name']} (No Limitts):\n\n{text[:4000]}"))
         except Exception as e:
-            logger.error(f"Google Chat webhook unusable for {conv_id}: {e}")
+            logger.error(f"Teams webhook unusable for {conv_id}: {e}")
     if conv["type"] == "dm":
         others = [m for m in conv["member_ids"] if m != user["user_id"]]
         await notify(others, "message", f"New message from {user['name']}", text[:120], f"/chat/{conv_id}")

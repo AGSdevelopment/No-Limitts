@@ -1,0 +1,52 @@
+{
+  "summary": "Tested Microsoft sign-in, Support Worker password auth, user types, the Microsoft integrations and Socials, on both backend and frontend. Backend: 25 of 26 pytest checks pass. The one failure is a security issue: the user's bcrypt password_hash comes back in /auth/login, /auth/me, /auth/change-password and /auth/session responses. Frontend: the app CRASHED ON LOAD for every user. The error boundary showed 'Screen names must be unique: change-password' because _layout.tsx registered the change-password Stack.Screen in two Stack.Protected groups. Testing agent applied a minimal fix to unblock testing. After the fix, every requested UI flow passed: Microsoft button shows the not-set-up error, Support Worker password login, admin adds a worker and sees the temp password dialog, the forced change-password screen blocks the app, Change type sheet, Reset password, Remove, Socials (3 websites, Instagram and Facebook only), Integrations (SharePoint, Outlook, Teams, with non-Teams URLs rejected), and regression screens. No deprecated Expo packages (expo-av, expo-barcode-scanner, expo-background-fetch) were found.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/auth/login, GET /api/auth/me, POST /api/auth/change-password, POST /api/auth/session", "issue": "The user object includes password_hash (bcrypt), plus failed_logins and locked_until. Cause: core.user_from_token and auth.py return db.users.find_one(..., P), and P only excludes _id. The hash is then saved in client state. Fix: use a projection that excludes password_hash, failed_logins and locked_until (e.g. USER_P = {'_id':0,'password_hash':0,'failed_logins':0,'locked_until':0}) in user_from_token and in every user returned from auth.py. change_password already reads the hash separately.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "routes/socials.py", "issue": "LinkedIn code is still present: SOCIAL_LABELS, status.linkedin, /integrations/linkedin/start and /integrations/linkedin/callback, and redirect_uris.linkedin. The user asked for LinkedIn to be removed. No UI shows it."},
+      {"endpoint": "PATCH /api/users/{id}/type", "issue": "Changing a support_worker to an office type removes password_hash but keeps their existing sessions. The user stays signed in with password-based sessions after becoming a Microsoft-only type. Consider deleting their sessions."},
+      {"endpoint": "POST /api/auth/login", "issue": "Anyone who knows a worker's email can lock that account with 5 bad attempts (intended lockout, but there is no per-IP limit). An office user with no password who gets 5 bad attempts is also given failed_logins and locked_until, which serves no purpose."},
+      {"endpoint": "seed/migration", "issue": "No 'general' channel in conversations (only Allied Health, announcements, Celebrate the Wins). Check whether the seed by seed_key/name ran after the migration."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "app/_layout.tsx", "issue": "CRASH (fixed by testing agent): Stack.Screen 'change-password' was declared twice, once in the must_change_password guard and once in the signed-in guard. React Navigation threw 'Screen names must be unique', and the whole app showed the ErrorBoundary for all users, including on the login screen. Fix: one change-password screen in a Stack.Protected guard={!!user} block placed after the main (tabs) block, with headerShown false when must_change_password is true. change-password.tsx now calls router.replace('/') after a successful forced change.", "testID": "change-password-screen", "priority": "CRITICAL"},
+      {"component": "app/team.tsx addStaff/doConfirm", "issue": "The temp-password Modal opens in the same tick as the add sheet or ConfirmSheet Modal closes. On iOS native, a second RN Modal presented while another is dismissing often fails to appear, and the password is 'shown only once'. Open the dialog after the first modal's onDismiss, or use a single modal. The temp password also has no Copy button (expo-clipboard).", "testID": "team-temp-password", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Staff profile (app/staff/[id].tsx:60-61)", "issues": ["It still shows the old role pill 'Admin/Employee' plus the group 'Support Workers'. It should show the new user type (Executive / Admin / Support Office / Support Worker).", "Line 78 still has the emerging_therapist PathwaySummary branch. That group no longer exists, so this is dead code."]},
+      {"screen": "Integrations", "issues": ["The Outlook calendar card has no status line when not configured. Only the SharePoint card says 'Waiting for the Microsoft 365 app details'."]},
+      {"screen": "compose.tsx:233 and certificates.tsx:114", "issues": ["The logo-google icon is still used for attached SharePoint files and for the certificate drive_link indicator."]},
+      {"screen": "Change password (non-forced)", "issues": ["After a successful change, the user stays on the screen with only a toast. Consider router.back()."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter44_microsoft_auth_users.py", "/app/test_reports/pytest/pytest_iter44.xml"],
+  "action_items": [
+    "HIGH: Stop sending password_hash, failed_logins and locked_until in any user payload: core.user_from_token, and the login, session and change-password responses in auth.py.",
+    "Review the testing agent's fix in app/_layout.tsx and app/change-password.tsx (duplicate change-password screen crash). Keep a single change-password Stack.Screen.",
+    "Make the temp password dialog on Team reliable on iOS: open it after the previous modal dismisses. Add a Copy button.",
+    "Staff profile: show the user_type label instead of role/staff_group pills. Remove the emerging_therapist and pathway remnants.",
+    "Remove the LinkedIn backend code in routes/socials.py.",
+    "Replace the logo-google icons in compose.tsx and certificates.tsx.",
+    "Update /app/memory/test_credentials.md. It still says 'Emergent-managed Google Sign-In (no passwords)' and that emp is emerging_therapist. Add the emp.test@example.com / TestWorker#2026 password login and the Microsoft notes."
+  ],
+  "critical_code_review_comments": [
+    "Cause of the leak: P={'_id':0} is used for user lookups that are returned to clients. Only the users.py list and add_user responses exclude password_hash.",
+    "Lockout compares ISO strings (locked_until > now_iso()). This works because both are UTC isoformat, but it is fragile. Prefer datetime values.",
+    "NEW_STARTER_GROUPS (new_starter_employee/contractor) no longer match any staff_group after the migration (only support_worker/support_office). The Library 'New Starter checklist' row and the starter-related profile logic can never trigger.",
+    "auth_session: a login code is single-use (find_one_and_delete), and expiry is checked correctly.",
+    "Microsoft start/callback: state, PKCE, nonce and tenant checks look correct. Unknown Microsoft users and Support Worker types are rejected. Not exercised end to end because MS credentials are not set."
+  ],
+  "updated_files": ["/app/frontend/app/_layout.tsx", "/app/frontend/app/change-password.tsx", "/app/backend/tests/test_iter44_microsoft_auth_users.py"],
+  "success_rate": {"backend": "96% (25/26)", "frontend": "100% of the requested flows after the testing agent's crash fix (0% before: app crashed on load)"},
+  "seed_data_creation": "Created and then deleted TEST users (test_worker44, test_office44, test_adm44, test_uiworker44). emp.test@example.com password was temporarily changed in the UI test, then restored to TestWorker#2026 (must_change_password false, failed_logins 0). The test_session_employee session was re-inserted because change-password deletes other sessions. The 4 seeded executives are untouched.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run pytest with -n0 (pytest.ini uses xdist) to avoid races on emp.test lockout tests. The Team sheets slide in, so wait about 1s or use dispatch_event('click'). Changing emp.test's password via the API deletes the test_session_employee session, so re-insert it afterwards. Teams-link testIDs use the channel name with spaces, e.g. 'teams-link-Allied Health'.",
+  "rca_of_issue": "App crash: expo-router Stack.Protected removes routes whose guard is false, but React Navigation still validates the full set of declared names. Declaring 'change-password' in two Protected groups makes the name duplicate. Reproduce: load any URL and the ErrorBoundary shows 'Screen names must be unique'. Mitigation: declare it once with a guard of !!user, after the (tabs) group, so normal users still land on (tabs) and forced users can only reach change-password."
+}

@@ -38,14 +38,7 @@ export default function Home() {
   const myBirthday = mine.find((c: any) => c.type === "birthday");
   const myAnniversary = mine.find((c: any) => c.type === "anniversary");
   const teamCelebrations = (d?.celebrations ?? []).filter((c: any) => c.user_id !== user?.user_id);
-  const messageCelebrant = async (c: any) => {
-    try {
-      const conv = await api("/dms", { method: "POST", body: { user_id: c.user_id } });
-      router.push({ pathname: "/chat/[id]", params: { id: conv.conversation_id, name: c.name } });
-    } catch {
-      router.push("/new-chat");
-    }
-  };
+  const myWall = myBirthday ?? myAnniversary;
   const bottomChrome = usesNativeTabs ? insets.bottom : 0;
 
   const actions: { icon: IconName; label: string; to: any; id: string }[] = [
@@ -89,20 +82,26 @@ export default function Home() {
               <View style={styles.welcomeDots}>
                 {[colors.brandPrimary, colors.accent, colors.sky, colors.highlight].map((c) => <View key={c} style={[styles.welcomeDot, { backgroundColor: c }]} />)}
               </View>
+              {!!myWall && (
+                <Pressable onPress={() => router.push(`/celebration/${myWall.key}`)} style={styles.wallBtn} testID="home-my-wall" accessibilityLabel="Open your celebration wall">
+                  <Text style={styles.wallBtnText}>{myWall.post_count ? `See ${myWall.post_count} message${myWall.post_count > 1 ? "s" : ""}` : "Open your wall"}</Text>
+                  <Ionicons name="chevron-forward" size={16} color={colors.onBrandPrimary} />
+                </Pressable>
+              )}
             </View>
             <Image source={require("@/assets/images/brand-mark.png")} style={styles.welcomeTree} contentFit="contain" />
           </Animated.View>
           {teamCelebrations.map((c: any) => (
-            <Pressable key={`${c.type}${c.user_id}`} onPress={() => messageCelebrant(c)} style={({ pressed }) => [styles.celebrate, pressed && { opacity: 0.85 }]} testID={`home-celebration-${c.type}-${c.user_id}`} accessibilityLabel={`Message ${c.name}`}>
+            <Pressable key={`${c.type}${c.user_id}`} onPress={() => router.push(`/celebration/${c.key}`)} style={({ pressed }) => [styles.celebrate, pressed && { opacity: 0.85 }]} testID={`home-celebration-${c.type}-${c.user_id}`} accessibilityLabel={`Open ${c.name}'s celebration wall`}>
               <LinearGradient colors={c.type === "birthday" ? [colors.accent, colors.brandPrimary] : [colors.brandPrimary, colors.accent]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={StyleSheet.absoluteFill} />
               <Ionicons name={c.type === "birthday" ? "gift" : "ribbon"} size={26} color="#FFFFFF" />
               <View style={{ flex: 1 }}>
                 <Text style={styles.celebrateTitle} numberOfLines={2}>
                   {c.type === "birthday" ? `It's ${c.name}'s birthday today! 🎂` : `${c.name} celebrates ${c.years} year${c.years > 1 ? "s" : ""} with us today! 🎉`}
                 </Text>
-                <Text style={styles.celebrateSub}>Tap to send {c.name.split(" ")[0]} a message</Text>
+                <Text style={styles.celebrateSub}>{c.post_count ? `${c.post_count} message${c.post_count > 1 ? "s" : ""} · tap to add yours` : `Tap to congratulate ${c.name.split(" ")[0]}`}</Text>
               </View>
-              <Ionicons name="chatbubble-ellipses" size={20} color="#FFFFFF" />
+              <Ionicons name="chevron-forward" size={20} color="#FFFFFF" />
             </Pressable>
           ))}
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickRow} style={{ marginHorizontal: -16 }}>
@@ -327,6 +326,8 @@ const useStyles = makeStyles((c) => ({
   welcomeDots: { flexDirection: "row", gap: 6, marginTop: 6 },
   welcomeDot: { width: 10, height: 10, borderRadius: 5 },
   welcomeTree: { width: 120, height: 120 },
+  wallBtn: { flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start", backgroundColor: c.brandPrimary, borderRadius: 999, paddingHorizontal: 14, minHeight: 36, marginTop: 8 },
+  wallBtnText: { fontSize: 13, fontWeight: "700", color: c.onBrandPrimary },
   celebrate: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 16, overflow: "hidden", padding: 14, marginTop: 10, minHeight: 64 },
   celebrateTitle: { fontSize: 15, fontWeight: "800", color: "#FFFFFF" },
   celebrateSub: { fontSize: 12.5, fontWeight: "600", color: "#FFFFFF", opacity: 0.92, marginTop: 2 },

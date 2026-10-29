@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { api, openLink } from "@/src/api";
+import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { CheckinCard } from "@/src/components/checkin-card";
 import { useToast } from "@/src/components/toast";
@@ -27,23 +27,13 @@ export default function StarterProgress() {
   const [form, setForm] = useState({ date: "", time: "", location: "", note: "" });
   const [saving, setSaving] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState<string | null>(null);
-  const cal = useQuery<any>({ queryKey: ["calendar-status"], queryFn: () => api("/integrations/google-calendar/status"), enabled: user?.role === "admin" });
+  const cal = useQuery<any>({ queryKey: ["calendar-status"], queryFn: () => api("/integrations/outlook-calendar/status"), enabled: user?.role === "admin" });
   useFocusEffect(
     useCallback(() => {
       cal.refetch();
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []),
   );
-
-  const connectCal = async () => {
-    try {
-      const r = await api("/integrations/google-calendar/start", { method: "POST" });
-      await openLink(r.authorization_url);
-      cal.refetch();
-    } catch (e: any) {
-      toast(e.message, "error");
-    }
-  };
 
   if (user?.role !== "admin") return <EmptyState icon="lock-closed-outline" title="Admins only" />;
   if (q.isLoading) return <Loading />;
@@ -71,7 +61,7 @@ export default function StarterProgress() {
       const r = await api(`/starter-checklist/user/${id}/checkin`, { method: "POST", body: { ...form, date: iso } });
       const first = s.name.split(" ")[0];
       toast(
-        r.calendar === "sent" ? `Check-in booked and Google Calendar invite sent to ${first}.` : r.calendar === "failed" ? `Check-in booked. ${first} was notified, but the calendar invite failed.` : `Check-in booked. ${first} has been notified.`,
+        r.calendar === "sent" ? `Check-in booked and Outlook invite sent to ${first}.` : r.calendar === "failed" ? `Check-in booked. ${first} was notified, but the calendar invite failed.` : `Check-in booked. ${first} has been notified.`,
         r.calendar === "failed" ? "info" : "success",
       );
       setForm({ date: "", time: "", location: "", note: "" });
@@ -136,24 +126,19 @@ export default function StarterProgress() {
 
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Book a check-in</Text>
-        {cal.data?.configured && !cal.data?.connected ? (
-          <View style={styles.calBox} testID="calendar-connect-box">
-            <Text style={styles.itemSub}>Connect your Google Calendar to send a real invite to {s.name.split(" ")[0]} and add it to your own calendar.</Text>
-            <Button label="Connect Google Calendar" icon="logo-google" variant="secondary" onPress={connectCal} testID="calendar-connect-button" />
-          </View>
-        ) : cal.data?.connected ? (
-          <Text style={styles.itemSub} testID="calendar-connected">Google Calendar connected: an invite will be sent automatically.</Text>
-        ) : null}
+        {cal.data?.connected && (
+          <Text style={styles.itemSub} testID="calendar-connected">An Outlook invite will be sent from your calendar automatically.</Text>
+        )}
         <Field label="Date (dd-mm-yyyy)" value={form.date} onChangeText={(v) => setForm({ ...form, date: v })} placeholder="e.g. 15-07-2026" keyboardType="numbers-and-punctuation" testID="checkin-date" />
         <Field label="Time" value={form.time} onChangeText={(v) => setForm({ ...form, time: v })} placeholder="e.g. 10:00am" testID="checkin-time" />
-        <Field label="Location" value={form.location} onChangeText={(v) => setForm({ ...form, location: v })} placeholder="e.g. Office or Google Meet" testID="checkin-location" />
+        <Field label="Location" value={form.location} onChangeText={(v) => setForm({ ...form, location: v })} placeholder="e.g. Office or Teams" testID="checkin-location" />
         <Field label="Note" value={form.note} onChangeText={(v) => setForm({ ...form, note: v })} placeholder="Optional" multiline testID="checkin-note" />
         <Button label="Book check-in" icon="calendar" loading={saving} disabled={!form.date.trim()} onPress={book} testID="checkin-book-button" />
       </View>
       <ConfirmSheet
         visible={confirmCancel !== null}
         title="Cancel this check-in?"
-        message={`${s.name.split(" ")[0]} will be notified, and any Google Calendar invite will be cancelled. Notes on it are deleted too.`}
+        message={`${s.name.split(" ")[0]} will be notified, and any Outlook invite will be cancelled. Notes on it are deleted too.`}
         confirmLabel="Cancel check-in"
         onConfirm={() => confirmCancel && cancel(confirmCancel)}
         onClose={() => setConfirmCancel(null)}

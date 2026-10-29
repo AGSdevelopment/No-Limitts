@@ -11,13 +11,15 @@ LI_VERSION = "202610"
 LI_SCOPES = "r_organization_social r_organization_admin"
 
 SOCIAL_LINKS = {
-    "instagram": {"label": "Instagram", "handle": "@aspiregrowtherapy",
-                  "url": "https://www.instagram.com/aspiregrowtherapy/"},
-    "facebook": {"label": "Facebook", "handle": "AandGTS", "url": "https://www.facebook.com/AandGTS/"},
-    "linkedin": {"label": "LinkedIn", "handle": "Aspire & Grow Therapy Services",
-                 "url": "https://www.linkedin.com/company/aspire-grow-therapy-services"},
+    "instagram": {"label": "Instagram", "handle": "@nolimittsptyltd", "url": "https://www.instagram.com/nolimittsptyltd/"},
+    "facebook": {"label": "Facebook", "handle": "nolimittswa", "url": "https://www.facebook.com/nolimittswa"},
 }
-FB_PAGE_HINT = "aandgts"
+WEBSITES = [
+    {"label": "No Limitts Core", "url": "https://www.nolimitts.com.au"},
+    {"label": "No Limitts Charters", "url": "https://www.nolimittscharters.org.au/"},
+    {"label": "No Limitts Support Coordination", "url": "https://www.nolimittssc.org.au/"},
+]
+FB_PAGE_HINT = "nolimittswa"
 LI_VANITY = "aspire-grow-therapy-services"
 
 

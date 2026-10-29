@@ -180,3 +180,11 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - All emails get No Limitts logo + colour stripe header (email_service.brand_header, GET /api/brand/logo.png)
 - Landing photo = Summer BBQ
 - REMOVED (user request): Therapist Dashboard, Participant Plans & Safety (incl. therapists' own pages), Team Plans Overview, plus their emails/alerts/calendar sync. Routes dashboards.py/agts_dashboard.py deleted. Executive role flag still exists but gates nothing now.
+- Old dashboard data deleted (dashboards, agts_dashboard_parts, plan_reviews_booked, plan_cal_events collections + agts_ meta keys)
+- Celebration wall: /celebration/[key] (key = type-user_id-year); posts text+photo (object storage), author/admin delete, celebrant notified. routes/celebrations.py
+- Week-ahead admin email + in-app notice for birthdays/anniversaries (celebration_reminder_loop, hourly check, once per date)
+- Milestone badges (1/3/5/10 yrs from start_date) on Library profile card, staff profile, Team list (src/components/milestone-badge.tsx)
+- AUTH (Jun 2026): Google sign-in removed. Microsoft Entra sign-in (server-side code flow: /api/auth/microsoft/start -> callback -> one-time code -> POST /api/auth/session) for executive/admin/support_office; admin-issued email+temp password for support_worker (must change on first login, lockout 5 tries/15 min, admin reset). routes/auth.py
+- USER TYPES: user_type executive|admin|support_office|support_worker (role/executive/staff_group derived via core.type_fields). Team screen: add staff, change type, reset password, remove. Old Aspire staff deleted; old groups folded into support_worker.
+- Microsoft 365 replaces all Google: SharePoint folders (ms_services.py, app-only Graph) for Company Drive/AI index/cert copies/policy attachments; Outlook invites for check-ins (routes/calendar.py); Teams Workflows webhooks per channel (routes/teams.py). Google Chat two-way sync removed.
+- Socials: No Limitts Instagram/Facebook, LinkedIn removed; "Our websites" (Core, Charters, Support Coordination) on Socials tab.

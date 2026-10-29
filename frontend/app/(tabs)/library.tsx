@@ -9,6 +9,8 @@ import { useAuth } from "@/src/auth";
 import { TabHeader } from "@/src/components/header";
 import { Avatar, Button, IconBox, IconName, Ionicons, Pill } from "@/src/components/ui";
 import { usesNativeTabs } from "@/src/navigation";
+import { typeLabel } from "@/src/groups";
+import { MilestoneBadge } from "@/src/components/milestone-badge";
 import { makeStyles, useTheme } from "@/src/theme";
 
 type Row = { icon: IconName; label: string; to: any; id: string; count?: number };
@@ -26,6 +28,7 @@ export default function Library() {
   const resources: Row[] = [
     ...(user?.staff_group?.startsWith("new_starter") ? [{ icon: "list-outline", label: "New Starter checklist", to: "/starter-checklist", id: "starter" } as Row] : []),
     { icon: "notifications-outline", label: "Notifications", to: "/notifications", id: "notifications", count: dash.data?.unread_notifications },
+    ...(user?.user_type === "support_worker" ? [{ icon: "key-outline", label: "Change password", to: "/change-password", id: "change-password" } as Row] : []),
     { icon: "megaphone-outline", label: "Company updates", to: "/updates", id: "updates" },
     { icon: "checkbox-outline", label: "My tasks", to: "/tasks", id: "tasks", count: dash.data?.open_task_count },
     { icon: "clipboard-outline", label: "Forms", to: "/forms", id: "forms" },
@@ -79,7 +82,8 @@ export default function Library() {
           <View style={{ flex: 1, gap: 4 }}>
             <Text style={styles.name}>{user?.name}</Text>
             <Text style={styles.email} numberOfLines={1}>{user?.email}</Text>
-            <Pill label={isAdmin ? "Admin" : "Employee"} />
+            <Pill label={typeLabel(user?.user_type) || (isAdmin ? "Admin" : "Support Worker")} />
+            <MilestoneBadge startDate={user?.start_date} />
           </View>
         </View>
         <Text style={styles.groupTitle}>Resources</Text>

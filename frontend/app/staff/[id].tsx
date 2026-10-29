@@ -8,7 +8,8 @@ import { API_URL, api, getApiToken, openLink } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { BirthdayCard, BuddyCard, ProbationCard } from "@/src/components/probation-buddy";
 import { Avatar, Button, EmptyState, ErrorState, Ionicons, Loading, Pill, formatDate } from "@/src/components/ui";
-import { groupLabel } from "@/src/groups";
+import { typeLabel } from "@/src/groups";
+import { MilestoneBadge } from "@/src/components/milestone-badge";
 import { makeStyles, useTheme } from "@/src/theme";
 
 export default function StaffProfile() {
@@ -56,9 +57,9 @@ export default function StaffProfile() {
           <Text style={styles.name}>{s.name}</Text>
           <Text style={styles.sub} numberOfLines={1}>{s.email}</Text>
           <View style={styles.pills}>
-            <Pill label={s.role === "admin" ? "Admin" : "Employee"} tone={s.role === "admin" ? "brand" : "muted"} />
-            {!!s.staff_group && <Pill label={groupLabel(s.staff_group)} />}
+            <Pill label={typeLabel(s.user_type) || "Support Worker"} tone={s.role === "admin" ? "brand" : "muted"} />
           </View>
+          <MilestoneBadge startDate={s.start_date} />
         </View>
       </View>
 

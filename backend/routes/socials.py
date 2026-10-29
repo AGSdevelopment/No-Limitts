@@ -5,7 +5,7 @@ import asyncio
 import secrets
 import time
 from core import P, admin_user, all_user_ids, current_user, db, logger, new_id, notify, now, now_iso, result_page, spawn
-import google_services as gs
+import ms_services as gs
 import social_service as ss
 
 router = APIRouter(prefix="/api")
@@ -43,7 +43,7 @@ async def socials(user=Depends(current_user)):
                            "name": (li or {}).get("org_name", ""), "last_error": (li or {}).get("last_error", "")}}
     if user["role"] == "admin":
         status["redirect_uris"] = {"meta": ss.redirect_uri("meta"), "linkedin": ss.redirect_uri("linkedin")}
-    return {"links": ss.SOCIAL_LINKS, "posts": posts, "status": status}
+    return {"links": ss.SOCIAL_LINKS, "websites": ss.WEBSITES, "posts": posts, "status": status}
 
 
 @router.post("/integrations/{kind}/start")

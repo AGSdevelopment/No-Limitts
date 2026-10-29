@@ -1,10 +1,10 @@
 """Home screen summary."""
-import calendar
-from datetime import date, datetime
+from datetime import date
 from fastapi import APIRouter, Depends
 from fastapi.responses import FileResponse
-from core import DIGEST_TZ, P, current_user, db
+from core import P, current_user, db
 from pdf_brand import LOGO
+from routes.celebrations import celebrations
 from routes.certificates import with_status
 from routes.events import event_fields, photo_highlights, visible_events
 
@@ -32,25 +32,6 @@ async def dashboard(user=Depends(current_user)):
             "open_task_count": len(tasks), "updates": updates, "unread_notifications": unread,
             "pending_policies": pending_policies, "latest_social": latest_social,
             "celebrations": await celebrations(user)}
-
-
-async def celebrations(user: dict) -> list:
-    """Today's birthdays (MM-DD set by admins) and work anniversaries (start date, 1+ years), Perth time.
-    29 Feb birthdays are celebrated on 28 Feb in non-leap years."""
-    t = datetime.now(DIGEST_TZ).date()
-    md = t.strftime("%m-%d")
-    mds = [md] + (["02-29"] if md == "02-28" and not calendar.isleap(t.year) else [])
-    q = {} if user.get("hidden") else {"hidden": {"$ne": True}}
-    out = []
-    async for u in db.users.find({**q, "$or": [{"birthday": {"$in": mds}}, {"start_date": {"$regex": f"-({'|'.join(mds)})$"}}]},
-                                 {"_id": 0, "user_id": 1, "name": 1, "picture": 1, "birthday": 1, "start_date": 1}):
-        base = {"user_id": u["user_id"], "name": u.get("name", ""), "picture": u.get("picture")}
-        if u.get("birthday") in mds:
-            out.append({**base, "type": "birthday"})
-        sd = u.get("start_date") or ""
-        if sd[5:] in mds and sd[:4].isdigit() and int(sd[:4]) < t.year:
-            out.append({**base, "type": "anniversary", "years": t.year - int(sd[:4])})
-    return out
 
 
 @router.get("/brand/logo.png")

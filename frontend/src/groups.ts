@@ -1,19 +1,24 @@
 // Staff groups used to control who can see each Jotform. Admins always see every form.
 export const STAFF_GROUPS = [
   { key: "support_office", label: "Support Office" },
-  { key: "therapist_employee", label: "Therapist Employees" },
-  { key: "therapist_contractor", label: "Therapist Contractors" },
-  { key: "emerging_therapist", label: "Emerging Therapists" },
-  { key: "support_worker_employee", label: "Support Worker Employees" },
-  { key: "support_worker_contractor", label: "Support Worker Contractors" },
-  { key: "new_starter_employee", label: "New Starter Employees" },
-  { key: "new_starter_contractor", label: "New Starter Contractors" },
+  { key: "support_worker", label: "Support Workers" },
 ] as const;
 
 export type StaffGroup = (typeof STAFF_GROUPS)[number]["key"];
 
 export function groupLabel(key?: string | null) {
   return STAFF_GROUPS.find((g) => g.key === key)?.label ?? "";
+}
+
+export const USER_TYPES = [
+  { key: "executive", label: "Executive", hint: "Admin tools, and can manage other Executives · Microsoft sign-in" },
+  { key: "admin", label: "Admin", hint: "Admin tools · Microsoft sign-in" },
+  { key: "support_office", label: "Support Office", hint: "Office staff · Microsoft sign-in" },
+  { key: "support_worker", label: "Support Worker", hint: "Signs in with an email and password you issue" },
+] as const;
+
+export function typeLabel(key?: string | null) {
+  return USER_TYPES.find((t) => t.key === key)?.label ?? "";
 }
 
 export function audienceLabel(audiences?: string[]) {

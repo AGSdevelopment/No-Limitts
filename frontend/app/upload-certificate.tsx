@@ -86,7 +86,7 @@ export default function UploadCertificate() {
       setSaving(false);
     }
   };
-  const drive = useQuery<any>({ queryKey: ["drive-status"], queryFn: () => api("/integrations/google-drive/status") });
+  const drive = useQuery<any>({ queryKey: ["drive-status"], queryFn: () => api("/integrations/sharepoint/status") });
 
   const autoFill = async (target: Picked | null = file) => {
     if (!target) return;

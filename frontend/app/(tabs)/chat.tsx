@@ -87,7 +87,7 @@ export default function ChatList() {
                   <Text style={[styles.name, item.unread > 0 && { fontWeight: "700" }]} numberOfLines={1}>
                     {item.type === "channel" ? `#${item.name}` : item.name}
                   </Text>
-                  {item.google_chat && <Ionicons name="logo-google" size={13} color={colors.muted} testID={`conversation-gchat-${item.conversation_id}`} />}
+                  {item.teams && <Ionicons name="logo-microsoft" size={13} color={colors.muted} testID={`conversation-teams-${item.conversation_id}`} />}
                   <Text style={styles.time}>{timeAgo(item.last_at)}</Text>
                 </View>
                 <View style={styles.rowTop}>

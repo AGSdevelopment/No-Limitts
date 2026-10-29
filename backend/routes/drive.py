@@ -1,4 +1,4 @@
-"""Google Drive connection, shared folders, pins and AI index."""
+"""Company files on SharePoint (Microsoft 365): resource folders, pins, certificate copies and the AI index."""
 from datetime import timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
@@ -9,113 +9,74 @@ import asyncio
 import re
 import secrets
 from core import P, admin_user, all_user_ids, bearer, current_user, db, logger, new_id, notify, now, now_iso, result_page, spawn, user_from_token
-import google_services as gs
+import ms_services as gs
 
 router = APIRouter(prefix="/api")
 
 
-DRIVE_KEY = "google_drive"
+DRIVE_KEY = "sharepoint"
 
 
 async def drive_conn():
-    return await db.integrations.find_one({"key": DRIVE_KEY}, P)
+    """Saved SharePoint folders. Access itself comes from the Microsoft 365 app (no account to connect)."""
+    return await db.integrations.find_one({"key": DRIVE_KEY}, P) or {}
 
 
 async def drive_svc_or_409():
-    conn = await drive_conn()
-    if not conn or not gs.drive_client_config():
-        raise HTTPException(409, "Google Drive is not connected")
-    try:
-        return await run_in_threadpool(gs.drive_service, conn["refresh_token"])
-    except Exception as e:
-        logger.error(f"Drive auth failed: {e}")
-        raise HTTPException(502, "Google Drive access failed. An admin may need to reconnect it.")
+    if not gs.configured():
+        raise HTTPException(409, "Microsoft 365 isn't set up yet")
+    return gs.Graph()
 
 
 async def copy_cert_to_drive(cert: dict, data: bytes):
-    conn = await drive_conn()
-    if not conn or not gs.drive_client_config():
+    """Keep a copy of each certificate in 'No Limitts Certificates' inside the Staff Resources folder."""
+    roots = await current_roots()
+    if not gs.configured() or "therapist" not in roots:
         return
     try:
-        svc = await run_in_threadpool(gs.drive_service, conn["refresh_token"])
+        svc = gs.Graph()
+        conn = await drive_conn()
+        folder = conn.get("cert_folder") if (conn.get("cert_folder_parent") == roots["therapist"]) else None
+        if not folder:
+            folder = await run_in_threadpool(gs.drive_ensure_folder, svc, roots["therapist"])
+            await db.integrations.update_one({"key": DRIVE_KEY}, {"$set": {"key": DRIVE_KEY, "cert_folder": folder,
+                                                                          "cert_folder_parent": roots["therapist"]}}, upsert=True)
         name = f"{cert['owner_name']} - {cert['title']} (expires {cert['expiry_date']})"
         ext = cert["file_name"].rsplit(".", 1)[-1] if "." in cert["file_name"] else ""
-        f = await run_in_threadpool(gs.drive_upload, svc, conn["folder_id"], f"{name}.{ext}" if ext else name,
+        f = await run_in_threadpool(gs.drive_upload, svc, folder, f"{name}.{ext}" if ext else name,
                                     data, cert["content_type"])
         await db.certificates.update_one({"cert_id": cert["cert_id"]},
                                          {"$set": {"drive_file_id": f["id"], "drive_link": f.get("webViewLink")}})
     except Exception as e:
-        logger.error(f"Drive copy failed for {cert['cert_id']}: {e}")
+        logger.error(f"SharePoint copy failed for {cert['cert_id']}: {e}")
 
 
-@router.get("/integrations/google-drive/status")
+@router.get("/integrations/sharepoint/status")
 async def drive_status(user=Depends(current_user)):
     conn = await drive_conn()
-    return {"configured": bool(gs.drive_client_config()), "connected": bool(conn),
-            "email": (conn or {}).get("email", ""), "folder_name": gs.DRIVE_FOLDER_NAME,
-            "spaces": {k: {"label": label, "folder_id": ((conn or {}).get("spaces") or {}).get(k, {}).get("id"),
-                           "folder_name": ((conn or {}).get("spaces") or {}).get(k, {}).get("name")}
-                       for k, label in DRIVE_SPACES.items()},
-            "redirect_uri": gs.drive_redirect_uri() if user["role"] == "admin" else None}
-
-
-@router.post("/integrations/google-drive/start")
-async def drive_start(admin=Depends(admin_user)):
-    if not gs.drive_client_config():
-        raise HTTPException(409, "Google Drive credentials are not set up yet")
-    state = secrets.token_urlsafe(32)
-    url, verifier = gs.drive_auth_url(state)
-    await db.oauth_states.insert_one({"state": state, "user_id": admin["user_id"], "code_verifier": verifier,
-                                      "created_at": now()})
-    return {"authorization_url": url}
-
-
-@router.get("/integrations/google-drive/callback")
-async def drive_callback(state: str = "", code: str = "", error: str = ""):
-    st = await db.oauth_states.find_one_and_delete({"state": state})
-    if error or not st or not code:
-        return result_page("Google Drive not connected", "The request was cancelled or expired.")
-    created = st["created_at"].replace(tzinfo=timezone.utc) if st["created_at"].tzinfo is None else st["created_at"]
-    if now() - created > timedelta(minutes=15):
-        return result_page("Google Drive not connected", "The request expired. Please try again.")
-    try:
-        refresh = await run_in_threadpool(gs.drive_exchange, state, code, st.get("code_verifier"))
-        old = await drive_conn()
-        enc = gs.encrypt(refresh) if refresh else (old or {}).get("refresh_token")
-        if not enc:
-            return result_page("Google Drive not connected", "Google did not grant offline access. Try again.")
-        svc = await run_in_threadpool(gs.drive_service, enc)
-        email = await run_in_threadpool(gs.drive_account_email, svc)
-        folder_id = await run_in_threadpool(gs.drive_ensure_folder, svc)
-    except Exception as e:
-        logger.error(f"Drive OAuth failed: {e}")
-        if "invalid_client" in str(e):
-            return result_page("Google Drive not connected",
-                               "Google rejected No Limitts's sign-in credentials (client ID or secret is wrong).")
-        return result_page("Google Drive not connected", "Something went wrong while connecting.")
-    await db.integrations.update_one({"key": DRIVE_KEY}, {"$set": {
-        "key": DRIVE_KEY, "refresh_token": enc, "email": email, "folder_id": folder_id,
-        "connected_by": st["user_id"], "updated_at": now_iso()}}, upsert=True)
-    return result_page("Google Drive connected", f"No Limitts is now linked to {email}.")
-
-
-@router.delete("/integrations/google-drive")
-async def drive_disconnect(admin=Depends(admin_user)):
-    await db.integrations.delete_one({"key": DRIVE_KEY})
-    return {"ok": True}
+    return {"configured": gs.configured(), "connected": gs.configured(), "folder_name": gs.DRIVE_FOLDER_NAME,
+            "spaces": {k: {"label": label, "folder_id": (conn.get("spaces") or {}).get(k, {}).get("id"),
+                           "folder_name": (conn.get("spaces") or {}).get(k, {}).get("name")}
+                       for k, label in DRIVE_SPACES.items()}}
 
 
 @router.get("/drive/files")
 async def drive_files(q: str = "", admin=Depends(admin_user)):
+    """Admin file picker (attach a SharePoint file to a policy): search the company folders."""
     svc = await drive_svc_or_409()
+    roots = list((await current_roots()).values())
     try:
-        return await run_in_threadpool(gs.drive_list, svc, q[:100])
+        items = []
+        for root in roots:
+            items += await run_in_threadpool(gs.drive_search_under, svc, root, q[:100]) if q.strip() \
+                else await run_in_threadpool(gs.drive_children, svc, root)
     except Exception as e:
-        logger.error(f"Drive list failed: {e}")
-        raise HTTPException(502, "Could not list Google Drive files")
+        logger.error(f"SharePoint list failed: {e}")
+        raise HTTPException(502, "Could not list SharePoint files")
+    return [f for f in items if f["mimeType"] != gs.FOLDER_MIME][:30]
 
 
-DRIVE_SPACES = {"therapist": "Therapist Resources", "participant": "Participants Resources"}
+DRIVE_SPACES = {"therapist": "Staff Resources", "participant": "Participant Resources"}
 
 
 class SharedFolderIn(BaseModel):
@@ -132,7 +93,7 @@ def check_space(space: str) -> str:
 async def current_roots() -> dict:
     """space -> root folder id for every configured Company Drive section."""
     conn = await drive_conn()
-    return {k: v["id"] for k, v in ((conn or {}).get("spaces") or {}).items() if v.get("id") and k in DRIVE_SPACES}
+    return {k: v["id"] for k, v in (conn.get("spaces") or {}).items() if v.get("id") and k in DRIVE_SPACES}
 
 
 async def prune_drive_data():
@@ -141,28 +102,28 @@ async def prune_drive_data():
     await db.drive_pins.delete_many({"root_id": {"$nin": roots}})
 
 
-@router.put("/integrations/google-drive/shared-folder")
+@router.put("/integrations/sharepoint/shared-folder")
 async def set_shared_folder(body: SharedFolderIn, admin=Depends(admin_user)):
     space = check_space(body.space)
-    fid = gs.folder_id_from_link(body.link)
-    if not fid:
-        raise HTTPException(400, "Paste a Google Drive folder link")
     svc = await drive_svc_or_409()
+    fid = await run_in_threadpool(gs.folder_id_from_link, body.link)
+    if not fid:
+        raise HTTPException(400, "Paste a SharePoint folder link (use Copy link on the folder)")
     try:
         meta = await run_in_threadpool(gs.drive_get, svc, fid)
     except Exception as e:
         logger.error(f"Drive folder lookup failed: {e}")
-        raise HTTPException(400, "Couldn't open that folder with the connected Google account")
+        raise HTTPException(400, "Couldn't open that folder. Check the app has access to the SharePoint site")
     if meta["mimeType"] != gs.FOLDER_MIME:
         raise HTTPException(400, "That link is a file, not a folder")
-    await db.integrations.update_one({"key": DRIVE_KEY}, {"$set": {f"spaces.{space}": {"id": fid, "name": meta["name"]}},
-                                                          "$unset": {"shared_folder_id": "", "shared_folder_name": ""}})
+    await db.integrations.update_one({"key": DRIVE_KEY}, {"$set": {"key": DRIVE_KEY, f"spaces.{space}": {"id": fid, "name": meta["name"]}}},
+                                     upsert=True)
     await prune_drive_data()
     spawn(index_drive())
     return {"space": space, "folder_id": fid, "folder_name": meta["name"]}
 
 
-@router.delete("/integrations/google-drive/shared-folder")
+@router.delete("/integrations/sharepoint/shared-folder")
 async def clear_shared_folder(space: str = "therapist", admin=Depends(admin_user)):
     await db.integrations.update_one({"key": DRIVE_KEY}, {"$unset": {f"spaces.{check_space(space)}": ""}})
     await prune_drive_data()
@@ -183,12 +144,6 @@ def drive_item(f: dict) -> dict:
 
 
 drive_index_lock = asyncio.Lock()
-
-
-POLICY_FOLDER_ID = "1jfsRbzHfkZs976wP_-lJCjP5iJ9I3-1U"
-
-
-DEFAULT_SPACES = {"therapist": "1AkYaS-Rc10d0XiBfVKKU9rdhGMBvBfPP", "participant": "1_Bu1oeJN9syuP8pI9EjBLH5we_WgZa7d"}
 
 
 def clean_pdf_text(text: str) -> str:
@@ -235,55 +190,34 @@ async def import_policies_from_drive(svc, folder_id: str, by_name: str = "No Lim
     return len(added)
 
 
-async def ensure_drive_setup():
-    """One-time (per database, once Drive is connected): default resource folders + policy import."""
-    conn = await drive_conn()
-    if not conn or await db.meta.find_one({"key": "drive_setup_v1"}):
-        return
-    svc = await run_in_threadpool(gs.drive_service, conn["refresh_token"])
-    for space, fid in DEFAULT_SPACES.items():
-        if not ((conn.get("spaces") or {}).get(space) or {}).get("id"):
-            meta = await run_in_threadpool(gs.drive_get, svc, fid)
-            await db.integrations.update_one({"key": DRIVE_KEY}, {"$set": {f"spaces.{space}": {
-                "id": fid, "name": meta["name"]}}})
-    count = await import_policies_from_drive(svc, POLICY_FOLDER_ID)
-    await db.meta.insert_one({"key": "drive_setup_v1", "policies_imported": count, "created_at": now_iso()})
-    logger.info(f"Drive setup done: {count} policies imported")
-
-
 class PolicyImportIn(BaseModel):
     link: str
 
 
 @router.post("/policies/import-drive")
 async def import_policies(body: PolicyImportIn, admin=Depends(admin_user)):
-    fid = gs.folder_id_from_link(body.link)
-    if not fid:
-        raise HTTPException(400, "Paste a Google Drive folder link")
     svc = await drive_svc_or_409()
+    fid = await run_in_threadpool(gs.folder_id_from_link, body.link)
+    if not fid:
+        raise HTTPException(400, "Paste a SharePoint folder link (use Copy link on the folder)")
     try:
         count = await import_policies_from_drive(svc, fid, admin["name"])
     except Exception as e:
         logger.error(f"Policy import failed: {e}")
-        raise HTTPException(502, "Couldn't read that Drive folder")
+        raise HTTPException(502, "Couldn't read that SharePoint folder")
     return {"imported": count}
 
 
 async def index_drive():
-    try:
-        await ensure_drive_setup()
-    except Exception as e:
-        logger.error(f"Drive setup failed: {e}")
-    if drive_index_lock.locked():
+    if drive_index_lock.locked() or not gs.configured():
         return
     async with drive_index_lock:
-        conn = await drive_conn()
         roots = list((await current_roots()).values())
         if not roots:
             await db.drive_docs.delete_many({})
             return
         try:
-            svc = await run_in_threadpool(gs.drive_service, conn["refresh_token"])
+            svc = gs.Graph()
             files = []
             for root in roots:
                 files += [(root, f) for f in await run_in_threadpool(gs.drive_walk, svc, root)
@@ -380,7 +314,7 @@ async def shared_files(space: str = "therapist", folder: str = "", q: str = "", 
         raise
     except Exception as e:
         logger.error(f"Shared drive list failed: {e}")
-        raise HTTPException(502, "Could not load the company Drive folder")
+        raise HTTPException(502, "Could not load the SharePoint folder")
     pins = await db.drive_pins.find({"root_id": root_id}, P).sort("pinned_at", -1).to_list(50)
     pin_ids = {p["file_id"] for p in pins}
     out = [{**drive_item(f), "pinned": f["id"] in pin_ids} for f in items]
@@ -415,16 +349,15 @@ async def upload_to_spaces(cert: dict, data: bytes, spaces: list, user: dict) ->
     """Copy an uploaded file into Therapist / Participants Resources. Returns space -> 'added' | reason."""
     out = {}
     roots = await current_roots()
-    conn = await drive_conn()
     for space in spaces:
         if space not in DRIVE_SPACES:
             out[space] = "unknown"
             continue
-        if not conn or space not in roots:
+        if not gs.configured() or space not in roots:
             out[space] = "not_set_up"
             continue
         try:
-            svc = await run_in_threadpool(gs.drive_service, conn["refresh_token"])
+            svc = gs.Graph()
             ext = cert["file_name"].rsplit(".", 1)[-1] if "." in cert["file_name"] else ""
             name = f"{cert['title']}.{ext}" if ext else cert["title"]
             await run_in_threadpool(gs.drive_upload, svc, roots[space], name, data, cert["content_type"])

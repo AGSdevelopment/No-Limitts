@@ -18,10 +18,12 @@ type Props = {
   saving?: boolean;
   emptyLabel: string; // "Everyone" (forms) or "No group" (people)
   emptyHint?: string;
+  options?: readonly { key: string; label: string; hint?: string }[]; // default: staff groups
+  hideEmpty?: boolean;
 };
 
 // Bottom sheet for picking staff groups: multi-select for form access, single-select for a person's group.
-export function GroupPickerSheet({ visible, title, subtitle, multi, selected, onChange, onClose, onSave, saving, emptyLabel, emptyHint }: Props) {
+export function GroupPickerSheet({ visible, title, subtitle, multi, selected, onChange, onClose, onSave, saving, emptyLabel, emptyHint, options, hideEmpty }: Props) {
   const insets = useSafeAreaInsets();
   const styles = useStyles();
   const { colors } = useTheme();
@@ -53,9 +55,9 @@ export function GroupPickerSheet({ visible, title, subtitle, multi, selected, on
         <Text style={styles.title}>{title}</Text>
         {subtitle && <Text style={styles.subtitle}>{subtitle}</Text>}
         <ScrollView style={{ maxHeight: 380 }}>
-          <Row label={emptyLabel} hint={emptyHint} on={selected.length === 0} onPress={() => onChange([])} testID="group-picker-none" />
-          {STAFF_GROUPS.map((g) => (
-            <Row key={g.key} label={g.label} on={selected.includes(g.key)} onPress={() => toggle(g.key)} testID={`group-picker-${g.key}`} />
+          {!hideEmpty && <Row label={emptyLabel} hint={emptyHint} on={selected.length === 0} onPress={() => onChange([])} testID="group-picker-none" />}
+          {(options ?? STAFF_GROUPS).map((g: { key: string; label: string; hint?: string }) => (
+            <Row key={g.key} label={g.label} hint={g.hint} on={selected.includes(g.key)} onPress={() => toggle(g.key)} testID={`group-picker-${g.key}`} />
           ))}
         </ScrollView>
         {onSave && <Button label="Save" loading={saving} onPress={onSave} style={{ marginTop: 16 }} testID="group-picker-save" />}

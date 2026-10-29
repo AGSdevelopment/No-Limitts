@@ -56,7 +56,7 @@ export default function Compose() {
   const isAdmin = user?.role === "admin";
   const titleFor = kind === "task" && !isAdmin ? "New private task" : TITLES[kind];
   const users = useQuery<any[]>({ queryKey: ["users"], queryFn: () => api("/users"), enabled: kind === "task" && isAdmin });
-  const driveStatus = useQuery<any>({ queryKey: ["drive-status"], queryFn: () => api("/integrations/google-drive/status"), enabled: kind === "policy" });
+  const driveStatus = useQuery<any>({ queryKey: ["drive-status"], queryFn: () => api("/integrations/sharepoint/status"), enabled: kind === "policy" });
   const [driveSearch, setDriveSearch] = useState("");
   const [driveFile, setDriveFile] = useState<any>(null);
   const [taskFile, setTaskFile] = useState<{ uri: string; name: string; mimeType?: string } | null>(null);
@@ -227,10 +227,10 @@ export default function Compose() {
       />
       {kind === "policy" && driveStatus.data?.connected && (
         <View style={{ marginBottom: 16 }} testID="compose-drive-attach">
-          <Text style={styles.label}>Attach a Google Drive file (optional)</Text>
+          <Text style={styles.label}>Attach a SharePoint file (optional)</Text>
           {driveFile ? (
             <View style={styles.driveSel}>
-              <Ionicons name="logo-google" size={18} color={colors.brandPrimary} />
+              <Ionicons name="logo-microsoft" size={18} color={colors.brandPrimary} />
               <Text style={styles.driveName} numberOfLines={1}>{driveFile.name}</Text>
               <Pressable testID="compose-drive-remove" onPress={() => setDriveFile(null)} hitSlop={10} style={styles.driveX}>
                 <Ionicons name="close-circle" size={20} color={colors.muted} />

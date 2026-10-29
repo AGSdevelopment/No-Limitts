@@ -3,7 +3,7 @@ import { Platform } from "react-native";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 
-import { api, ApiError, setApiToken, setUnauthorizedHandler } from "@/src/api";
+import { API_URL, api, ApiError, setApiToken, setUnauthorizedHandler } from "@/src/api";
 import { queryClient } from "@/src/query-client";
 import { storage } from "@/src/utils/storage";
 
@@ -20,6 +20,9 @@ export type User = {
   role: "admin" | "employee";
   executive?: boolean;
   job_title?: string;
+  start_date?: string | null;
+  user_type?: "executive" | "admin" | "support_office" | "support_worker";
+  must_change_password?: boolean;
 };
 
 type AuthState = {
@@ -28,17 +31,20 @@ type AuthState = {
   signingIn: boolean;
   error: string | null;
   signIn: () => Promise<void>;
+  signInWithPassword: (email: string, password: string) => Promise<void>;
+  setSignedInUser: (u: User) => void;
   signOut: () => Promise<void>;
   refreshUser: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthState | null>(null);
 
-function extractSessionId(url: string | null | undefined): string | null {
+function urlParam(url: string | null | undefined, name: string): string | null {
   if (!url) return null;
-  const m = url.match(/[?#&]session_id=([^&#]+)/);
-  return m ? decodeURIComponent(m[1]) : null;
+  const m = url.match(new RegExp(`[?#&]${name}=([^&#]+)`));
+  return m ? decodeURIComponent(m[1].replace(/\+/g, " ")) : null;
 }
+const extractSessionId = (url: string | null | undefined) => urlParam(url, "session_id");
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -95,6 +101,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       let sid: string | null = null;
       if (Platform.OS === "web") {
         sid = extractSessionId(window.location.href);
+        const err = urlParam(window.location.href, "auth_error");
+        if (err) {
+          setError(err);
+          window.history.replaceState(window.history.state, "", window.location.pathname);
+        }
       } else {
         sid = extractSessionId(await Linking.getInitialURL());
         sub = Linking.addEventListener("url", ({ url }) => {
@@ -130,7 +141,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signIn = useCallback(async () => {
     setError(null);
     const redirectUrl = Platform.OS === "web" ? window.location.origin + "/" : Linking.createURL("");
-    const authUrl = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
+    const authUrl = `${API_URL}/auth/microsoft/start?redirect=${encodeURIComponent(redirectUrl)}`;
     if (Platform.OS === "web") {
       window.location.href = authUrl;
       return;
@@ -144,10 +155,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const url = (result.type === "success" ? result.url : null) ?? captured ?? (await Linking.getInitialURL());
       const sid = extractSessionId(url);
       if (sid) await exchange(sid);
+      else if (urlParam(url, "auth_error")) setError(urlParam(url, "auth_error"));
     } finally {
       sub.remove();
     }
   }, [exchange]);
+
+  const signInWithPassword = useCallback(async (email: string, password: string) => {
+    setError(null);
+    setSigningIn(true);
+    try {
+      const res = await api<{ session_token: string; user: User }>("/auth/login", { method: "POST", body: { email, password } });
+      await storage.secureSet(TOKEN_KEY, res.session_token);
+      setApiToken(res.session_token);
+      setUser(res.user);
+      await storage.setItem(USER_KEY, res.user);
+    } catch (e: any) {
+      setError(e.message || "Sign-in failed. Please try again.");
+    } finally {
+      setSigningIn(false);
+    }
+  }, []);
+
+  const setSignedInUser = useCallback((u: User) => {
+    setUser(u);
+    storage.setItem(USER_KEY, u);
+  }, []);
 
   const signOut = useCallback(async () => {
     try {
@@ -163,7 +196,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, signingIn, error, signIn, signOut, refreshUser }}>
+    <AuthContext.Provider value={{ user, loading, signingIn, error, signIn, signInWithPassword, setSignedInUser, signOut, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

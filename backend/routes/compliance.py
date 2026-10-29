@@ -68,11 +68,7 @@ async def compliance_export(request: Request, token: Optional[str] = None):
                     headers={"Content-Disposition": f'attachment; filename="No Limitts_Compliance_{date.today().isoformat()}.xlsx"'})
 
 
-STAFF_GROUP_LABELS = {"support_office": "Support Office", "therapist_employee": "Therapist Employee",
-                      "therapist_contractor": "Therapist Contractor", "emerging_therapist": "Emerging Therapist",
-                      "support_worker_employee": "Support Worker Employee",
-                      "support_worker_contractor": "Support Worker Contractor",
-                      "new_starter_employee": "New Starter Employee", "new_starter_contractor": "New Starter Contractor"}
+STAFF_GROUP_LABELS = {"support_office": "Support Office", "support_worker": "Support Worker"}
 
 
 NEW_STARTER_GROUPS = ("new_starter_employee", "new_starter_contractor")
@@ -333,8 +329,8 @@ async def cancel_checkin(user_id: str, event_id: str, admin=Depends(admin_user))
     if not ev:
         raise HTTPException(404, "Check-in not found")
     await db.events.delete_one({"event_id": event_id})
-    if ev.get("google_event_id"):
-        await cancel_invite(ev.get("organizer_id") or admin["user_id"], ev["google_event_id"])
+    if ev.get("outlook_event_id"):
+        await cancel_invite(ev.get("organizer_id") or admin["user_id"], ev["outlook_event_id"])
     when = dmy(ev["date"]) + (f" at {ev['time']}" if ev.get("time") else "")
     await notify([user_id], "event", "Check-in cancelled", f"Your check-in on {when} has been cancelled", "/events")
     return {"ok": True}

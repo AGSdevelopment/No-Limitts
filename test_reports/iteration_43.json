@@ -1,0 +1,41 @@
+{
+  "summary": "Iteration 43: Tested the celebration wall, the week-ahead admin reminders, milestone badges and the old-data cleanup. Backend: 17/17 pytest pass. Covered: the old collections and agts_ meta keys are gone; dashboard celebrations include key and post_count; wall GET returns 404 for invalid keys and unknown users, and hides hidden celebrants from non-hidden viewers (GET, POST and dashboard); multipart posting works with text, photo, empty -> 400 and pdf -> 400; the celebrant is notified (type celebration, link /celebration/<key>) except on self-posts; the photo endpoint works with ?token= and Bearer, returns 401 without a token and 404 for text-only posts; delete works for the author and for admins, others get 404; send_week_ahead (send_email and notify mocked) reaches only non-hidden admins, skips @example.com addresses and leaves out hidden celebrants. Frontend (375x667): the employee banner opens the wall; post, photo (file chooser), delete own post and the DM button all work. The admin Home welcome card has home-my-wall, which opens 'Your 3-year anniversary' with no DM button. milestone-badge-3 shows on Library and /staff/user_testadmin01. The Team list compact badges render for 1/3/5/10 years, verified with a mocked /api/users start_date. The admin cannot appear in Team because /api/users excludes hidden users. No deprecated Expo packages detected.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET/POST /api/celebrations/{key}", "issue": "celebrant() only checks the key format and that the user exists, not that the celebration is real. Anyone can open or post on a wall for a past or future year or for a non-existent event, and the celebrant gets notified. Verified: anniversary-user_testemp001-2026 (no start_date) returns 200 with no 'years' field, so the frontend title would read 'Your undefined-year anniversary'. birthday-user_testadmin01-1999 also returns 200."},
+      {"endpoint": "POST /api/celebrations/{key}/posts", "issue": "The storage path extension comes straight from the client filename (rsplit on '.'), so it can contain '/' or other characters. Derive the extension from the content type or sanitize it."},
+      {"endpoint": "DELETE /api/celebrations/{key}/posts/{id}", "issue": "The photo is left behind in object storage when its post is deleted."},
+      {"endpoint": "GET .../photo", "issue": "get_object errors are not caught, so a storage failure returns 500 instead of 404/502."},
+      {"endpoint": "celebration_reminder_loop", "issue": "The meta key is claimed before sending. If send_week_ahead raises (for example on an email error), that date is never retried."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Celebration wall delete", "issue": "Tapping the trash icon deletes the post immediately with no confirmation and no success toast.", "testID": "celebration-delete-<post_id>", "priority": "low"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Milestone badge", "issues": ["The 3-year badge (and possibly 5) uses white text on a light orange background. Contrast is roughly 2:1, below WCAG AA. Use dark text or a darker tone.", "serviceYears uses the device local date rather than Perth time, so it is inconsistent with the backend (minor).", "Between milestones the badge shows the floor value, e.g. '3 years' at 4 years. Confirm this is intended."]},
+      {"screen": "Celebration wall", "issues": ["The 'Posted' toast overlaps the header title.", "When the wall is opened via deep link or reload on web there is no back arrow in the header (no history)."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter43_celebration_wall_reminders.py", "/app/test_reports/pytest/pytest_iter43.xml"],
+  "action_items": [
+    "Optional: in celebrant(), validate that the key matches a real celebration (birthday equals the user's birthday; anniversary needs start_date with year > start year) so 'undefined-year' walls and stray notifications cannot happen. At minimum, guard c.years in the frontend title.",
+    "Sanitize the upload extension (derive it from ctype) and delete the storage object when a post is deleted.",
+    "Improve the contrast of the 3-year milestone badge (white text on orange).",
+    "Optional: add a confirm dialog before deleting a wall post."
+  ],
+  "critical_code_review_comments": [
+    "routes/celebrations.py is clean, properly async and excludes _id. Hidden-user visibility logic is correct.",
+    "/api/users excludes hidden users, so hidden test admins never appear in the Team list. The Team badge can only be verified with real users who have a start_date (none of the 32 real users have one yet)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter43_celebration_wall_reminders.py"],
+  "success_rate": {"backend": "100% (17/17)", "frontend": "100% of requested flows (Team badge verified via mocked /api/users since admin is hidden)"},
+  "seed_data_creation": "Created and deleted temporary TEST_ users. All celebration posts and their notifications were deleted afterwards (celebration_posts count = 0). Test birthday 10-29 and start_date 2023-10-29 kept.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run pytest with EXPO_PUBLIC_BACKEND_URL exported and with -p no:xdist -o addopts=\"\" (the class tests share state). Mock send_email and notify for send_week_ahead because there are real admins in the DB. The test admin is hidden, so it is excluded from /api/users and the Team list."
+}

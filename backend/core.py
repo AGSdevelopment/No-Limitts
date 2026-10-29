@@ -41,6 +41,7 @@ MAX_UPLOAD_BYTES = 15 * 1024 * 1024
 
 
 P = {"_id": 0}
+USER_P = {"_id": 0, "password_hash": 0, "failed_logins": 0, "locked_until": 0}
 
 
 def now():
@@ -81,7 +82,7 @@ async def user_from_token(token: Optional[str]):
         exp = exp.replace(tzinfo=timezone.utc)
     if exp < now():
         return None
-    return await db.users.find_one({"user_id": sess["user_id"]}, P)
+    return await db.users.find_one({"user_id": sess["user_id"]}, USER_P)
 
 
 def bearer(request: Request) -> Optional[str]:
@@ -93,7 +94,12 @@ async def current_user(request: Request):
     user = await user_from_token(bearer(request))
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
+    if user.get("must_change_password") and request.url.path not in PASSWORD_CHANGE_PATHS:
+        raise HTTPException(status_code=403, detail="Please change your temporary password first")
     return user
+
+
+PASSWORD_CHANGE_PATHS = {"/api/auth/me", "/api/auth/change-password", "/api/auth/logout"}
 
 
 async def admin_user(user=Depends(current_user)):
@@ -102,8 +108,20 @@ async def admin_user(user=Depends(current_user)):
     return user
 
 
-# Executive user type (senior leadership tier)
-EXECUTIVE_EMAILS = {"nikki@aspireandgrow.com.au", "andrew@aspireandgrow.com.au", "pronathi@aspireandgrow.com.au"}
+# User types. Executives and Admins get admin tools (Executives also manage other Executives);
+# Executives, Admins and Support Office sign in with Microsoft, Support Workers with an admin-issued password.
+USER_TYPES = {"executive": "Executive", "admin": "Admin", "support_office": "Support Office",
+              "support_worker": "Support Worker"}
+MICROSOFT_TYPES = ("executive", "admin", "support_office")
+SEED_USERS = {"andrewt@nolimitts.com.au": ("Andrew", "executive"), "pronathin@nolimitts.com.au": ("Pronathi", "executive"),
+              "rond@nolimitts.com.au": ("Ron", "executive"), "justined@nolimitts.com.au": ("Justine", "executive")}
+
+
+def type_fields(user_type: str) -> dict:
+    """The role / executive / staff_group fields the rest of the app reads, derived from the user type."""
+    return {"user_type": user_type, "role": "admin" if user_type in ("executive", "admin") else "employee",
+            "executive": user_type == "executive",
+            "staff_group": "support_worker" if user_type == "support_worker" else "support_office"}
 
 
 def is_executive(user: Optional[dict]) -> bool:

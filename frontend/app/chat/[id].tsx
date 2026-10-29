@@ -90,7 +90,7 @@ export default function ChatThread() {
                     <View style={{ width: 32 }}>{showName && <Avatar name={item.sender_name} picture={item.sender_picture} size={32} />}</View>
                   )}
                   <View style={{ maxWidth: "78%" }}>
-                    {showName && <Text style={styles.sender}>{item.sender_name}{item.source === "google_chat" ? " · via Google Chat" : ""}</Text>}
+                    {showName && <Text style={styles.sender}>{item.sender_name}</Text>}
                     <View style={[styles.bubble, mine ? styles.mine : styles.theirs]}>
                       <Text style={[styles.msgText, { color: mine ? colors.onBrandPrimary : colors.onSurface }]}>{item.text}</Text>
                     </View>

@@ -37,7 +37,7 @@ function RootStack() {
   };
   return (
     <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.surface } }}>
-      <Stack.Protected guard={!!user}>
+      <Stack.Protected guard={!!user && !user.must_change_password}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="chat/[id]" options={{ ...header, title: "Chat" }} />
         <Stack.Screen name="new-chat" options={{ ...header, title: "New message", presentation: "modal" }} />
@@ -66,8 +66,13 @@ function RootStack() {
         <Stack.Screen name="starter/[id]" options={{ ...header, title: "Starter progress" }} />
         <Stack.Screen name="cert-requirements" options={{ ...header, title: "Required certificates" }} />
         <Stack.Screen name="staff/[id]" options={{ ...header, title: "Staff profile" }} />
+        <Stack.Screen name="celebration/[key]" options={{ ...header, title: "Celebration" }} />
         <Stack.Screen name="reminder-history" options={{ ...header, title: "Reminder history" }} />
         <Stack.Screen name="integrations" options={{ ...header, title: "Integrations" }} />
+      </Stack.Protected>
+      {/* Single change-password route: forced (no header) for temp passwords, normal from Library. */}
+      <Stack.Protected guard={!!user}>
+        <Stack.Screen name="change-password" options={user?.must_change_password ? { headerShown: false } : { ...header, title: "Change password" }} />
       </Stack.Protected>
       <Stack.Protected guard={!user}>
         <Stack.Screen name="login" />

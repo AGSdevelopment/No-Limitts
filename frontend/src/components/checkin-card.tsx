@@ -45,7 +45,7 @@ export function CheckinCard({ c, userId, onChanged, onCancel }: { c: any; userId
             {c.time ? ` at ${c.time}` : ""}
           </Text>
           {!!(c.location || c.description) && <Text style={styles.sub}>{[c.location, c.description].filter(Boolean).join(" · ")}</Text>}
-          {c.calendar === "sent" && <Text style={styles.sub}>Google Calendar invite sent</Text>}
+          {c.calendar === "sent" && <Text style={styles.sub}>Outlook invite sent</Text>}
         </View>
         <Pressable onPress={onCancel} hitSlop={8} style={styles.iconBtn} accessibilityLabel="Cancel check-in" testID={`starter-checkin-cancel-${c.event_id}`}>
           <Ionicons name="trash-outline" size={20} color={colors.error} />
