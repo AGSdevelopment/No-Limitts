@@ -10,6 +10,7 @@ from routes import (auth, users, notifications, certificates, chat, updates, pol
                     celebrations)
 from routes.celebrations import celebration_reminder_loop
 from routes.compliance import starter_reminder_loop
+from routes.teams import weekly_wrap_loop
 from routes.places import migrate_place_kinds
 from routes.directory import ensure_share_channel
 from routes.certificates import expiry_loop
@@ -223,6 +224,7 @@ async def startup():
     asyncio.create_task(policy_reminder_loop())
     asyncio.create_task(cert_reminder_loop())
     asyncio.create_task(starter_reminder_loop())
+    asyncio.create_task(weekly_wrap_loop())
     asyncio.create_task(probation_reminder_loop())
     asyncio.create_task(event_reminder_loop())
     asyncio.create_task(poll_close_loop())

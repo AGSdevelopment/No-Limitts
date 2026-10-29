@@ -7,7 +7,7 @@ import { Stack, useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { API_URL, api, authHeaders } from "@/src/api";
+import { API_URL, api, authHeaders, getApiToken, openLink } from "@/src/api";
 import { uploadForm } from "@/src/utils/upload";
 import { useAuth } from "@/src/auth";
 import { GroupPickerSheet } from "@/src/components/group-picker";
@@ -166,9 +166,16 @@ export default function Team() {
           contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: insets.bottom + 24, flexGrow: 1 }}
           ListEmptyComponent={<EmptyState icon="people-outline" title="No one here yet" subtitle={isAdmin ? "Tap + to add your first staff member." : undefined} />}
           ListHeaderComponent={isAdmin ? (
-            <Text style={styles.hint} testID="team-import-hint">
-              Adding lots of staff? Tap the upload icon and pick an Excel or CSV file with columns: Name, Email, and optionally User type, Job title, Start date, Birthday. Everyone is Support Worker unless the User type says otherwise.
-            </Text>
+            <View style={{ gap: 6 }}>
+              <Text style={styles.hint} testID="team-import-hint">
+                Adding lots of staff? Tap the upload icon and pick an Excel or CSV file with columns: Name, Email, and optionally User type, Job title, Start date, Birthday. Everyone is Support Worker unless the User type says otherwise.
+              </Text>
+              <Pressable onPress={() => openLink(`${API_URL}/users/import-template?token=${encodeURIComponent(getApiToken() ?? "")}`)}
+                style={styles.templateBtn} testID="team-import-template" accessibilityLabel="Download the staff import template">
+                <Ionicons name="download-outline" size={18} color={colors.brandPrimary} />
+                <Text style={styles.smallBtnText}>Download sample spreadsheet</Text>
+              </Pressable>
+            </View>
           ) : null}
           renderItem={({ item }) => (
             <View style={styles.row} testID={`team-member-${item.user_id}`}>
@@ -315,4 +322,5 @@ const useStyles = makeStyles((c) => ({
   credLabel: { fontSize: 12, fontWeight: "700", color: c.muted },
   credValue: { fontSize: 16, fontWeight: "700", color: c.onSurface, marginBottom: 6 },
   importRow: { fontSize: 14, color: c.onSurface },
+  templateBtn: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start", minHeight: 44, paddingHorizontal: 14, borderRadius: 22, backgroundColor: c.brandTertiary, marginBottom: 4 },
 }));

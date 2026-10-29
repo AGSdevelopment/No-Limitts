@@ -5,11 +5,12 @@ import os
 import re
 from datetime import date, datetime, timedelta
 from html import escape
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import Response
 from pydantic import BaseModel
 from typing import Optional
-from core import P, USER_P, USER_TYPES, admin_user, current_user, db, new_id, now_iso, spawn, type_fields
+from core import P, USER_P, USER_TYPES, admin_user, bearer, current_user, db, new_id, now_iso, spawn, type_fields, user_from_token
 from email_service import send_email
 from routes.auth import hash_password, temp_password
 from routes.compliance import send_starter_welcome
@@ -221,6 +222,63 @@ async def import_users(file: UploadFile = File(...), admin=Depends(admin_user)):
             spawn(send_starter_welcome(uid))
         added.append({"name": name, "email": email, "user_type": t, "emailed": not email.endswith("@example.com")})
     return {"added": added, "skipped": skipped}
+
+
+@router.get("/users/import-template")
+async def import_template(request: Request, token: Optional[str] = None):
+    """Sample spreadsheet for bulk import (token query param so it opens in a browser)."""
+    user = await user_from_token(bearer(request) or token)
+    if not user or user.get("role") != "admin":
+        raise HTTPException(403, "Admins only")
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Staff"
+    ws.append(["Name", "Email", "User type", "Job title", "Start date", "Birthday"])
+    ws.append(["Sam Example", "sam.example@gmail.com", "Support Worker", "Support Worker", "03/11/2026", "14/03"])
+    ws.append(["Alex Sample", "alex@nolimitts.com.au", "Support Office", "Rostering Coordinator", "01/11/2026", ""])
+    for c in ws[1]:
+        c.font, c.fill = Font(bold=True, color="FFFFFF"), PatternFill("solid", fgColor="673E8D")
+    for col, w in zip("ABCDEF", (24, 32, 18, 26, 14, 12)):
+        ws.column_dimensions[col].width = w
+    info = wb.create_sheet("How to fill this in")
+    for row in [["Column", "Required?", "What to enter"],
+                ["Name", "Yes", "Full name"],
+                ["Email", "Yes", "Support Workers: any email they check. Office staff: their Microsoft work email"],
+                ["User type", "No", "Support Worker (default), Support Office, Admin or Executive"],
+                ["Job title", "No", "e.g. Support Worker, Team Leader"],
+                ["Start date", "No", "dd/mm/yyyy (used for the first-week checklist, probation and anniversaries)"],
+                ["Birthday", "No", "dd/mm (no year needed)"],
+                [], ["Delete the two example rows before importing. Only the first sheet is read."]]:
+        info.append(row)
+    info.column_dimensions["A"].width, info.column_dimensions["C"].width = 14, 80
+    buf = io.BytesIO()
+    wb.save(buf)
+    return Response(content=buf.getvalue(), headers={"Content-Disposition": 'attachment; filename="No Limitts staff import template.xlsx"'},
+                    media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+class DetailsIn(BaseModel):
+    name: str
+    email: str
+    job_title: str = ""
+
+
+@router.patch("/users/{user_id}")
+async def edit_details(user_id: str, body: DetailsIn, admin=Depends(admin_user)):
+    target = await db.users.find_one({"user_id": user_id}, P)
+    if not target or (target.get("hidden") and not admin.get("hidden")):
+        raise HTTPException(404, "User not found")
+    if target.get("user_type") == "executive" and admin.get("user_type") != "executive" and user_id != admin["user_id"]:
+        raise HTTPException(403, "Only Executives can edit an Executive")
+    name, email = body.name.strip()[:120], body.email.strip().lower()
+    if not name or not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+        raise HTTPException(400, "Enter a name and a valid email")
+    if email != target.get("email") and await db.users.find_one({"email": email, "user_id": {"$ne": user_id}}):
+        raise HTTPException(409, "Someone else already uses that email")
+    await db.users.update_one({"user_id": user_id}, {"$set": {"name": name, "email": email, "job_title": body.job_title.strip()[:120]}})
+    return await db.users.find_one({"user_id": user_id}, USER_P)
 
 
 @router.delete("/users/{user_id}")

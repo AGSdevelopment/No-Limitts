@@ -196,3 +196,7 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Checklist nudge: compliance.starter_reminder_loop (9-17 Perth) one-time email+notice 5+ days after start if unfinished (starter_reminder_sent_at)
 - Teams celebrations: celebrations loop posts today's birthdays/anniversaries from 8am Perth (toggle 'celebrations')
 - Resend welcome: POST /api/users/{id}/resend-welcome (support workers get fresh temp pw)
+- Import template: GET /api/users/import-template?token= (xlsx with Staff + How-to sheets); Team 'Download sample spreadsheet'
+- Cert month nudge: compliance.send_cert_month_nudge, one-time 30+ days after start for support workers missing required certs (cert_month_nudge_at)
+- Teams weekly wrap: teams.weekly_wrap_loop Fridays 3pm Perth (toggle weekly_wrap)
+- Edit staff details: PATCH /api/users/{id} {name,email,job_title}; DetailsCard on staff profile

@@ -1,0 +1,36 @@
+{
+  "summary": "Tested the 4 new features on the backend and the frontend. Backend: 13/13 pytest pass (/app/backend/tests/test_iter47_template_certnudge_wrap_edit.py). (1) Import template: an admin gets 200 with an xlsx, using either ?token= or a Bearer header. It has the sheets 'Staff' (the exact 6-column header plus 2 example rows) and 'How to fill this in'. Employee, bogus and missing tokens get 403. A template with the example rows replaced imports correctly (start_date 2026-11-03, birthday 03-14). (2) send_cert_month_nudge: for a support worker who started 40 days ago, with requirements support_worker=['First Aid'], it returns True and creates one notification (link /upload-certificate). A second call returns False. A worker who already has a valid First Aid certificate gets False but is still claimed. No email is sent to @example.com addresses. Requirements were restored. (3) build_weekly_wrap: includes new non-hidden staff, this week's updates and events in the next 9 days with times. It excludes hidden users, check-in events and events more than 9 days away. announce('weekly_wrap') posts when the toggle is on, does not post when it is off, and returns False when Teams fails. GET/PUT on teams-announcements saves weekly_wrap; employees get 403. (4) PATCH /api/users/{id}: name, email and job_title are trimmed, the email is lowercased, and the changes persist in GET /users. Invalid emails or a blank name give 400, a duplicate email gives 409 (your own email is allowed), employees get 403, unknown ids get 404, a missing name gives 422, and a non-exec admin editing an Executive gets 403. A support worker can log in with the new email and the old email gets 401. Frontend (375x667): the Team screen shows 'Download sample spreadsheet' (44px tall) and tapping it downloads 'No Limitts staff import template.xlsx' with the token set. On the staff profile, the Details card edit form opens, the email note shows only after the email changes (with the support worker wording), and Save shows the 'Details saved' toast and updates the name, email and job title on screen. The Integrations weekly wrap toggle shows when linked, and tapping it saves weekly_wrap=false to the DB. Home, Library and Team still render with no page errors. No deprecated Expo packages found in the reviewed files.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "teams.build_weekly_wrap", "issue": "'New team members' is based only on users.created_at. Seeded or bulk-imported existing staff therefore show up as new. Reproduced: the wrap listed 'Andrew Thomas, Pronathi, Ron, Justine' (seeded executives) as new team members. Use start_date when it exists (start_date within the last 7 days, otherwise created_at), and consider leaving out executives and admins added by migration."},
+      {"endpoint": "compliance.starter_reminder_loop -> send_cert_month_nudge", "issue": "When this goes live, every non-hidden support worker whose start date is more than 30 days ago (including long-tenured, migrated staff) gets nudged at once if anything is missing. It is also claimed for good even when no requirements are set (support_worker requirements are currently []). So once an admin later adds requirements, nobody already 30+ days in will ever be nudged. It works as specified, but confirm this is intended. Consider claiming only when requirements exist, or limiting the nudge to starters between 30 and 60 days in."},
+      {"endpoint": "PATCH /api/users/{id}", "issue": "Changing the email does not revoke existing sessions and sends no notice to the old or new address. That is probably fine. Changing an office user's email to one that doesn't match their Microsoft account will lock them out; the UI warns about this."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Integrations", "issues": ["The announcements card description still reads 'New company updates, events and today's birthdays & work anniversaries are posted here automatically'. It does not mention the Friday weekly wrap."]},
+      {"screen": "Staff profile", "issues": ["The details-edit pencil is shown to non-executive admins on an Executive's profile. Saving then fails with a 403 toast. Consider hiding it in that case."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter47_template_certnudge_wrap_edit.py", "/app/backend/tests/seed_iter47_ui.py", "/app/test_reports/pytest/pytest_iter47.xml"],
+  "action_items": [
+    "Weekly wrap: decide 'new team members' by start_date (falling back to created_at) so seeded or imported existing staff aren't welcomed as new.",
+    "Cert month nudge: confirm the rollout behaviour (a mass nudge to all existing support workers, and a permanent claim while no requirements are set). Consider a 30-60 day window or claiming only when requirements exist.",
+    "Optional: mention the weekly wrap in the Integrations announcements description, and hide details-edit for non-exec admins viewing Executives."
+  ],
+  "critical_code_review_comments": [
+    "send_cert_month_nudge claims before notify/send_email, which matches the starter nudge pattern. A failure after the claim means the user is never nudged. Acceptable.",
+    "weekly_wrap_loop: announce returns True when nothing is linked or the toggle is off, so the meta key is still claimed. That is fine. When Teams fails it retries hourly until midnight (Friday 3pm-11pm Perth), which is fine."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter47_template_certnudge_wrap_edit.py", "/app/backend/tests/seed_iter47_ui.py"],
+  "success_rate": {"backend": "100% (13/13)", "frontend": "100% of tested flows"},
+  "seed_data_creation": "None kept. All test_i47_* users (API, import and UI) and their notifications and sessions were deleted. Certificate requirements were restored to {support_office: [], support_worker: []}. The teams_announcements integration was removed (there was none before). emp.test is unchanged (Emp Test / emp.test@example.com / TestWorker#2026, login gives 200). No real @nolimitts.com.au users were touched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "pytest.ini adds '-n auto --dist loadscope'; use -n0 to see print output. Async helpers are tested with run_with_db, which monkeypatches db into core, routes.compliance, routes.certificates (requirements()) and routes.teams. Use tests/seed_iter47_ui.py link|show|unlink to make the Integrations announcement toggles render. The frontend env var is EXPO_PUBLIC_BACKEND_URL (EXPO_BACKEND_URL is not set). The server clock reads 29 Oct 2026."
+}

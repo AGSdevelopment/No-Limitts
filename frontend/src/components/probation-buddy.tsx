@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api } from "@/src/api";
+import { useAuth } from "@/src/auth";
 import { useToast } from "@/src/components/toast";
 import { Avatar, Button, Field, Ionicons, dmyToIso, formatDate } from "@/src/components/ui";
 import { makeStyles, useTheme } from "@/src/theme";
@@ -70,6 +71,65 @@ export function ProbationCard({ s, onSaved }: { s: any; onSaved: () => void }) {
           <View style={styles.row}>
             <Button label="Cancel" variant="ghost" onPress={() => setEditing(false)} style={{ flex: 1 }} testID="probation-cancel" />
             <Button label="Save" loading={saving} onPress={save} style={{ flex: 1 }} testID="probation-save" />
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
+
+// Name, email and job title on the admin staff profile.
+export function DetailsCard({ s, onSaved }: { s: any; onSaved: () => void }) {
+  const { user: viewer } = useAuth();
+  const styles = useStyles();
+  const { colors } = useTheme();
+  const toast = useToast();
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState({ name: s.name ?? "", email: s.email ?? "", job_title: s.job_title ?? "" });
+  const [saving, setSaving] = useState(false);
+  const reset = () => setForm({ name: s.name ?? "", email: s.email ?? "", job_title: s.job_title ?? "" });
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api(`/users/${s.user_id}`, { method: "PATCH", body: form });
+      toast("Details saved", "success");
+      setEditing(false);
+      onSaved();
+    } catch (e: any) {
+      toast(e.message, "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <View style={styles.card} testID="details-card">
+      <View style={styles.row}>
+        <Ionicons name="person-outline" size={22} color={colors.brandPrimary} />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.title}>Details</Text>
+          <Text style={styles.sub} testID="details-summary">{s.job_title || "No job title"}</Text>
+        </View>
+        {!editing && (viewer?.user_type === "executive" || s.user_type !== "executive" || viewer?.user_id === s.user_id) && (
+          <Pressable onPress={() => { reset(); setEditing(true); }} style={styles.iconBtn} accessibilityLabel="Edit details" testID="details-edit">
+            <Ionicons name="create-outline" size={20} color={colors.brandPrimary} />
+          </Pressable>
+        )}
+      </View>
+      {editing && (
+        <View style={{ gap: 10 }}>
+          <Field label="Full name" value={form.name} onChangeText={(v) => setForm({ ...form, name: v })} testID="details-name" />
+          <Field label="Email" value={form.email} onChangeText={(v) => setForm({ ...form, email: v })} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" testID="details-email" />
+          {form.email.trim().toLowerCase() !== (s.email ?? "") && (
+            <Text style={styles.sub} testID="details-email-note">
+              {s.user_type === "support_worker" ? "They'll sign in with this new email from now on (same password)." : "This must match their Microsoft work email, or they won't be able to sign in."}
+            </Text>
+          )}
+          <Field label="Job title" value={form.job_title} onChangeText={(v) => setForm({ ...form, job_title: v })} placeholder="e.g. Support Worker" testID="details-job" />
+          <View style={styles.row}>
+            <Button label="Cancel" variant="ghost" onPress={() => { reset(); setEditing(false); }} style={{ flex: 1 }} testID="details-cancel" />
+            <Button label="Save" loading={saving} disabled={!form.name.trim() || !form.email.trim()} onPress={save} style={{ flex: 1 }} testID="details-save" />
           </View>
         </View>
       )}

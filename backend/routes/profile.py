@@ -42,7 +42,7 @@ async def profile_data(user_id: str) -> dict:
         starter = {"done": sum(i["done"] for i in items), "total": len(items)}
     return {
         "user": {k: u.get(k) for k in ("user_id", "name", "email", "picture", "role", "staff_group", "created_at",
-                                        "start_date", "probation_end", "buddy_id", "buddy_name", "birthday", "user_type")},
+                                        "start_date", "probation_end", "buddy_id", "buddy_name", "birthday", "user_type", "job_title")},
         "certificates": certs,
         "missing_required": missing_required(certs, (await requirements()).get(u.get("staff_group") or "", [])),
         "cpd": {"year_hours": round(sum(c["hours"] for c in cpd if c["date"] >= year_start), 2),

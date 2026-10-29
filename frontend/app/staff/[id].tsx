@@ -1,12 +1,12 @@
 import { RefreshControl, ScrollView, Pressable, View } from "react-native";
 import { Text } from "@/src/components/text";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { API_URL, api, getApiToken, openLink } from "@/src/api";
 import { useAuth } from "@/src/auth";
-import { BirthdayCard, BuddyCard, ProbationCard } from "@/src/components/probation-buddy";
+import { BirthdayCard, BuddyCard, DetailsCard, ProbationCard } from "@/src/components/probation-buddy";
 import { Avatar, Button, EmptyState, ErrorState, Ionicons, Loading, Pill, formatDate } from "@/src/components/ui";
 import { typeLabel } from "@/src/groups";
 import { MilestoneBadge } from "@/src/components/milestone-badge";
@@ -19,6 +19,7 @@ export default function StaffProfile() {
   const insets = useSafeAreaInsets();
   const styles = useStyles();
   const { colors } = useTheme();
+  const qc = useQueryClient();
   const q = useQuery<any>({ queryKey: ["staff-profile", id], queryFn: () => api(`/staff/${id}/profile`), enabled: user?.role === "admin" && !!id });
 
   if (user?.role !== "admin") return <EmptyState icon="lock-closed-outline" title="Admins only" />;
@@ -70,6 +71,7 @@ export default function StaffProfile() {
         <Stat label="Open tasks" value={`${open_tasks}`} />
       </View>
 
+      <DetailsCard key={`d${s.name}${s.email}${s.job_title}`} s={s} onSaved={() => { q.refetch(); qc.invalidateQueries({ queryKey: ["users"] }); }} />
       <ProbationCard key={`p${s.start_date}${s.probation_end}`} s={s} onSaved={() => q.refetch()} />
       <BirthdayCard key={`b${s.birthday}`} s={s} onSaved={() => q.refetch()} />
       <BuddyCard s={s} onSaved={() => q.refetch()} />

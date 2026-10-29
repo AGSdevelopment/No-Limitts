@@ -416,6 +416,13 @@ async def starter_reminder_loop():
                     if not is_new_starter(u) or not start or start > cutoff:
                         continue
                     await send_starter_nudge(u)
+                month_ago = (now_p.date() - timedelta(days=30)).isoformat()
+                two_months = (now_p.date() - timedelta(days=60)).isoformat()  # long-serving staff get the monthly reminder instead
+                async for u in db.users.find({"user_type": "support_worker", "hidden": {"$ne": True},
+                                              "cert_month_nudge_at": {"$exists": False}}, P):
+                    start = (u.get("start_date") or u.get("created_at") or "")[:10]
+                    if start and two_months <= start <= month_ago:
+                        await send_cert_month_nudge(u)
         except Exception as e:
             logger.error(f"Starter reminder loop failed: {e}")
         await asyncio.sleep(3600)
@@ -442,6 +449,32 @@ async def send_starter_nudge(u: dict) -> bool:
             f"({len(items) - len(left)} of {len(items)} done):</p><ul>{steps}</ul>"
             "<p>Open the No Limitts app and tap <b>Your first-week checklist</b> on the Home screen to finish up. "
             "If anything's unclear, message your admin in the app. We're happy to help!</p></div>"))
+    return True
+
+
+async def send_cert_month_nudge(u: dict) -> bool:
+    """One month in: a one-time reminder listing required certificates a Support Worker still hasn't uploaded."""
+    reqs = (await requirements()).get(u.get("staff_group") or "", [])
+    if not reqs:
+        return False  # nothing required yet: don't mark them, so they're nudged if requirements are added later
+    mine = await db.certificates.find({"owner_id": u["user_id"], "is_deleted": {"$ne": True}},
+                                      {"_id": 0, "title": 1, "expiry_date": 1}).to_list(500)
+    missing = missing_required(mine, reqs)
+    claim = await db.users.update_one({"user_id": u["user_id"], "cert_month_nudge_at": {"$exists": False}},
+                                      {"$set": {"cert_month_nudge_at": now_iso()}})
+    if not claim.modified_count or not missing:
+        return False
+    await notify([u["user_id"]], "certificate", "Training certificates still needed",
+                 f"Please upload: {', '.join(missing)[:160]}", "/upload-certificate")
+    if u.get("email") and not u["email"].endswith("@example.com"):
+        items = "".join(f"<li>{escape(m)}</li>" for m in missing)
+        await send_email(to=u["email"], subject="Reminder: training certificates needed for No Limitts", html=(
+            "<div style='font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px'>"
+            f"<h2 style='color:#673E8D'>Hi {escape(u['name'].split(' ')[0])}, one month in!</h2>"
+            "<p>Thanks for your first month with No Limitts. To stay compliant we still need these training "
+            f"certificates from you:</p><ul>{items}</ul>"
+            "<p>Open the No Limitts app, go to <b>Certificates</b> and tap <b>Upload</b>. A photo of the certificate is fine. "
+            "If you're still waiting on one, let your admin know.</p></div>"))
     return True
 
 
