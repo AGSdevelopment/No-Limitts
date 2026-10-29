@@ -1,4 +1,4 @@
-# Iteration 40: No Limitts branding - logo on Team Plans overview PDF and Staff profile PDF
+# Iteration 40: No Limitts branding - logo on Staff profile PDF
 import os
 import pytest
 import requests
@@ -28,32 +28,7 @@ def _assert_logo_top_left(doc):
     return r
 
 
-# Team plans overview PDF
-class TestTeamOverviewPdf:
-    def test_overview_pdf_query_token(self):
-        r = requests.get(f"{BASE_URL}/api/agts-dashboard/team-overview/pdf", params={"token": ADMIN}, timeout=60)
-        doc = _pdf(r)
-        assert "application/pdf" in r.headers.get("content-type", "")
-        _assert_logo_top_left(doc)
-        assert "Team plans overview" in doc[0].get_text()
-
-    def test_overview_pdf_bearer(self):
-        r = requests.get(f"{BASE_URL}/api/agts-dashboard/team-overview/pdf", headers={"Authorization": f"Bearer {ADMIN}"}, timeout=60)
-        _pdf(r)
-
-    def test_overview_pdf_only_logo_on_first_page(self):
-        r = requests.get(f"{BASE_URL}/api/agts-dashboard/team-overview/pdf", params={"token": ADMIN}, timeout=60)
-        doc = _pdf(r)
-        for i in range(1, len(doc)):
-            assert len(doc[i].get_images()) == 0
-
-    def test_overview_pdf_no_auth(self):
-        r = requests.get(f"{BASE_URL}/api/agts-dashboard/team-overview/pdf", timeout=30)
-        assert r.status_code in (401, 403)
-
-    def test_overview_pdf_employee_forbidden(self):
-        r = requests.get(f"{BASE_URL}/api/agts-dashboard/team-overview/pdf", params={"token": EMP}, timeout=30)
-        assert r.status_code in (401, 403)
+# (Team plans overview PDF tests removed in iteration 42: feature deleted, endpoint now 404)
 
 
 # Staff profile PDF

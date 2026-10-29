@@ -176,3 +176,7 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Home welcome card (greeting, first name, date, brand dots, heart tree)
 - Nunito brand font app-wide via src/components/text.tsx (Text/TextInput wrappers)
 - No Limitts logo on staff profile + team plans PDFs (backend/pdf_brand.py)
+- Birthdays (admin-set dd-mm on staff profile) + work anniversaries (start_date) on Home: personal welcome card + team banners (tap -> DM)
+- All emails get No Limitts logo + colour stripe header (email_service.brand_header, GET /api/brand/logo.png)
+- Landing photo = Summer BBQ
+- REMOVED (user request): Therapist Dashboard, Participant Plans & Safety (incl. therapists' own pages), Team Plans Overview, plus their emails/alerts/calendar sync. Routes dashboards.py/agts_dashboard.py deleted. Executive role flag still exists but gates nothing now.

@@ -42,7 +42,7 @@ async def profile_data(user_id: str) -> dict:
         starter = {"done": sum(i["done"] for i in items), "total": len(items)}
     return {
         "user": {k: u.get(k) for k in ("user_id", "name", "email", "picture", "role", "staff_group", "created_at",
-                                        "start_date", "probation_end", "buddy_id", "buddy_name")},
+                                        "start_date", "probation_end", "buddy_id", "buddy_name", "birthday")},
         "certificates": certs,
         "missing_required": missing_required(certs, (await requirements()).get(u.get("staff_group") or "", [])),
         "cpd": {"year_hours": round(sum(c["hours"] for c in cpd if c["date"] >= year_start), 2),
@@ -103,6 +103,29 @@ async def set_probation(user_id: str, body: ProbationIn, admin=Depends(admin_use
         upd["probation_reminded_for"] = None
     await db.users.update_one({"user_id": user_id}, {"$set": upd})
     return {k: v for k, v in upd.items() if k != "probation_reminded_for"}
+
+
+class BirthdayIn(BaseModel):
+    birthday: Optional[str] = None  # "DD-MM"; empty clears it
+
+
+@router.patch("/staff/{user_id}/birthday")
+async def set_birthday(user_id: str, body: BirthdayIn, admin=Depends(admin_user)):
+    """Admins set day + month only (no year is stored)."""
+    if not await db.users.find_one({"user_id": user_id}, P):
+        raise HTTPException(404, "Staff member not found")
+    val = None
+    if body.birthday and body.birthday.strip():
+        m = re.fullmatch(r"(\d{1,2})[-/](\d{1,2})", body.birthday.strip())
+        try:
+            if not m:
+                raise ValueError
+            d = date(2000, int(m.group(2)), int(m.group(1)))  # 2000 is a leap year, so 29-02 is allowed
+        except ValueError:
+            raise HTTPException(400, "Enter the birthday as dd-mm, e.g. 14-03")
+        val = d.strftime("%m-%d")
+    await db.users.update_one({"user_id": user_id}, {"$set": {"birthday": val}})
+    return {"birthday": val}
 
 
 async def default_probation(user_id: str):

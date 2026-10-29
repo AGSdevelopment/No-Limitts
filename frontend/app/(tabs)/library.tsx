@@ -20,7 +20,6 @@ export default function Library() {
   const styles = useStyles();
   const { colors } = useTheme();
   const dash = useQuery<any>({ queryKey: ["dashboard"], queryFn: () => api("/dashboard") });
-  const external = useQuery<any[]>({ queryKey: ["external-dashboards"], queryFn: () => api("/dashboards") });
   const bottomChrome = usesNativeTabs ? insets.bottom : 0;
   const isAdmin = user?.role === "admin";
 
@@ -36,7 +35,6 @@ export default function Library() {
     { icon: "sparkles-outline", label: "Ask AI about policies", to: "/assistant", id: "assistant" },
     { icon: "people-outline", label: "Team directory", to: "/team", id: "team" },
     { icon: "folder-open-outline", label: "Company Drive", to: "/drive", id: "drive" },
-    ...(external.data ?? []).map((d) => ({ icon: "analytics-outline", label: d.name, to: `/dashboard/${d.dashboard_id}`, id: `dash-${d.dashboard_id}` }) as Row),
   ];
   const admin: Row[] = [
     { icon: "stats-chart-outline", label: "Compliance dashboard", to: "/compliance", id: "compliance" },

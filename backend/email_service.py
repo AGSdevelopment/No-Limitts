@@ -86,9 +86,24 @@ def _assert_safe_email(subject: str, html: str) -> None:
                 raise ValueError(f"Anchor text {m.group(1)!r} != real link host {real!r} (G3)")
 
 
+BRAND_STRIPE = ("#673E8D", "#EB3F7F", "#F7A51D", "#EBE837")
+
+
+def brand_header(html: str) -> str:
+    """No Limitts logo and colour stripe above every email."""
+    base = (os.environ.get("PUBLIC_BACKEND_URL") or "").rstrip("/")
+    logo = (f'<img src="{base}/api/brand/logo.png" alt="No Limitts" width="140" '
+            'style="display:block;margin:0 auto 10px;border:0;height:auto;max-width:140px">') if base.startswith("https://") else ""
+    stripe = "".join(f'<td style="height:5px;background:{c};font-size:0;line-height:0">&nbsp;</td>' for c in BRAND_STRIPE)
+    return (f'<div style="background:#FCFEFF;padding:18px 0 0">{logo}'
+            f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto 6px;'
+            f'border-collapse:collapse"><tr>{stripe}</tr></table></div>{html}')
+
+
 async def send_email(*, to: str, subject: str, html: str) -> bool:
     """Send a templated email. Returns True on success; never raises (background use)."""
     try:
+        html = brand_header(html)
         _assert_safe_email(subject, html)
         payload = {"to": [to], "subject": subject, "html": html, "from_name": EMAIL_FROM_NAME}
         if EMAIL_REPLY_TO:

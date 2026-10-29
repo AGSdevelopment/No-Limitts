@@ -52,7 +52,7 @@ class ExecutiveIn(BaseModel):
 
 @router.patch("/users/{user_id}/executive")
 async def set_executive(user_id: str, body: ExecutiveIn, exe=Depends(executive_user)):
-    """Executive user type (Therapist dashboard, Participant plans & safety, Team plans overview). Only Executives can change it."""
+    """Executive user type (senior leadership tier). Only Executives can change it."""
     if user_id == exe["user_id"] and not body.executive:
         raise HTTPException(400, "You cannot remove your own Executive access")
     res = await db.users.update_one({"user_id": user_id}, {"$set": {"executive": body.executive}})

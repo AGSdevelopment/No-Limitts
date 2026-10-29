@@ -1,0 +1,43 @@
+{
+  "summary": "Iteration 42: checked that the Therapist dashboard, Participant plans & safety and Team plans overview are gone, the new BBQ login photo, and the iteration-41 follow-up fixes. Backend: 60/60 pytest pass (new test_iter42 file plus the iter40 and iter41 files, run serially). All 12 old /api/dashboards and /api/agts-dashboard/* routes return 404. GET /api/dashboard returns 200 with celebrations. The backend starts cleanly, and the dashboard loop and ensure_dashboards were removed from startup. Frontend (375x667): the login screen shows the BBQ team photo (1400px) and the No Limitts logo, with no page errors. Admin home shows the 3-year anniversary greeting and the Erin birthday banner (pink to purple, readable). Employee home shows the birthday greeting and the Alex anniversary banner; tapping the banner opens the DM. Neither home has a dashboard or plans card. Library: no dashboard or plans rows; all 17 admin rows and 10 employee rows open with no errors. /plans-overview and /dashboard/therapist show Unmatched Route. Staff profile BirthdayCard: Cancel resets the typed value (05-07 goes back to 29-10). The profile PDF button opens a new tab. Team (Make Executive toggles still there), Chat, Events, Certificates and Policies all load. The 29 Feb rule is covered by the iter41 unit test, which passes.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "MongoDB leftovers", "issue": "Collection 'dashboards' still holds 4 docs. 'agts_dashboard_parts' and 'plan_reviews_booked' exist but are empty. Nothing reads them now. Drop them if the user confirms."},
+      {"endpoint": "DELETE /api/integrations/google-calendar", "issue": "Still runs db.plan_cal_events.delete_many (backend/routes/calendar.py:68). This is a harmless leftover of plans calendar sync. Calendar events that sync already created stay in therapists' Google Calendars, so the user may need to remove them by hand."},
+      {"endpoint": "comments", "issue": "Stale comments still describe Executive as gating the dashboards: backend/core.py:105 and backend/routes/users.py:55."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "NativeTabs import", "issue": "Expo logs warn that `expo-router/unstable-native-tabs` is deprecated; use `expo-router/native-tabs`. Reference: /app/frontend/app/(tabs)/_layout.tsx:3"}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter42_dashboards_removed.py",
+    "/app/backend/tests/test_iter41_celebrations_brand_email.py",
+    "/app/backend/tests/test_iter40_brand_pdfs.py",
+    "/app/test_reports/pytest/pytest_iter42.xml"
+  ],
+  "action_items": [
+    "Optional: drop or archive the orphan Mongo collections dashboards, agts_dashboard_parts and plan_reviews_booked.",
+    "Optional: tidy the stale Executive comments in core.py:105 and users.py:55. Optionally remove the plan_cal_events cleanup in calendar.py:68.",
+    "Optional: switch the import in app/(tabs)/_layout.tsx:3 from expo-router/unstable-native-tabs to expo-router/native-tabs."
+  ],
+  "critical_code_review_comments": [
+    "The removal is clean: no frontend references to /dashboards, /agts-dashboard, plans-overview or plan-calendar-bar remain. server.py no longer imports or starts dashboard_loop or ensure_dashboards. No notifications link to the removed routes.",
+    "The test_iter41 celebration tests error under pytest-xdist because workers share a module fixture. They pass when run serially (-n 0)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter42_dashboards_removed.py (new)",
+    "/app/backend/tests/test_iter40_brand_pdfs.py (removed the obsolete TestTeamOverviewPdf class, whose endpoint was deleted)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "None. Existing test data was left in place.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run the backend tests serially (-n 0) with frontend/.env exported (EXPO_PUBLIC_BACKEND_URL). Today in Perth is 10-29: emp birthday 10-29, admin start_date 2023-10-29 (3 years). The dashboard features were removed on purpose, so the old /dashboards and /agts-dashboard endpoints must return 404."
+}

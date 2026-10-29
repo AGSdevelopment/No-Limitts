@@ -28,7 +28,7 @@ export default function Login() {
           source={require("@/assets/images/welcome-team.jpg")}
           style={styles.hero}
           contentFit="cover"
-          contentPosition={{ left: "50%", top: "70%" }}
+          contentPosition={{ left: "50%", top: "60%" }}
           testID="login-hero-image"
         />
         <LinearGradient colors={["rgba(103,62,141,0)", "rgba(103,62,141,0.35)"]} style={styles.heroOverlay} />

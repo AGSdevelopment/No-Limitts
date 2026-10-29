@@ -77,6 +77,59 @@ export function ProbationCard({ s, onSaved }: { s: any; onSaved: () => void }) {
   );
 }
 
+// Birthday (day + month only) on the admin staff profile; shown to the team on the day.
+export function BirthdayCard({ s, onSaved }: { s: any; onSaved: () => void }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  const toast = useToast();
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(s.birthday ? s.birthday.split("-").reverse().join("-") : "");
+  const [saving, setSaving] = useState(false);
+  const label = s.birthday
+    ? new Date(2000, Number(s.birthday.slice(0, 2)) - 1, Number(s.birthday.slice(3))).toLocaleDateString(undefined, { day: "numeric", month: "long" })
+    : null;
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api(`/staff/${s.user_id}/birthday`, { method: "PATCH", body: { birthday: value.trim() || null } });
+      toast(value.trim() ? "Birthday saved" : "Birthday removed", "success");
+      setEditing(false);
+      onSaved();
+    } catch (e: any) {
+      toast(e.message, "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <View style={styles.card} testID="birthday-card">
+      <View style={styles.row}>
+        <Ionicons name="gift-outline" size={22} color={colors.accent} />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.title}>Birthday</Text>
+          <Text style={styles.sub} testID="birthday-summary">{label ?? "Not set"}</Text>
+        </View>
+        {!editing && (
+          <Pressable onPress={() => setEditing(true)} style={styles.iconBtn} accessibilityLabel="Edit birthday" testID="birthday-edit">
+            <Ionicons name="create-outline" size={20} color={colors.brandPrimary} />
+          </Pressable>
+        )}
+      </View>
+      {editing && (
+        <View style={{ gap: 10 }}>
+          <Field label="Birthday (dd-mm, no year)" value={value} onChangeText={setValue} placeholder="e.g. 14-03 · leave empty to remove" keyboardType="numbers-and-punctuation" testID="birthday-input" />
+          <View style={styles.row}>
+            <Button label="Cancel" variant="ghost" onPress={() => { setValue(s.birthday ? s.birthday.split("-").reverse().join("-") : ""); setEditing(false); }} style={{ flex: 1 }} testID="birthday-cancel" />
+            <Button label="Save" loading={saving} onPress={save} style={{ flex: 1 }} testID="birthday-save" />
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
+
 // Starter buddy on the admin staff profile.
 export function BuddyCard({ s, onSaved }: { s: any; onSaved: () => void }) {
   const styles = useStyles();

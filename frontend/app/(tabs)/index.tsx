@@ -32,9 +32,20 @@ export default function Home() {
   const isEmerging = user?.staff_group === "emerging_therapist";
   const newStuff = useQuery<any[]>({ queryKey: ["directory-highlights"], queryFn: () => api("/directory/highlights") });
   const reviews = useQuery<any[]>({ queryKey: ["directory-latest-reviews"], queryFn: () => api("/directory/reviews/latest") });
-  const dashboards = useQuery<any[]>({ queryKey: ["external-dashboards"], queryFn: () => api("/dashboards") });
   const pathway = useQuery<any>({ queryKey: ["pathway"], queryFn: () => api("/pathway"), enabled: isEmerging });
   const d = q.data;
+  const mine = (d?.celebrations ?? []).filter((c: any) => c.user_id === user?.user_id);
+  const myBirthday = mine.find((c: any) => c.type === "birthday");
+  const myAnniversary = mine.find((c: any) => c.type === "anniversary");
+  const teamCelebrations = (d?.celebrations ?? []).filter((c: any) => c.user_id !== user?.user_id);
+  const messageCelebrant = async (c: any) => {
+    try {
+      const conv = await api("/dms", { method: "POST", body: { user_id: c.user_id } });
+      router.push({ pathname: "/chat/[id]", params: { id: conv.conversation_id, name: c.name } });
+    } catch {
+      router.push("/new-chat");
+    }
+  };
   const bottomChrome = usesNativeTabs ? insets.bottom : 0;
 
   const actions: { icon: IconName; label: string; to: any; id: string }[] = [
@@ -59,20 +70,41 @@ export default function Home() {
       ) : (
         <ScrollView
           contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: bottomChrome + 24 }}
-          refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => { q.refetch(); newStuff.refetch(); reviews.refetch(); dashboards.refetch(); }} tintColor={colors.brandPrimary} />}
+          refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => { q.refetch(); newStuff.refetch(); reviews.refetch(); }} tintColor={colors.brandPrimary} />}
         >
           <Animated.View entering={FadeInDown.duration(400)} style={styles.welcome} testID="home-welcome-card">
             <LinearGradient colors={[colors.highlightSoft, colors.accentSoft, colors.brandSecondary]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
             <View style={{ flex: 1, gap: 4 }}>
-              <Text style={styles.welcomeHi}>{greeting()},</Text>
+              <Text style={styles.welcomeHi} testID="home-welcome-greeting">
+                {myBirthday ? "Happy birthday," : myAnniversary ? `Happy ${myAnniversary.years}-year work anniversary,` : `${greeting()},`}
+              </Text>
               <Text style={styles.welcomeName} numberOfLines={1} testID="home-welcome-name">{user?.name?.split(" ")[0] ?? ""}!</Text>
-              <Text style={styles.welcomeSub}>{new Date().toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}</Text>
+              <Text style={styles.welcomeSub}>
+                {myBirthday
+                  ? "Wishing you a wonderful day from all of us at No Limitts 🎂"
+                  : myAnniversary
+                    ? `Thank you for ${myAnniversary.years} year${myAnniversary.years > 1 ? "s" : ""} with No Limitts 🎉`
+                    : new Date().toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}
+              </Text>
               <View style={styles.welcomeDots}>
                 {[colors.brandPrimary, colors.accent, colors.sky, colors.highlight].map((c) => <View key={c} style={[styles.welcomeDot, { backgroundColor: c }]} />)}
               </View>
             </View>
             <Image source={require("@/assets/images/brand-mark.png")} style={styles.welcomeTree} contentFit="contain" />
           </Animated.View>
+          {teamCelebrations.map((c: any) => (
+            <Pressable key={`${c.type}${c.user_id}`} onPress={() => messageCelebrant(c)} style={({ pressed }) => [styles.celebrate, pressed && { opacity: 0.85 }]} testID={`home-celebration-${c.type}-${c.user_id}`} accessibilityLabel={`Message ${c.name}`}>
+              <LinearGradient colors={c.type === "birthday" ? [colors.accent, colors.brandPrimary] : [colors.brandPrimary, colors.accent]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={StyleSheet.absoluteFill} />
+              <Ionicons name={c.type === "birthday" ? "gift" : "ribbon"} size={26} color="#FFFFFF" />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.celebrateTitle} numberOfLines={2}>
+                  {c.type === "birthday" ? `It's ${c.name}'s birthday today! 🎂` : `${c.name} celebrates ${c.years} year${c.years > 1 ? "s" : ""} with us today! 🎉`}
+                </Text>
+                <Text style={styles.celebrateSub}>Tap to send {c.name.split(" ")[0]} a message</Text>
+              </View>
+              <Ionicons name="chatbubble-ellipses" size={20} color="#FFFFFF" />
+            </Pressable>
+          ))}
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickRow} style={{ marginHorizontal: -16 }}>
             {actions.map((a) => (
               <Pressable key={a.id} testID={`quick-action-${a.id}`} onPress={() => router.push(a.to)} style={({ pressed }) => [styles.quick, pressed && { opacity: 0.7 }]}>
@@ -91,28 +123,6 @@ export default function Home() {
                   <View style={[styles.starterFill, { width: `${Math.round((starter.data.done / starter.data.total) * 100)}%` }]} />
                 </View>
                 <Text style={styles.starterSub}>{starter.data.done} of {starter.data.total} steps done · tap to continue</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color={colors.onBrandPrimary} />
-            </Pressable>
-          )}
-
-          {(dashboards.data ?? []).map((db: any) => (
-            <Pressable key={db.dashboard_id} testID={`home-dashboard-${db.dashboard_id}`} onPress={() => router.push(`/dashboard/${db.dashboard_id}`)} style={({ pressed }) => [styles.starter, pressed && { opacity: 0.85 }]} accessibilityLabel={`Open ${db.name}`}>
-              <Ionicons name="analytics" size={24} color={colors.onBrandPrimary} />
-              <View style={{ flex: 1, gap: 2 }}>
-                <Text style={styles.starterTitle}>Open {db.name.toLowerCase().startsWith("the ") ? db.name : `the ${db.name.toLowerCase()}`}</Text>
-                <Text style={styles.starterSub}>Opens right here in the app</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color={colors.onBrandPrimary} />
-            </Pressable>
-          ))}
-
-          {!!user?.executive && (
-            <Pressable testID="home-plans-overview" onPress={() => router.push("/plans-overview")} style={({ pressed }) => [styles.starter, pressed && { opacity: 0.85 }]} accessibilityLabel="Open the team plans overview">
-              <Ionicons name="people" size={24} color={colors.onBrandPrimary} />
-              <View style={{ flex: 1, gap: 2 }}>
-                <Text style={styles.starterTitle}>Team plans overview</Text>
-                <Text style={styles.starterSub}>Overdue reviews and missing forms for every therapist</Text>
               </View>
               <Ionicons name="chevron-forward" size={20} color={colors.onBrandPrimary} />
             </Pressable>
@@ -317,6 +327,9 @@ const useStyles = makeStyles((c) => ({
   welcomeDots: { flexDirection: "row", gap: 6, marginTop: 6 },
   welcomeDot: { width: 10, height: 10, borderRadius: 5 },
   welcomeTree: { width: 120, height: 120 },
+  celebrate: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 16, overflow: "hidden", padding: 14, marginTop: 10, minHeight: 64 },
+  celebrateTitle: { fontSize: 15, fontWeight: "800", color: "#FFFFFF" },
+  celebrateSub: { fontSize: 12.5, fontWeight: "600", color: "#FFFFFF", opacity: 0.92, marginTop: 2 },
   quickRow: { paddingHorizontal: 16, paddingVertical: 16, gap: 12 },
   quick: { width: 76, alignItems: "center", gap: 6, flexShrink: 0 },
   quickLabel: { fontSize: 12, fontWeight: "600", color: c.onSurfaceSecondary },

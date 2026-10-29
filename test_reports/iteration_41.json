@@ -1,0 +1,32 @@
+{
+  "summary": "Iteration 41: Birthdays, work anniversaries and branded emails. Backend 25/25 pytest passed (birthday PATCH admin-only/validation/clear, dashboard celebrations incl. hidden filtering and 0-year exclusion, 29-Feb-on-28-Feb unit, public logo PNG, brand_header passes _assert_safe_email, send_email wraps html with header (httpx mocked, no real email sent)). Frontend (375x667): employee Home shows 'Happy birthday, Erin!' + Alex anniversary banner -> tap opens DM chat; admin Home shows 'Happy 3-year work anniversary, Alex!' + Erin birthday banner -> tap opens DM; staff profile BirthdayCard edit/invalid(31-02 error toast)/save(14-03 -> March 14) works and was restored to 29-10. All passed.",
+  "backend_issues": {"critical": [], "minor": [
+    {"endpoint": "GET /api/dashboard celebrations", "issue": "Work anniversaries for start_date on 29 Feb are never celebrated in non-leap years (birthdays have the 28-Feb fallback, anniversaries don't)."}
+  ]},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "BirthdayCard", "issue": "Cancel does not reset the input to the saved value; reopening edit shows the discarded text.", "testID": "birthday-cancel", "priority": "low"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Home birthday banner", "issues": ["White text on the right end of the birthday gradient (#EB3F7F -> sky #F7A51D orange) has low contrast (~2:1) — consider darker end colour or text shadow."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter41_celebrations_brand_email.py", "/app/test_reports/pytest/pytest_iter41.xml"],
+  "action_items": [
+    "Optional: reset BirthdayCard value on Cancel",
+    "Optional: improve contrast of birthday banner gradient end colour",
+    "Optional: celebrate 29-Feb start_date anniversaries on 28 Feb in non-leap years"
+  ],
+  "critical_code_review_comments": [
+    "Both test users (user_testemp001, user_testadmin01) are hidden:true, so real (non-hidden) staff will NOT see their banners - this is by design but means test banners are only visible to hidden accounts.",
+    "Run the iter41 test file with -n0 (xdist workers race on the module fixture that inserts TEST_ users)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter41_celebrations_brand_email.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "Temporary TEST_ users/session created and deleted by the pytest fixture. Erin birthday 10-29 and admin start_date 2023-10-29 left intact.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Perth date during test was 2026-10-29. Celebrations use DIGEST_TZ (Australia/Perth). Hidden viewers see all celebrants; non-hidden viewers exclude hidden users. Run: pytest tests/test_iter41_celebrations_brand_email.py -n0"
+}

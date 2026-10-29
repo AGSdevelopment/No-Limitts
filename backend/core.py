@@ -102,7 +102,7 @@ async def admin_user(user=Depends(current_user)):
     return user
 
 
-# Executives see the Therapist dashboard, Participant plans & safety and the Team plans overview
+# Executive user type (senior leadership tier)
 EXECUTIVE_EMAILS = {"nikki@aspireandgrow.com.au", "andrew@aspireandgrow.com.au", "pronathi@aspireandgrow.com.au"}
 
 

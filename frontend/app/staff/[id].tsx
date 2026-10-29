@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { API_URL, api, getApiToken, openLink } from "@/src/api";
 import { useAuth } from "@/src/auth";
-import { BuddyCard, ProbationCard } from "@/src/components/probation-buddy";
+import { BirthdayCard, BuddyCard, ProbationCard } from "@/src/components/probation-buddy";
 import { Avatar, Button, EmptyState, ErrorState, Ionicons, Loading, Pill, formatDate } from "@/src/components/ui";
 import { groupLabel } from "@/src/groups";
 import { makeStyles, useTheme } from "@/src/theme";
@@ -70,6 +70,7 @@ export default function StaffProfile() {
       </View>
 
       <ProbationCard key={`p${s.start_date}${s.probation_end}`} s={s} onSaved={() => q.refetch()} />
+      <BirthdayCard key={`b${s.birthday}`} s={s} onSaved={() => q.refetch()} />
       <BuddyCard s={s} onSaved={() => q.refetch()} />
 
       {s.staff_group === "emerging_therapist" && <PathwaySummary userId={s.user_id} styles={styles} />}
