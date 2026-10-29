@@ -147,16 +147,6 @@ async def seed_hr_coordinator_v1():
     await db.meta.insert_one({"key": "nolimitts_hr_v1", "created_at": now_iso()})
 
 
-async def clear_jotforms_v1():
-    """One-time: remove every old Jotform link so No Limitts forms can be added. Category headers stay in the app."""
-    if await db.meta.find_one({"key": "forms_cleared_v1"}):
-        return
-    n = (await db.forms.delete_many({})).deleted_count
-    await db.checklist_progress.delete_many({"item_key": {"$regex": "^form:"}})
-    await db.meta.insert_one({"key": "forms_cleared_v1", "created_at": now_iso()})
-    logger.info(f"Removed {n} old Jotform links")
-
-
 async def seed_staff_v2():
     """One-time import of the team directory (contacts.csv): adds missing staff, sets full names and groups."""
     if await db.meta.find_one({"key": "company_staff_v2"}):
@@ -201,17 +191,11 @@ async def migrate_no_limitts():
     old = [u["user_id"] async for u in db.users.find({"email": {"$regex": "@aspireandgrow\\.com\\.au$"},
                                                        "hidden": {"$ne": True}}, {"user_id": 1})]
     if old:
+        # Retire (never delete) the old staff: hide them from the app and sign them out
         ids = {"$in": old}
-        for col, field in (("user_sessions", "user_id"), ("notifications", "user_id"), ("certificates", "owner_id"),
-                           ("cpd_logs", "user_id"), ("cpd_goals", "user_id"), ("checklist_progress", "user_id"),
-                           ("conv_reads", "user_id"), ("ai_messages", "user_id"), ("pathways", "user_id"),
-                           ("tasks", "assignee_id"), ("celebration_posts", "user_id"), ("messages", "sender_id")):
-            await db[col].delete_many({field: ids})
-        dms = [c["conversation_id"] async for c in db.conversations.find({"type": "dm", "member_ids": ids}, {"conversation_id": 1})]
-        await db.messages.delete_many({"conversation_id": {"$in": dms}})
-        await db.conversations.delete_many({"conversation_id": {"$in": dms}})
+        await db.users.update_many({"user_id": ids}, {"$set": {"hidden": True, "retired_at": now_iso()}})
+        await db.user_sessions.delete_many({"user_id": ids})
         await db.conversations.update_many({}, {"$pull": {"member_ids": ids}})
-        await db.users.delete_many({"user_id": ids})
     for email, (name, t) in SEED_USERS.items():
         if not await db.users.find_one({"email": email}):
             await db.users.insert_one({"user_id": new_id("user"), "email": email, "name": name, "picture": None,
@@ -229,11 +213,10 @@ async def migrate_no_limitts():
         sw = sorted({n for k, v in groups.items() if k != "support_office" for n in v})
         await db.meta.update_one({"_id": req["_id"]}, {"$set": {"groups": {"support_office": groups.get("support_office", []),
                                                                           "support_worker": sw}}})
-    await db.integrations.delete_many({"key": {"$regex": "^(google_|linkedin)"}})
-    await db.updates.delete_many({"source": "linkedin"})
+    await db.updates.update_many({"source": "linkedin"}, {"$set": {"archived": True}})
     await db.conversations.update_many({}, {"$unset": {"gchat_webhook": "", "gchat_space": "", "gchat_two_way": "", "gchat_cursor": ""}})
     await db.meta.insert_one({"key": "no_limitts_v1", "created_at": now_iso()})
-    logger.info(f"No Limitts migration: removed {len(old)} old staff")
+    logger.info(f"No Limitts migration: retired {len(old)} old staff")
 
 
 async def seed():
@@ -268,13 +251,20 @@ async def startup():
     await db.messages.create_index([("conversation_id", 1), ("created_at", -1)])
     await db.notifications.create_index([("user_id", 1), ("created_at", -1)])
     await db.messages.create_index("gchat_name", sparse=True)
+    await db.meta.create_index("key")
+    await db.certificates.create_index("owner_id")
+    await db.tasks.create_index("assignee_id")
+    await db.events.create_index("date")
+    await db.participants.create_index("key")
+    await db.participants.create_index("participant_id")
+    await db.participants.create_index("assigned_ids")
+
     await seed()
     await seed_company_data()
     await seed_staff_v2()
     await migrate_forms_v3()
     await restore_staff()
     await migrate_no_limitts()
-    await clear_jotforms_v1()
     await seed_no_limitts_forms_v1()
     if not await db.meta.find_one({"key": "forms_new_starter_v1"}):  # Vehicle Checklist + VIVO Checks live under New Starter
         await db.forms.update_many({"url": {"$in": ["https://nolimitts.jotform.com/262852316614053",

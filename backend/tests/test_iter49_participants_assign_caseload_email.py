@@ -81,7 +81,9 @@ class TestCaseload:
         p = next((x for x in d["participants"] if x["name"] == NAME), None)
         assert p is not None
         assert p["participant_id"] == state["pid"]
-        assert p["assigned"] == [{"user_id": "user_testemp001", "name": "Emp Test"}]
+        # iter51: assigned entries now also carry intro_read (participant profile intro tracking)
+        assert [{k: a[k] for k in ("user_id", "name")} for a in p["assigned"]] == [{"user_id": "user_testemp001", "name": "Emp Test"}]
+        assert all(isinstance(a.get("intro_read"), bool) for a in p["assigned"])
 
     def test_worker_caseload(self):
         r = requests.get(f"{BASE_URL}/api/caseload", headers=WORKER, timeout=T)

@@ -28,7 +28,7 @@ async def drive_context(question: str, budget: int = 50000) -> str:
         return ""
     words = {w.rstrip("s") if len(w) > 4 else w
              for w in re.findall(r"[a-z0-9]{3,}", question.lower()) if w not in STOPWORDS}
-    docs = await db.drive_docs.find({"root_id": {"$in": roots}, "text": {"$ne": ""}},
+    docs = await db.drive_docs.find({"root_id": {"$in": roots}, "text": {"$ne": ""}, "stale": {"$ne": True}},
                                     {"_id": 0, "name": 1, "text": 1}).to_list(400)
     if not docs:
         return ""

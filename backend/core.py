@@ -148,7 +148,7 @@ async def notify(user_ids: List[str], ntype: str, title: str, body: str, link: s
 
 
 async def all_user_ids(exclude: Optional[str] = None):
-    users = await db.users.find({}, {"_id": 0, "user_id": 1}).to_list(5000)
+    users = await db.users.find({"hidden": {"$ne": True}}, {"_id": 0, "user_id": 1}).to_list(5000)
     return [u["user_id"] for u in users if u["user_id"] != exclude]
 
 

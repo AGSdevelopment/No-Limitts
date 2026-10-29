@@ -12,7 +12,8 @@
       "bundleIdentifier": "com.emergent.staffhub.obhj8k",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Attach certificate photos from your gallery",
-        "NSCameraUsageDescription": "Photograph certificates to fill in details automatically"
+        "NSCameraUsageDescription": "Photograph certificates to fill in details automatically",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -51,7 +52,8 @@
         "expo-image-picker",
         {
           "photosPermission": "Attach certificate photos from your gallery",
-          "cameraPermission": "Photograph certificates to fill in details automatically"
+          "cameraPermission": "Photograph certificates to fill in details automatically",
+          "microphonePermission": false
         }
       ],
       "expo-document-picker"

@@ -36,7 +36,7 @@ export default function Leaderboard() {
             <Chip label="This year" selected={period === "year"} onPress={() => setPeriod("year")} testID="leaderboard-period-year" />
             <Chip label="All time" selected={period === "all"} onPress={() => setPeriod("all")} testID="leaderboard-period-all" />
           </View>
-          {q.data && <Text style={styles.sub}>{q.data.events_counted} past team event{q.data.events_counted === 1 ? "" : "s"} counted. Uses the organiser's attendance check-in, or "going" RSVPs where none was taken.</Text>}
+          {q.data && <Text style={styles.sub}>{q.data.events_counted} past team event{q.data.events_counted === 1 ? "" : "s"} counted. Uses the organiser&apos;s attendance check-in, or &quot;going&quot; RSVPs where none was taken.</Text>}
         </View>
       }
       ListEmptyComponent={

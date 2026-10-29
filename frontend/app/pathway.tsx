@@ -101,7 +101,7 @@ export default function Pathway() {
           <Text style={styles.link}>Log CPD</Text>
         </Pressable>
       </View>
-      {d.goals.length === 0 && !adding && <Text style={styles.sub}>Set goals for what you want to learn this year, e.g. "Complete a sensory processing course".</Text>}
+      {d.goals.length === 0 && !adding && <Text style={styles.sub}>Set goals for what you want to learn this year, e.g. &quot;Complete a sensory processing course&quot;.</Text>}
       {d.goals.map((goal: any) => {
         const overdue = !goal.done && goal.due && goal.due < today;
         return (

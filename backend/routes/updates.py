@@ -15,7 +15,7 @@ class UpdateIn(BaseModel):
 
 @router.get("/updates")
 async def list_updates(user=Depends(current_user)):
-    return await db.updates.find({}, P).sort([("pinned", -1), ("created_at", -1)]).to_list(200)
+    return await db.updates.find({"archived": {"$ne": True}}, P).sort([("pinned", -1), ("created_at", -1)]).to_list(200)
 
 
 @router.post("/updates")

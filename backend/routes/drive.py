@@ -214,7 +214,7 @@ async def index_drive():
     async with drive_index_lock:
         roots = list((await current_roots()).values())
         if not roots:
-            await db.drive_docs.delete_many({})
+            await db.drive_docs.update_many({}, {"$set": {"stale": True}})
             return
         try:
             svc = gs.Graph()
@@ -238,8 +238,10 @@ async def index_drive():
                 text = ""
             await db.drive_docs.update_one({"file_id": f["id"]}, {"$set": {
                 "file_id": f["id"], "root_id": root, "name": f["name"], "mime_type": f["mimeType"],
-                "modified": f.get("modifiedTime"), "text": text, "indexed_at": now_iso()}}, upsert=True)
-        await db.drive_docs.delete_many({"$or": [{"root_id": {"$nin": roots}}, {"file_id": {"$nin": keep}}]})
+                "modified": f.get("modifiedTime"), "text": text, "indexed_at": now_iso(), "stale": False}}, upsert=True)
+        # Files no longer in a connected folder are flagged stale (filtered out of search), not deleted
+        await db.drive_docs.update_many({"$or": [{"root_id": {"$nin": roots}}, {"file_id": {"$nin": keep}}]}, {"$set": {"stale": True}})
+        await db.drive_docs.update_many({"root_id": {"$in": roots}, "file_id": {"$in": keep}}, {"$set": {"stale": False}})
         await db.meta.update_one({"key": "drive_index"}, {"$set": {"key": "drive_index", "last_run": now_iso(),
                                                                   "count": len(keep)}}, upsert=True)
 
@@ -256,7 +258,7 @@ async def drive_index_loop():
 @router.get("/drive/index-status")
 async def drive_index_status(admin=Depends(admin_user)):
     m = await db.meta.find_one({"key": "drive_index"}, P) or {}
-    return {"last_run": m.get("last_run"), "count": await db.drive_docs.count_documents({"text": {"$ne": ""}}),
+    return {"last_run": m.get("last_run"), "count": await db.drive_docs.count_documents({"text": {"$ne": ""}, "stale": {"$ne": True}}),
             "running": drive_index_lock.locked()}
 
 

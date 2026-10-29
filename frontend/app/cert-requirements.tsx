@@ -31,7 +31,7 @@ export default function CertRequirements() {
       testID="cert-requirements-screen"
     >
       <Text style={styles.intro}>
-        Choose the certificates each staff group must hold. A requirement is met by any certificate that hasn't expired and whose title contains the name (e.g. &quot;First Aid&quot;).
+        Choose the certificates each staff group must hold. A requirement is met by any certificate that hasn&apos;t expired and whose title contains the name (e.g. &quot;First Aid&quot;).
       </Text>
       {STAFF_GROUPS.map((g) => (
         <GroupCard key={g.key} groupKey={g.key} label={g.label} names={q.data.groups?.[g.key] ?? []} />

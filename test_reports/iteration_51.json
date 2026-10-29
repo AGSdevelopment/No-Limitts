@@ -1,0 +1,41 @@
+{
+  "summary": "Regression check after the deployment-readiness fixes (no destructive DB deletes at startup or in loops). Backend: 62/62 pytest pass (new iter51 file 24/24, plus iter49 and iter50 re-run with -n0: 38/38 after updating one outdated iter49 assertion). The backend starts cleanly with no errors across several hot reloads, and all new indexes exist (meta.key, certificates.owner_id, tasks.assignee_id, events.date, participants.key/participant_id/assigned_ids). The clear_jotforms_v1 migration is gone. GET /api/forms shows Vehicle Checklist and VIVO Checks under New Starter and no Therapy Triage, for both admin and employee. GET /api/updates leaves out an archived temp update. GET /api/users leaves out all hidden users. Drive index-status ignores stale rows. SharePoint status, drive reindex (409 with no roots) and AI history/ask (streamed answer, done event, no error) all respond with no 500s. Frontend smoke test on 375x667 with the admin and support worker tokens: Home (the Caseload quick action navigates), Caseload, Forms, Library and Notifications all load. No page errors and no 5xx API calls. No deprecated Expo packages found (expo-av, expo-barcode-scanner, expo-background-fetch).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PUT/DELETE /api/integrations/sharepoint/shared-folder (routes/drive.py:99-102 prune_drive_data)", "issue": "Still hard-deletes drive_docs and drive_pins for roots that are no longer connected. It only runs when an admin acts, not at startup or in a loop, but it's inconsistent with the new 'mark stale' approach in index_drive."},
+      {"endpoint": "core.all_user_ids (core.py:150)", "issue": "Includes hidden/retired users, so notifications (company updates, policy imports) are still written for retired Aspire & Grow staff and test accounts. Harmless, but it grows the notifications collection."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter51_deploy_nondestructive_regression.py",
+    "/app/backend/tests/test_iter49_participants_assign_caseload_email.py",
+    "/app/backend/tests/test_iter50_caseload_forms_handover_ack_profiles.py",
+    "/app/test_reports/pytest/pytest_iter51.xml"
+  ],
+  "action_items": [
+    "Optional: make prune_drive_data (routes/drive.py:99) mark drive_docs stale instead of deleting, to match index_drive.",
+    "Optional: exclude hidden users in all_user_ids (core.py:150) so retired staff stop getting notifications.",
+    "Optional: the iter49/iter50 tests leave 'New participant: ...' notifications for user_testemp001. Add notification cleanup to their fixtures. I cleaned up 6 of them by hand this run."
+  ],
+  "critical_code_review_comments": [
+    "migrate_no_limitts now hides old staff (hidden + retired_at), signs them out and removes them from chat members. $pull with {$in: old} is valid. Only users not already hidden are touched, so it's idempotent.",
+    "index_drive: line 243 marks stale anything outside the current roots or keep list, and line 244 un-marks rows still present. Unchanged files that come back are correctly un-staled by line 244. The upsert key is file_id only, while the lookup uses file_id+root_id. That's fine unless the same file sits under two roots.",
+    "routes/ai.py drive_context filters stale != True. drive/index-status counts only non-stale rows (verified with an inserted stale row)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter49_participants_assign_caseload_email.py (test_admin_caseload: assigned entries now include intro_read; the assertion compared exact dicts)",
+    "/app/backend/tests/test_iter51_deploy_nondestructive_regression.py (new)"
+  ],
+  "success_rate": {"backend": "100% (62/62)", "frontend": "100% (10/10 screen loads across 2 roles)"},
+  "seed_data_creation": "None kept. Temp archived update, stale drive_doc, test participants and AI messages were all deleted. 6 leftover 'New participant' test notifications for user_testemp001 were removed.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Run pytest with -n0. EXPO_PUBLIC_BACKEND_URL is the env key in frontend/.env. On the Forms screen, section headers are uppercased with CSS, so use textContent rather than inner_text when checking for category names. The test aspire staff count is 0 in this DB. Jotform rows load from the live API, and admin caseload shows 'Pronathi Nair' from Jotform."
+}
