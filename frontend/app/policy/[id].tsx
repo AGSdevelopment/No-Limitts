@@ -98,7 +98,7 @@ export default function PolicyDetail() {
 }
 
 const useStyles = makeStyles((c) => ({
-  root: { flex: 1, backgroundColor: c.surface },
+  root: { flex: 1, backgroundColor: c.background },
   title: { fontSize: 26, fontWeight: "700", color: c.onSurface, letterSpacing: -0.5, marginTop: 12 },
   meta: { fontSize: 13, color: c.muted, marginTop: 6, marginBottom: 20 },
   body: { fontSize: 16, color: c.onSurfaceSecondary, lineHeight: 25 },

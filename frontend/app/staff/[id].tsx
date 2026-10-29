@@ -181,7 +181,7 @@ function PathwaySummary({ userId, styles }: { userId: string; styles: any }) {
 }
 
 const useStyles = makeStyles((c) => ({
-  root: { flex: 1, backgroundColor: c.surfaceSecondary },
+  root: { flex: 1, backgroundColor: c.background },
   pdfBtn: { flexDirection: "row", alignItems: "center", gap: 4, minHeight: 44, paddingHorizontal: 8 },
   pdfText: { fontSize: 15, fontWeight: "600", color: c.brandPrimary },
   hero: { flexDirection: "row", gap: 12, alignItems: "center", backgroundColor: c.surface, borderRadius: 16, padding: 16 },

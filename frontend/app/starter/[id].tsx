@@ -148,7 +148,7 @@ export default function StarterProgress() {
 }
 
 const useStyles = makeStyles((c) => ({
-  root: { flex: 1, backgroundColor: c.surfaceSecondary },
+  root: { flex: 1, backgroundColor: c.background },
   hero: { flexDirection: "row", gap: 12, alignItems: "center", backgroundColor: c.surface, borderRadius: 16, padding: 16 },
   name: { fontSize: 18, fontWeight: "700", color: c.onSurface },
   sub: { fontSize: 13, color: c.muted },

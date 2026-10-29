@@ -33,10 +33,22 @@ export default function Forms() {
   const [del, setDel] = useState<any>(null);
   const q = useQuery<any[]>({ queryKey: ["forms"], queryFn: () => api("/forms") });
   // Every category header always shows (empty ones say so) so admins can see where forms go.
-  const sections = FORM_CATEGORIES.map((c) => {
-    const data = (q.data ?? []).filter((f) => (f.category || "Day-to-Day") === c);
-    return { title: c, data: data.length ? data : [{ form_id: `empty-${c}`, empty: true, category: c }] };
-  });
+  const favs = (q.data ?? []).filter((f) => f.favourite);
+  const sections = [
+    ...(favs.length ? [{ title: "★ Favourites", data: favs.map((f) => ({ ...f, key: `fav-${f.form_id}` })) }] : []),
+    ...FORM_CATEGORIES.map((c) => {
+      const data = (q.data ?? []).filter((f) => (f.category || "Day-to-Day") === c);
+      return { title: c, data: data.length ? data : [{ form_id: `empty-${c}`, empty: true, category: c }] };
+    }),
+  ];
+  const toggleFav = async (f: any) => {
+    try {
+      await api(`/forms/${f.form_id}/favourite`, { method: "POST" });
+      q.refetch();
+    } catch (e: any) {
+      setError(e.message);
+    }
+  };
 
   const open = (f: any) => {
     const sep = f.url.includes("?") ? "&" : "?";
@@ -116,7 +128,7 @@ export default function Forms() {
       ) : (
         <SectionList
           sections={sections}
-          keyExtractor={(f) => f.form_id}
+          keyExtractor={(f: any) => f.key ?? f.form_id}
           stickySectionHeadersEnabled={false}
           contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 24, flexGrow: 1 }}
           ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
@@ -152,6 +164,10 @@ export default function Forms() {
                   </View>
                 )}
               </View>
+              <Pressable testID={`form-fav-${item.key ?? item.form_id}`} hitSlop={6} onPress={() => toggleFav(item)} style={styles.iconBtn}
+                accessibilityLabel={item.favourite ? "Remove from favourites" : "Add to favourites"}>
+                <Ionicons name={item.favourite ? "star" : "star-outline"} size={20} color={item.favourite ? colors.sky : colors.muted} />
+              </Pressable>
               {isAdmin ? (
                 <View style={{ flexDirection: "row" }}>
                   <Pressable testID={`form-edit-${item.form_id}`} hitSlop={6} onPress={() => startEdit(item)} style={styles.iconBtn}>
@@ -211,7 +227,7 @@ export default function Forms() {
 }
 
 const useStyles = makeStyles((c) => ({
-  root: { flex: 1, backgroundColor: c.surfaceSecondary },
+  root: { flex: 1, backgroundColor: c.background },
   row: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: c.surface, borderRadius: 14, padding: 14, minHeight: 64 },
   title: { fontSize: 16, fontWeight: "600", color: c.onSurface },
   sub: { fontSize: 13, color: c.muted },

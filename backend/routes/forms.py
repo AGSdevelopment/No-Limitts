@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
-from core import P, admin_user, all_user_ids, current_user, db, new_id, notify, now_iso
+from core import FULL_ACCESS_TYPES, P, admin_user, all_user_ids, current_user, db, new_id, notify, now_iso
 
 router = APIRouter(prefix="/api")
 
@@ -33,7 +33,7 @@ def clean_category(value: str) -> str:
     return value
 
 
-STAFF_GROUPS = ("support_office", "support_coordinator", "support_worker")
+STAFF_GROUPS = ("support_office", "hr", "support_coordinator", "support_worker")
 
 
 def clean_audiences(values: List[str]) -> List[str]:
@@ -43,7 +43,7 @@ def clean_audiences(values: List[str]) -> List[str]:
 
 
 def forms_query(user: dict) -> dict:
-    if user.get("role") == "admin":
+    if user.get("role") == "admin" or user.get("user_type") in FULL_ACCESS_TYPES:
         return {}
     ors = [{"audiences": {"$size": 0}}, {"audiences": {"$exists": False}}]
     if user.get("staff_group"):
@@ -65,7 +65,19 @@ def normalize_jotform(url: str) -> Optional[str]:
 
 @router.get("/forms")
 async def list_forms(user=Depends(current_user)):
-    return await db.forms.find(forms_query(user), P).sort("created_at", -1).to_list(200)
+    favs = set(user.get("favourite_forms") or [])
+    forms = await db.forms.find(forms_query(user), P).sort("created_at", -1).to_list(200)
+    return [{**f, "favourite": f["form_id"] in favs} for f in forms]
+
+
+@router.post("/forms/{form_id}/favourite")
+async def toggle_favourite(form_id: str, user=Depends(current_user)):
+    if not await db.forms.find_one({"form_id": form_id, **forms_query(user)}):
+        raise HTTPException(404, "Form not found")
+    on = form_id not in (user.get("favourite_forms") or [])
+    await db.users.update_one({"user_id": user["user_id"]},
+                              {"$addToSet" if on else "$pull": {"favourite_forms": form_id}})
+    return {"favourite": on}
 
 
 @router.patch("/forms/{form_id}")

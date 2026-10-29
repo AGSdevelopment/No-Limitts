@@ -2,7 +2,7 @@ import { useState } from "react";
 import * as Clipboard from "expo-clipboard";
 import * as DocumentPicker from "expo-document-picker";
 import { ActivityIndicator, FlatList, Modal, Pressable, ScrollView, View } from "react-native";
-import { Text } from "@/src/components/text";
+import { Text, TextInput } from "@/src/components/text";
 import { Stack, useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -39,6 +39,8 @@ export default function Team() {
   const [copied, setCopied] = useState(false);
   const [importing, setImporting] = useState(false);
   const [imported, setImported] = useState<{ added: any[]; skipped: any[] } | null>(null);
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState("all");
 
   const importSheet = async () => {
     const pick = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true,
@@ -161,11 +163,27 @@ export default function Team() {
         <ErrorState message="Could not load team." onRetry={() => q.refetch()} />
       ) : (
         <FlatList
-          data={q.data}
+          data={(q.data ?? []).filter((u) =>
+            (!search.trim() || `${u.name} ${u.email ?? ""} ${u.job_title ?? ""}`.toLowerCase().includes(search.trim().toLowerCase())) &&
+            (filter === "all" || (filter === "missing" ? !!u.missing_certs?.length : (u.user_type ?? "support_worker") === filter)))}
+          keyboardShouldPersistTaps="handled"
           keyExtractor={(u) => u.user_id}
           contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: insets.bottom + 24, flexGrow: 1 }}
           ListEmptyComponent={<EmptyState icon="people-outline" title="No one here yet" subtitle={isAdmin ? "Tap + to add your first staff member." : undefined} />}
-          ListHeaderComponent={isAdmin ? (
+          ListHeaderComponent={
+            <View style={{ gap: 10 }}>
+              <TextInput value={search} onChangeText={setSearch} placeholder="Search by name or job title" placeholderTextColor={colors.muted}
+                style={styles.search} autoCorrect={false} testID="team-search" clearButtonMode="while-editing" />
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                {[{ key: "all", label: "All" }, ...USER_TYPES.map((t) => ({ key: t.key, label: t.label })),
+                  ...(isAdmin ? [{ key: "missing", label: "Missing certificates" }] : [])].map((f) => (
+                  <Pressable key={f.key} onPress={() => setFilter(f.key)} testID={`team-filter-${f.key}`}
+                    style={[styles.typeChip, filter === f.key && { backgroundColor: colors.brandPrimary }]}>
+                    <Text style={[styles.typeChipText, filter === f.key && { color: colors.onBrandPrimary }]}>{f.label}</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+              {isAdmin && (
             <View style={{ gap: 6 }}>
               <Text style={styles.hint} testID="team-import-hint">
                 Adding lots of staff? Tap the upload icon and pick an Excel or CSV file with columns: Name, Email, and optionally User type, Job title, Start date, Birthday. Everyone is Support Worker unless the User type says otherwise.
@@ -176,16 +194,20 @@ export default function Team() {
                 <Text style={styles.smallBtnText}>Download sample spreadsheet</Text>
               </Pressable>
             </View>
-          ) : null}
+              )}
+            </View>
+          }
           renderItem={({ item }) => (
             <View style={styles.row} testID={`team-member-${item.user_id}`}>
               <Avatar name={item.name} picture={item.picture} size={48} />
               <View style={{ flex: 1, gap: 4 }}>
                 <Text style={styles.name}>{item.name}{item.user_id === user?.user_id ? " (you)" : ""}</Text>
-                <Text style={styles.email} numberOfLines={1}>{item.email}</Text>
+                {!!item.email && <Text style={styles.email} numberOfLines={1}>{item.email}</Text>}
+                {!item.email && !!item.job_title && <Text style={styles.email} numberOfLines={1}>{item.job_title}</Text>}
                 <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
                   <Pill label={typeLabel(item.user_type) || "Support Worker"} tone={item.role === "admin" ? "brand" : "muted"} />
                   {item.must_change_password && <Pill label="Password not set yet" tone="accent" />}
+                  {!!item.missing_certs?.length && <Pill label={`${item.missing_certs.length} cert${item.missing_certs.length > 1 ? "s" : ""} missing`} tone="accent" />}
                   <MilestoneBadge startDate={item.start_date} compact />
                 </View>
                 {isAdmin && (
@@ -300,7 +322,7 @@ export default function Team() {
 }
 
 const useStyles = makeStyles((c) => ({
-  root: { flex: 1, backgroundColor: c.surfaceSecondary },
+  root: { flex: 1, backgroundColor: c.background },
   row: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: c.surface, borderRadius: 14, padding: 14 },
   name: { fontSize: 16, fontWeight: "600", color: c.onSurface },
   email: { fontSize: 13, color: c.muted },
@@ -323,4 +345,5 @@ const useStyles = makeStyles((c) => ({
   credValue: { fontSize: 16, fontWeight: "700", color: c.onSurface, marginBottom: 6 },
   importRow: { fontSize: 14, color: c.onSurface },
   templateBtn: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start", minHeight: 44, paddingHorizontal: 14, borderRadius: 22, backgroundColor: c.brandTertiary, marginBottom: 4 },
+  search: { minHeight: 44, borderRadius: 12, backgroundColor: c.surface, paddingHorizontal: 14, fontSize: 15, color: c.onSurface, borderWidth: 1, borderColor: c.border },
 }));

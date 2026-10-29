@@ -88,7 +88,7 @@ export default function Notifications() {
 }
 
 const useStyles = makeStyles((c) => ({
-  root: { flex: 1, backgroundColor: c.surface },
+  root: { flex: 1, backgroundColor: c.background },
   readAll: { color: c.brandPrimary, fontWeight: "600", fontSize: 15 },
   row: { flexDirection: "row", gap: 12, paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 0.5, borderBottomColor: c.divider, alignItems: "flex-start" },
   title: { fontSize: 15, fontWeight: "600", color: c.onSurface },

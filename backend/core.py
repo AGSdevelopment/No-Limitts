@@ -110,9 +110,11 @@ async def admin_user(user=Depends(current_user)):
 
 # User types. Executives and Admins get admin tools (Executives also manage other Executives);
 # Executives, Admins and Support Office sign in with Microsoft, Support Workers with an admin-issued password.
-USER_TYPES = {"executive": "Executive", "admin": "Admin", "support_office": "Support Office",
+USER_TYPES = {"executive": "Executive", "admin": "Admin", "hr": "HR", "support_office": "Support Office",
               "support_coordinator": "Service & Support Coordinator", "support_worker": "Support Worker"}
-MICROSOFT_TYPES = ("executive", "admin", "support_office", "support_coordinator")
+MICROSOFT_TYPES = ("executive", "admin", "hr", "support_office", "support_coordinator")
+# See everything staff can see (all forms, caseload, office tools) but without admin permissions
+FULL_ACCESS_TYPES = ("hr", "support_coordinator")
 SEED_USERS = {"andrewt@nolimitts.com.au": ("Andrew", "executive"), "pronathin@nolimitts.com.au": ("Pronathi", "executive"),
               "rond@nolimitts.com.au": ("Ron", "executive"), "justined@nolimitts.com.au": ("Justine", "executive")}
 
@@ -121,7 +123,7 @@ def type_fields(user_type: str) -> dict:
     """The role / executive / staff_group fields the rest of the app reads, derived from the user type."""
     return {"user_type": user_type, "role": "admin" if user_type in ("executive", "admin") else "employee",
             "executive": user_type == "executive",
-            "staff_group": user_type if user_type in ("support_worker", "support_coordinator") else "support_office"}
+            "staff_group": user_type if user_type in ("support_worker", "support_coordinator", "hr") else "support_office"}
 
 
 def is_executive(user: Optional[dict]) -> bool:

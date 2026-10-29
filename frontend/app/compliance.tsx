@@ -251,7 +251,7 @@ function Badge({ icon, text, tone }: { icon: any; text: string; tone: Tone }) {
 }
 
 const useStyles = makeStyles((c) => ({
-  root: { flex: 1, backgroundColor: c.surfaceSecondary },
+  root: { flex: 1, backgroundColor: c.background },
   exportBtn: { flexDirection: "row", alignItems: "center", gap: 4, minHeight: 44, paddingHorizontal: 8 },
   exportText: { fontSize: 15, fontWeight: "600", color: c.brandPrimary },
   statsRow: { flexDirection: "row", gap: 10 },

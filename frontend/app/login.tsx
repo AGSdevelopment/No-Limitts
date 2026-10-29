@@ -30,7 +30,7 @@ export default function Login() {
         <Text style={styles.title}>Everything your team needs, in one place.</Text>
         {error && <Text style={styles.error} testID="login-error">{error}</Text>}
 
-        <Text style={styles.group}>Executives, Admins, Support Office & Coordinators</Text>
+        <Text style={styles.group}>Executives, Admins, HR, Support Office & Coordinators</Text>
         <Button label="Sign in with Microsoft" icon="logo-microsoft" loading={signingIn && !password} onPress={signIn} testID="login-microsoft-button" />
 
         <View style={styles.divider}>
@@ -53,7 +53,7 @@ export default function Login() {
 }
 
 const useStyles = makeStyles((c) => ({
-  root: { flex: 1, backgroundColor: c.surface },
+  root: { flex: 1, backgroundColor: c.background },
   heroWrap: { height: 280 },
   hero: { ...({ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 } as const) },
   heroOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 },

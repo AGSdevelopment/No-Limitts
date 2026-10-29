@@ -21,7 +21,7 @@ export default function NewChat() {
   const [search, setSearch] = useState("");
   const q = useQuery<any[]>({ queryKey: ["users"], queryFn: () => api("/users") });
   const people = (q.data ?? []).filter(
-    (u) => u.user_id !== user?.user_id && (u.name + u.email).toLowerCase().includes(search.toLowerCase()),
+    (u) => u.user_id !== user?.user_id && `${u.name} ${u.email ?? ""} ${u.job_title ?? ""}`.toLowerCase().includes(search.toLowerCase()),
   );
 
   const open = async (u: any) => {
@@ -62,7 +62,7 @@ export default function NewChat() {
               <Avatar name={item.name} picture={item.picture} size={44} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.name}>{item.name}</Text>
-                <Text style={styles.email}>{item.email}</Text>
+                {!!(item.email || item.job_title) && <Text style={styles.email}>{item.email || item.job_title}</Text>}
               </View>
               <Ionicons name="chatbubble-outline" size={20} color={colors.brandPrimary} />
             </Pressable>
@@ -74,7 +74,7 @@ export default function NewChat() {
 }
 
 const useStyles = makeStyles((c) => ({
-  root: { flex: 1, backgroundColor: c.surface },
+  root: { flex: 1, backgroundColor: c.background },
   searchWrap: { flexDirection: "row", alignItems: "center", gap: 8, margin: 16, paddingHorizontal: 12, height: 44, borderRadius: 12, backgroundColor: c.surfaceSecondary },
   search: { flex: 1, fontSize: 16, color: c.onSurface },
   row: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 10, minHeight: 64 },

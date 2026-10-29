@@ -61,7 +61,7 @@ export default function ReminderHistory() {
 }
 
 const useStyles = makeStyles((c) => ({
-  root: { flex: 1, backgroundColor: c.surfaceSecondary },
+  root: { flex: 1, backgroundColor: c.background },
   intro: { fontSize: 14, color: c.onSurfaceSecondary, marginBottom: 6, lineHeight: 20 },
   card: { backgroundColor: c.surface, borderRadius: 16, padding: 14, gap: 10 },
   row: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 44 },

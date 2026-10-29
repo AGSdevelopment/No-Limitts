@@ -1,0 +1,36 @@
+{
+  "summary": "Iteration 48 tested staff privacy, form favourites, the NDIS cert-requirement seed, Team search and filters, and coordinator caseload. Backend: 15/15 pytest pass, plus a manual check with a temporary support_coordinator session (GET /caseload returned 200 {configured:false}, /users returned the non-admin keys only). Non-admins get exactly the 8 allowed keys from /api/users, with no email, phone or missing_certs. Admins get email and missing_certs. Favourites toggle per user: the admin's favourite flag is not affected, unknown or restricted forms give 404, and a missing token gives 401. cert-requirements has support_worker (7 items), support_coordinator (2) and support_office (2). Caseload returns {configured:false} for both admins, 403 for support workers and 401 without a token. Frontend (375x667): as the employee, the Team list and New chat show no emails, search and chips work, there is no Missing chip and no add button, and Message opens the DM. Forms favourites work for the employee and for the admin: the star is 44x44, tapping it does not open the form, the Favourites section appears at the top and goes away after un-toggling. The Library caseload row is hidden for support workers and shown for the admin. The caseload screen shows the 'Waiting for Jotform' empty state and 'Write a case note' opens nolimitts.jotform.com/262772090420048. As admin, the Team screen shows emails, 'N certs missing' pills, the Missing certificates filter and search by email. Regression: Add (temp password shown), Change type (SW to coordinator updated the pill to '2 certs missing' and hid Reset; coordinator back to SW issued a new password), Reset password and Remove all work. No page errors. No deprecated Expo packages found.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/users (admin)", "issue": "Executives and admins have staff_group support_office, so they get the office requirements. All 4 seeded executives show '2 certs missing' and fill the Missing certificates filter. Check whether executives should be exempt."},
+      {"endpoint": "POST /api/forms/{id}/favourite", "issue": "Deleting a form does not remove its id from users' favourite_forms. This is harmless because GET /forms only returns forms that exist."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "caseload (support worker deep link)", "issues": ["A 403 is shown through ErrorState, which uses the cloud-offline icon and a Retry button that can never succeed. React Query also retries 3 times, so it takes about 7-10s before the message 'For Service & Support Coordinators' appears. Suggest retry:false and a no-access EmptyState for 403."]},
+      {"screen": "forms", "issues": ["A form in the Favourites section is also listed in its category, so the testID form-<id> is duplicated (the favourites copy of the star uses form-fav-fav-<id>). Minor, only affects test selectors."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter48_privacy_favs_certreqs_caseload.py", "/app/test_reports/pytest/pytest_iter48.xml"],
+  "action_items": [
+    "Optional: decide whether executives and admins should have required certificates. Right now every executive shows '2 certs missing'.",
+    "Optional: on caseload.tsx, set useQuery retry:false and show a friendly no-access state for 403 instead of the network-error state with Retry.",
+    "Optional: remove the form id from users' favourite_forms when a form is deleted."
+  ],
+  "critical_code_review_comments": [
+    "Privacy is enforced on the server in list_users. Other user-returning endpoints I checked (conversations, celebrations, staff profile) do not leak email to non-admins, and staff/{id}/profile is admin-only.",
+    "caseload refresh() calls /caseload?refresh=true and then q.refetch(), which is 2 requests per pull-to-refresh. Minor.",
+    "caseload coordinator matching uses name substring containment, so short names (e.g. 'Ron') could match other coordinators' notes once Jotform is configured. Worth tightening."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter48_privacy_favs_certreqs_caseload.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "None kept. Temporary coordinator user/session and TEST_ users were deleted. All favourites are un-toggled (no user has favourite_forms).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Use the employee web login via localStorage auth_token=JSON 'test_session_employee'. Employee (hidden) only sees the 4 seeded executives in Team/New chat. Group picker save testID: group-picker-save. Library caseload row testID: library-row-caseload. JOTFORM_API_KEY is not set. For coordinator tests, insert a user with user_type support_coordinator plus a user_sessions doc {session_token,user_id,created_at,expires_at}."
+}

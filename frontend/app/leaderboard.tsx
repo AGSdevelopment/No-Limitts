@@ -63,7 +63,7 @@ export default function Leaderboard() {
 }
 
 const useStyles = makeStyles((c) => ({
-  root: { flex: 1, backgroundColor: c.surfaceSecondary },
+  root: { flex: 1, backgroundColor: c.background },
   chips: { flexDirection: "row", gap: 8 },
   card: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: c.surface, borderRadius: 16, padding: 12 },
   top: { borderWidth: 1, borderColor: c.brandPrimary },

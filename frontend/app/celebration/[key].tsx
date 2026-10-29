@@ -149,7 +149,7 @@ export default function CelebrationWall() {
 }
 
 const useStyles = makeStyles((c) => ({
-  root: { flex: 1, backgroundColor: c.surfaceSecondary },
+  root: { flex: 1, backgroundColor: c.background },
   hero: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 20, overflow: "hidden", padding: 16, minHeight: 110 },
   heroTitle: { fontSize: 20, fontWeight: "800", color: "#FFFFFF" },
   heroSub: { fontSize: 13, fontWeight: "600", color: "#FFFFFF", opacity: 0.92 },

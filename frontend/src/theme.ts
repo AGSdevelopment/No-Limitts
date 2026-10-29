@@ -7,6 +7,7 @@ import { Appearance, StyleSheet, useColorScheme } from "react-native";
 export type ColorScheme = "light" | "dark";
 
 const light = {
+  background: "#F7A51D",
   surface: "#FCFEFF",
   onSurface: "#11181C",
   surfaceSecondary: "#F7F3FA",
@@ -15,7 +16,7 @@ const light = {
   onSurfaceTertiary: "#1C1C1E",
   surfaceInverse: "#3E2358",
   onSurfaceInverse: "#FFFFFF",
-  muted: "#8E8E93",
+  muted: "#6B5A45",
 
   brand: "#673E8D",
   onBrand: "#FFFFFF",

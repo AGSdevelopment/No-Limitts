@@ -40,7 +40,7 @@ export function HeaderIcon({ icon, onPress, badge, testID }: { icon: IconName; o
 }
 
 const useStyles = makeStyles((c) => ({
-  header: { backgroundColor: c.surface, paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 0.5, borderBottomColor: c.divider },
+  header: { backgroundColor: c.background, paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 0.5, borderBottomColor: c.divider },
   row: { flexDirection: "row", alignItems: "center", gap: 8 },
   subtitle: { fontSize: 14, color: c.muted, fontWeight: "500", marginBottom: 2 },
   title: { fontSize: 30, fontWeight: "700", color: c.onSurface, letterSpacing: -0.8 },

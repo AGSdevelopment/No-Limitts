@@ -1,4 +1,4 @@
-"""AGTS favourites (Eat & Drink, Coffee, WiFi / Meet). Everyone can view and like; admins add and remove."""
+"""No Limitts favourites (Eat & Drink, Coffee, WiFi / Meet). Everyone can view and like; admins add and remove."""
 import re
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel

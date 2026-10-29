@@ -77,7 +77,7 @@ export default function Policies() {
 }
 
 const useStyles = makeStyles((c) => ({
-  root: { flex: 1, backgroundColor: c.surfaceSecondary },
+  root: { flex: 1, backgroundColor: c.background },
   chipRow: { flexGrow: 0, height: 56, backgroundColor: c.surface },
   chipContent: { paddingHorizontal: 16, gap: 8, alignItems: "center" },
   row: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: c.surface, borderRadius: 14, padding: 14, minHeight: 64 },

@@ -118,7 +118,7 @@ export default function Events() {
 }
 
 const useStyles = makeStyles((c) => ({
-  root: { flex: 1, backgroundColor: c.surfaceSecondary },
+  root: { flex: 1, backgroundColor: c.background },
   card: { flexDirection: "row", gap: 14 },
   dateBox: { width: 56, borderRadius: 12, backgroundColor: c.brandTertiary, alignItems: "center", paddingVertical: 8, alignSelf: "flex-start" },
   month: { fontSize: 11, fontWeight: "700", color: c.onBrandTertiary },

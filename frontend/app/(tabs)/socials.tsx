@@ -91,7 +91,7 @@ export default function Socials() {
 }
 
 const useStyles = makeStyles((c) => ({
-  root: { flex: 1, backgroundColor: c.surfaceSecondary },
+  root: { flex: 1, backgroundColor: c.background },
   account: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: c.surface, borderRadius: 16, padding: 14, minHeight: 72 },
   brandIcon: { width: 44, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   accountName: { fontSize: 16, fontWeight: "700", color: c.onSurface },

@@ -46,8 +46,6 @@ export default function UploadCertificate() {
   const [reading, setReading] = useState(false);
 
   const [camSheet, setCamSheet] = useState<null | "ask" | "settings">(null);
-  const [countCpd, setCountCpd] = useState(false);
-  const [cpdHours, setCpdHours] = useState("");
   const [shareCpd, setShareCpd] = useState(false);
   const [shareType, setShareType] = useState("");
   const [spaces, setSpaces] = useState<string[]>([]);
@@ -57,15 +55,13 @@ export default function UploadCertificate() {
   const submitResource = async () => {
     if (!file) return setError("Please attach the file to share.");
     if (!title.trim()) return setError("Please enter a title.");
-    const h = parseFloat(cpdHours.replace(",", "."));
-    if (countCpd && (!h || h <= 0)) return setError("Enter how many CPD hours were completed.");
     if (shareCpd && !shareType) return setError("Choose whether it's a Course, Webinar, Case Study or Resource link.");
-    if (!shareCpd && !spaces.length && !countCpd) return setError("Choose at least one place to add it.");
+    if (!shareCpd && !spaces.length) return setError("Choose at least one place to add it.");
     setSaving(true);
     try {
       const res = await uploadForm(`${API_URL}/resources/upload`, {
         headers: authHeaders(),
-        fields: { title: title.trim(), provider: issuer.trim(), cpd_hours: countCpd ? String(h) : "", share_cpd: shareCpd ? shareType : "", drive_spaces: spaces.join(",") },
+        fields: { title: title.trim(), provider: issuer.trim(), share_cpd: shareCpd ? shareType : "", drive_spaces: spaces.join(",") },
         files: { file },
       });
       const body = await res.json().catch(() => ({}));
@@ -155,15 +151,13 @@ export default function UploadCertificate() {
     const issueIso = issueDate ? dmyToIso(issueDate) : "";
     if (!expiryIso) return setError(`Expiry date must be in ${DMY_HINT} format.`);
     if (issueIso === null) return setError(`Issue date must be in ${DMY_HINT} format.`);
-    const h = parseFloat(cpdHours.replace(",", "."));
-    if (countCpd && (!h || h <= 0)) return setError("Enter how many CPD hours were completed.");
     if (shareCpd && !shareType) return setError("Choose whether it's a Course, Webinar, Case Study or Resource link.");
     setSaving(true);
     try {
       const res = await uploadForm(`${API_URL}/certificates`, {
         headers: authHeaders(),
         fields: {
-          title: title.trim(), issuer: issuer.trim(), issue_date: issueIso, expiry_date: expiryIso, cpd_hours: countCpd ? String(h) : "",
+          title: title.trim(), issuer: issuer.trim(), issue_date: issueIso, expiry_date: expiryIso,
           share_cpd: shareCpd ? shareType : "", drive_spaces: spaces.join(","),
         },
         files: { file },
@@ -177,7 +171,7 @@ export default function UploadCertificate() {
       qc.invalidateQueries({ queryKey: ["dashboard"] });
       qc.invalidateQueries({ queryKey: ["cpd"] });
       qc.invalidateQueries({ queryKey: ["cpd-resources"] });
-      const done = [countCpd && "My CPD", body.cpd_resource_id && "CPD Resources",
+      const done = [body.cpd_resource_id && "CPD Resources",
         ...Object.entries(body.drive ?? {}).filter(([, v]) => v === "added").map(([k]) => SPACES.find((x) => x.key === k)?.label)].filter(Boolean);
       const failed = Object.entries(body.drive ?? {}).filter(([, v]) => v !== "added").map(([k]) => SPACES.find((x) => x.key === k)?.label);
       toast(
@@ -268,18 +262,6 @@ export default function UploadCertificate() {
       <Text style={styles.hint}>We&apos;ll remind you in the app and by email 30 days before it expires.</Text>
         </>
       )}
-      <View style={styles.cpdBox} testID="upload-cpd-box">
-        <View style={styles.cpdRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.cpdTitle}>Count towards my CPD hours</Text>
-            <Text style={styles.pickSub}>{mode === "resource" ? "Adds it to My CPD with the file as evidence" : "Adds this training to My CPD with the certificate as evidence"}</Text>
-          </View>
-          <Switch testID="upload-cpd-switch" value={countCpd} onValueChange={setCountCpd} trackColor={{ true: colors.brandPrimary, false: colors.surfaceTertiary }} />
-        </View>
-        {countCpd && (
-          <Field label="Hours completed" value={cpdHours} onChangeText={setCpdHours} keyboardType="decimal-pad" placeholder="e.g. 3" testID="upload-cpd-hours-input" style={{ marginBottom: 0 }} />
-        )}
-      </View>
       <View style={styles.cpdBox} testID="upload-share-box">
         <Text style={styles.cpdTitle}>Also share it with the team</Text>
         <View style={styles.cpdRow}>
@@ -337,7 +319,7 @@ export default function UploadCertificate() {
 }
 
 const useStyles = makeStyles((c) => ({
-  root: { flex: 1, backgroundColor: c.surface },
+  root: { flex: 1, backgroundColor: c.background },
   pickRow: { flexDirection: "row", gap: 12, marginBottom: 20 },
   camera: { flexDirection: "row", alignItems: "center", gap: 14, borderRadius: 16, padding: 18, backgroundColor: c.brandPrimary, minHeight: 72 },
   cameraText: { fontSize: 17, fontWeight: "700", color: c.onBrandPrimary },

@@ -102,7 +102,7 @@ async def list_events(user=Depends(current_user)):
 @router.get("/events/leaderboard")
 async def leaderboard(period: str = "year", user=Depends(current_user)):
     """Who joins the most team events. Uses the organiser's attendance when recorded, otherwise 'going' RSVPs."""
-    if user.get("role") != "admin" and user.get("staff_group") != "support_office":
+    if user.get("role") != "admin" and user.get("staff_group") not in ("support_office", "hr", "support_coordinator"):
         raise HTTPException(403, "Admins and Support Office only")
     if period not in ("year", "all"):
         raise HTTPException(400, "Period must be year or all")

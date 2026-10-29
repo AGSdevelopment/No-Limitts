@@ -295,7 +295,7 @@ export default function Compose() {
 }
 
 const useStyles = makeStyles((c) => ({
-  root: { flex: 1, backgroundColor: c.surface },
+  root: { flex: 1, backgroundColor: c.background },
   chips: { flexDirection: "row", gap: 8, marginBottom: 16 },
   label: { fontSize: 13, fontWeight: "600", color: c.onSurfaceSecondary, marginBottom: 8 },
   person: { width: 76, alignItems: "center", gap: 4, padding: 8, borderRadius: 12, borderWidth: 1.5, borderColor: c.border, flexShrink: 0 },

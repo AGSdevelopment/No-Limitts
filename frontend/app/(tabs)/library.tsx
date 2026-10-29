@@ -29,6 +29,7 @@ export default function Library() {
     ...(dash.data?.is_new_starter ? [{ icon: "list-outline", label: "First-week checklist", to: "/starter-checklist", id: "starter" } as Row] : []),
     { icon: "notifications-outline", label: "Notifications", to: "/notifications", id: "notifications", count: dash.data?.unread_notifications },
     ...(user?.user_type === "support_worker" ? [{ icon: "key-outline", label: "Change password", to: "/change-password", id: "change-password" } as Row] : []),
+    ...(["support_coordinator", "hr"].includes(user?.user_type ?? "") || isAdmin ? [{ icon: "folder-open-outline", label: "Caseload", to: "/caseload", id: "caseload" } as Row] : []),
     { icon: "megaphone-outline", label: "Company updates", to: "/updates", id: "updates" },
     { icon: "checkbox-outline", label: "My tasks", to: "/tasks", id: "tasks", count: dash.data?.open_task_count },
     { icon: "clipboard-outline", label: "Forms", to: "/forms", id: "forms" },
@@ -101,7 +102,7 @@ export default function Library() {
 }
 
 const useStyles = makeStyles((c) => ({
-  root: { flex: 1, backgroundColor: c.surfaceSecondary },
+  root: { flex: 1, backgroundColor: c.background },
   profile: { flexDirection: "row", alignItems: "center", gap: 16, backgroundColor: c.surface, borderRadius: 16, padding: 16 },
   name: { fontSize: 18, fontWeight: "700", color: c.onSurface },
   email: { fontSize: 13, color: c.muted },

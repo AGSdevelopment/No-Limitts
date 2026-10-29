@@ -119,7 +119,7 @@ export default function NewEvent() {
 }
 
 const useStyles = makeStyles((c) => ({
-  root: { flex: 1, backgroundColor: c.surface },
+  root: { flex: 1, backgroundColor: c.background },
   intro: { fontSize: 14, color: c.onSurfaceSecondary, marginBottom: 16, lineHeight: 20 },
   label: { fontSize: 14, fontWeight: "600", color: c.onSurfaceSecondary, marginBottom: 8 },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 },

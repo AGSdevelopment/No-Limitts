@@ -106,7 +106,7 @@ function GroupCard({ groupKey, label, names }: { groupKey: string; label: string
 }
 
 const useStyles = makeStyles((c) => ({
-  root: { flex: 1, backgroundColor: c.surfaceSecondary },
+  root: { flex: 1, backgroundColor: c.background },
   intro: { fontSize: 14, color: c.onSurfaceSecondary, lineHeight: 20 },
   card: { backgroundColor: c.surface, borderRadius: 16, padding: 14, gap: 10 },
   title: { fontSize: 16, fontWeight: "700", color: c.onSurface },

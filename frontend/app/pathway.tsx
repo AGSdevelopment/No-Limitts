@@ -138,7 +138,7 @@ export default function Pathway() {
 }
 
 const useStyles = makeStyles((c) => ({
-  root: { flex: 1, backgroundColor: c.surfaceSecondary },
+  root: { flex: 1, backgroundColor: c.background },
   hero: { backgroundColor: c.brandPrimary, borderRadius: 18, padding: 20, gap: 6 },
   heroTitle: { fontSize: 20, fontWeight: "800", color: c.onBrandPrimary },
   heroSub: { fontSize: 14, color: c.onBrandPrimary, opacity: 0.9 },

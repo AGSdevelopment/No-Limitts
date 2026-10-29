@@ -57,7 +57,7 @@ export default function ChangePassword() {
 }
 
 const useStyles = makeStyles((c) => ({
-  root: { flex: 1, backgroundColor: c.surface },
+  root: { flex: 1, backgroundColor: c.background },
   icon: { width: 56, height: 56, borderRadius: 28, backgroundColor: c.brandTertiary, alignItems: "center", justifyContent: "center" },
   title: { fontSize: 24, fontWeight: "800", color: c.onSurface },
   sub: { fontSize: 15, color: c.onSurfaceSecondary, lineHeight: 21 },

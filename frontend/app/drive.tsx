@@ -106,7 +106,7 @@ export default function CompanyDrive() {
     <View style={styles.spaceRow}>
       <Pressable testID="drive-places-button" onPress={() => router.push("/places")} style={[styles.spaceBtn, { flex: 1 }]}>
         <Ionicons name="star-outline" size={18} color={colors.brandPrimary} />
-        <Text style={styles.spaceText} numberOfLines={1}>AGTS favourites</Text>
+        <Text style={styles.spaceText} numberOfLines={1}>No Limitts favourites</Text>
       </Pressable>
     </View>
     </>
@@ -254,12 +254,12 @@ export default function CompanyDrive() {
 }
 
 const useStyles = makeStyles((c) => ({
-  root: { flex: 1, backgroundColor: c.surfaceSecondary },
-  spaceRow: { flexDirection: "row", gap: 8, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4, backgroundColor: c.surface },
+  root: { flex: 1, backgroundColor: c.background },
+  spaceRow: { flexDirection: "row", gap: 8, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4, backgroundColor: c.background },
   spaceBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, minHeight: 48, borderRadius: 12, borderWidth: 1.5, borderColor: c.brandPrimary, paddingHorizontal: 8 },
   spaceBtnOn: { backgroundColor: c.brandPrimary },
   spaceText: { fontSize: 14, fontWeight: "700", color: c.brandPrimary, flexShrink: 1 },
-  top: { backgroundColor: c.surface, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4, borderBottomWidth: 0.5, borderBottomColor: c.divider },
+  top: { backgroundColor: c.background, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4, borderBottomWidth: 0.5, borderBottomColor: c.divider },
   searchBox: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44, borderRadius: 12, backgroundColor: c.surfaceSecondary, paddingHorizontal: 12 },
   searchInput: { flex: 1, fontSize: 16, color: c.onSurface, minHeight: 44 },
   crumbs: { alignItems: "center", paddingVertical: 4 },
@@ -273,7 +273,7 @@ const useStyles = makeStyles((c) => ({
   meta: { fontSize: 13, color: c.muted },
   section: { fontSize: 13, fontWeight: "600", color: c.muted, textTransform: "uppercase", marginLeft: 4 },
   pinBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
-  catRow: { flexDirection: "row", gap: 8, paddingHorizontal: 16, paddingTop: 8, backgroundColor: c.surface },
+  catRow: { flexDirection: "row", gap: 8, paddingHorizontal: 16, paddingTop: 8, backgroundColor: c.background },
   catBtn: { flex: 1, alignItems: "center", justifyContent: "center", gap: 2, minHeight: 56, borderRadius: 12, backgroundColor: c.brandTertiary, paddingHorizontal: 4, paddingVertical: 6 },
   catText: { fontSize: 11, fontWeight: "700", color: c.brandPrimary, textAlign: "center" },
   addBtn: { flexDirection: "row", alignItems: "center", gap: 4, minHeight: 44, paddingHorizontal: 8 },

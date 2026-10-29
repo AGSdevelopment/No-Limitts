@@ -110,7 +110,7 @@ export default function ChatList() {
 }
 
 const useStyles = makeStyles((c) => ({
-  root: { flex: 1, backgroundColor: c.surface },
+  root: { flex: 1, backgroundColor: c.background },
   segWrap: { paddingHorizontal: 16, paddingVertical: 12 },
   seg: { flexDirection: "row", backgroundColor: c.surfaceSecondary, borderRadius: 10, padding: 3 },
   segItem: { flex: 1, height: 36, borderRadius: 8, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 6 },

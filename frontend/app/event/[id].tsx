@@ -172,7 +172,7 @@ function Detail({ icon, text }: { icon: any; text: string }) {
 }
 
 const useStyles = makeStyles((c) => ({
-  root: { flex: 1, backgroundColor: c.surfaceSecondary },
+  root: { flex: 1, backgroundColor: c.background },
   card: { backgroundColor: c.surface, borderRadius: 16, padding: 16, gap: 10 },
   title: { fontSize: 20, fontWeight: "700", color: c.onSurface },
   detail: { flexDirection: "row", gap: 10, alignItems: "flex-start" },

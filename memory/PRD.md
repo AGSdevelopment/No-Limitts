@@ -204,3 +204,16 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Channel #Allied Health renamed #No Limitts (startup update in server.seed)
 - New user type support_coordinator ('Service & Support Coordinator', Microsoft sign-in, staff_group support_coordinator)
 - 24 No Limitts Jotforms seeded (server.NO_LIMITTS_FORMS, meta nolimitts_forms_v1): Operations->support_office, Day-to-Day/HR->all, Participant Management & Onboarding->support_coordinator. New categories Operations + Participant Management & Onboarding
+- Privacy: GET /api/users returns names/job title/type only for non-admins (no email/phone); admins also get missing_certs
+- Form favourites: POST /api/forms/{id}/favourite (user.favourite_forms); Forms shows '★ Favourites' section on top
+- Cert requirements seeded (standard NDIS list; server.seed_cert_requirements_v1)
+- Team search + filter chips (user type, Missing certificates)
+- Coordinator caseload: routes/caseload.py reads Jotform form 262772090420048 via JOTFORM_API_KEY (optional JOTFORM_BASE_URL), groups by participant; coordinators see notes matching their name/email; /caseload screen (Library)
+- HR user type ('hr', Microsoft sign-in) + FULL_ACCESS_TYPES (hr, support_coordinator): all forms, caseload (all participants), event tools; no admin. Seeded tonib@ (HR) and brookep@ (Service Coordinator) via server.seed_hr_coordinator_v1. Execs/admins exempt from missing certs.
+
+## Jun 2026 updates
+- Renamed "AGTS favourites" to "No Limitts favourites" (Drive button, screen title, Add target)
+- Removed Trusted Referral Partner Organisations from Company Drive (Therapist now: Suppliers, Templates); staff suggestions now Suppliers/Activities only
+- Upload screen: removed "Count towards my CPD hours" option
+- App background is now #F7A51D (theme token `background`, cards stay white; `muted` darkened for contrast)
+- Caseload (Jotform form 262772090420048) deferred: key returns 401

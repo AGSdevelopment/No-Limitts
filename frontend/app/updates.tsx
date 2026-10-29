@@ -92,7 +92,7 @@ export default function Updates() {
 }
 
 const useStyles = makeStyles((c) => ({
-  root: { flex: 1, backgroundColor: c.surfaceSecondary },
+  root: { flex: 1, backgroundColor: c.background },
   meta: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
   sub: { fontSize: 13, color: c.muted },
   title: { fontSize: 18, fontWeight: "700", color: c.onSurface, marginBottom: 6 },

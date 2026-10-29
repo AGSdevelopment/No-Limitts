@@ -7,7 +7,7 @@ from core import HIDDEN_TEST_USERS, P, ROOT_DIR, SEED_USERS, client, db, logger,
 from storage import init_storage
 from routes import (auth, users, notifications, certificates, chat, updates, policies, compliance, events, tasks,
                     dashboard, drive, teams, calendar, forms, socials, cpd, ai, digest, profile, places, pathway, directory, referral_map,
-                    celebrations)
+                    celebrations, caseload)
 from routes.celebrations import celebration_reminder_loop
 from routes.compliance import starter_reminder_loop
 from routes.teams import weekly_wrap_loop
@@ -34,7 +34,7 @@ async def health():
 
 for module in (auth, users, notifications, certificates, chat, updates, policies, compliance, events, tasks,
                dashboard, drive, teams, calendar, forms, socials, cpd, ai, digest, profile, places, pathway, directory, referral_map,
-               celebrations):
+               celebrations, caseload):
     app.include_router(module.router)
 
 
@@ -118,6 +118,32 @@ async def seed_no_limitts_forms_v1():
             await db.forms.insert_one({"form_id": new_id("form"), "title": title, "url": url, "description": "",
                                        "audiences": aud, "category": cat, "created_by": "No Limitts", "created_at": now_iso()})
     await db.meta.insert_one({"key": "nolimitts_forms_v1", "created_at": now_iso()})
+
+
+async def seed_cert_requirements_v1():
+    """Standard NDIS certificate requirements per user type (only fills groups that are still empty)."""
+    if await db.meta.find_one({"key": "nolimitts_cert_reqs_v1"}):
+        return
+    office = ["NDIS Worker Screening", "NDIS Worker Orientation"]
+    std = {"support_worker": office + ["First Aid", "CPR", "Manual Handling", "Medication Administration", "Driver's Licence"],
+           "support_coordinator": office, "support_office": office}
+    doc = await db.meta.find_one({"key": "cert_requirements"}) or {}
+    groups = {**std, **{k: v for k, v in (doc.get("groups") or {}).items() if v}}
+    await db.meta.update_one({"key": "cert_requirements"}, {"$set": {"key": "cert_requirements", "groups": groups}}, upsert=True)
+    await db.meta.insert_one({"key": "nolimitts_cert_reqs_v1", "created_at": now_iso()})
+
+
+async def seed_hr_coordinator_v1():
+    """HR type: add Toni (HR) and Brooke (Service Coordinator), and give HR the office certificate list."""
+    if await db.meta.find_one({"key": "nolimitts_hr_v1"}):
+        return
+    for email, name, t in (("tonib@nolimitts.com.au", "Toni", "hr"), ("brookep@nolimitts.com.au", "Brooke", "support_coordinator")):
+        if not await db.users.find_one({"email": email}):
+            await db.users.insert_one({"user_id": new_id("user"), "email": email, "name": name, "picture": None,
+                                       "job_title": "HR" if t == "hr" else "Service Coordinator", "created_at": now_iso(), **type_fields(t)})
+    await db.meta.update_one({"key": "cert_requirements", "groups.hr": {"$exists": False}},
+                             {"$set": {"groups.hr": ["NDIS Worker Screening", "NDIS Worker Orientation"]}})
+    await db.meta.insert_one({"key": "nolimitts_hr_v1", "created_at": now_iso()})
 
 
 async def clear_jotforms_v1():
@@ -249,6 +275,8 @@ async def startup():
     await migrate_no_limitts()
     await clear_jotforms_v1()
     await seed_no_limitts_forms_v1()
+    await seed_cert_requirements_v1()
+    await seed_hr_coordinator_v1()
     await db.conversations.update_many({"type": "channel", "name": {"$regex": "^allied[- ]health$", "$options": "i"}},
                                        {"$set": {"name": "No Limitts"}})
     await migrate_place_kinds()

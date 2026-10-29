@@ -22,7 +22,7 @@ function RootStack() {
   const { colors } = useTheme();
   if (loading) {
     return (
-      <View style={[styles.root, styles.center, { backgroundColor: colors.surface }]} testID="auth-loading">
+      <View style={[styles.root, styles.center, { backgroundColor: colors.background }]} testID="auth-loading">
         <ActivityIndicator size="large" color={colors.brandPrimary} />
       </View>
     );
@@ -31,12 +31,12 @@ function RootStack() {
     headerShown: true,
     headerTintColor: colors.brandPrimary,
     headerTitleStyle: { color: colors.onSurface, fontFamily: "Nunito-700" },
-    headerStyle: { backgroundColor: colors.surface },
+    headerStyle: { backgroundColor: colors.background },
     headerShadowVisible: false,
     headerBackButtonDisplayMode: "minimal" as const,
   };
   return (
-    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.surface } }}>
+    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}>
       <Stack.Protected guard={!!user && !user.must_change_password}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="chat/[id]" options={{ ...header, title: "Chat" }} />
@@ -49,7 +49,7 @@ function RootStack() {
         <Stack.Screen name="events" options={{ ...header, title: "Events" }} />
         <Stack.Screen name="event-new" options={{ ...header, title: "New event" }} />
         <Stack.Screen name="event/[id]" options={{ ...header, title: "Event" }} />
-        <Stack.Screen name="places" options={{ ...header, title: "AGTS favourites" }} />
+        <Stack.Screen name="places" options={{ ...header, title: "No Limitts favourites" }} />
         <Stack.Screen name="directory" options={{ ...header, title: "Company Drive" }} />
         <Stack.Screen name="directory-new" options={{ ...header, title: "Add to Company Drive", presentation: "modal" }} />
         <Stack.Screen name="leaderboard" options={{ ...header, title: "Event participation" }} />
@@ -69,6 +69,7 @@ function RootStack() {
         <Stack.Screen name="celebration/[key]" options={{ ...header, title: "Celebration" }} />
         <Stack.Screen name="reminder-history" options={{ ...header, title: "Reminder history" }} />
         <Stack.Screen name="integrations" options={{ ...header, title: "Integrations" }} />
+        <Stack.Screen name="caseload" options={{ ...header, title: "My caseload" }} />
       </Stack.Protected>
       {/* Single change-password route: forced (no header) for temp passwords, normal from Library. */}
       <Stack.Protected guard={!!user}>

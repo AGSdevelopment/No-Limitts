@@ -441,7 +441,7 @@ function Action({ icon, label, onPress, testID }: { icon: any; label: string; on
 }
 
 const useStyles = makeStyles((c) => ({
-  root: { flex: 1, backgroundColor: c.surfaceSecondary },
+  root: { flex: 1, backgroundColor: c.background },
   headerBtn: { flexDirection: "row", alignItems: "center", gap: 4, minHeight: 44, paddingHorizontal: 8 },
   headerText: { fontSize: 15, fontWeight: "700", color: c.brandPrimary },
   search: { minHeight: 44, borderRadius: 12, backgroundColor: c.surface, paddingHorizontal: 12, fontSize: 16, color: c.onSurface, marginBottom: 4 },

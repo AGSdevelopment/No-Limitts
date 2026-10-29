@@ -20,7 +20,21 @@ router = APIRouter(prefix="/api")
 
 @router.get("/users")
 async def list_users(user=Depends(current_user)):
-    return await db.users.find({"hidden": {"$ne": True}}, USER_P).sort("name", 1).to_list(1000)
+    """Staff directory. Only admins see contact details and missing certificates; everyone else
+    gets names only and contacts colleagues through Chat."""
+    users = await db.users.find({"hidden": {"$ne": True}}, USER_P).sort("name", 1).to_list(1000)
+    if user.get("role") != "admin":
+        keep = ("user_id", "name", "picture", "job_title", "user_type", "role", "start_date", "staff_group")
+        return [{k: u.get(k) for k in keep} for u in users]
+    from routes.certificates import missing_required, requirements
+    reqs = await requirements()
+    certs: dict = {}
+    async for c in db.certificates.find({"is_deleted": {"$ne": True}}, {"_id": 0, "owner_id": 1, "title": 1, "expiry_date": 1}):
+        certs.setdefault(c["owner_id"], []).append(c)
+    for u in users:  # Executives/Admins have no certificate requirements
+        u["missing_certs"] = [] if u.get("role") == "admin" else \
+            missing_required(certs.get(u["user_id"], []), reqs.get(u.get("staff_group") or "", []))
+    return users
 
 
 def check_type(t: str, admin: dict):

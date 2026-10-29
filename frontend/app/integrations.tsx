@@ -416,7 +416,7 @@ export default function Integrations() {
 }
 
 const useStyles = makeStyles((c) => ({
-  root: { flex: 1, backgroundColor: c.surfaceSecondary },
+  root: { flex: 1, backgroundColor: c.background },
   card: { backgroundColor: c.surface, borderRadius: 16, padding: 16, marginBottom: 12, gap: 12 },
   head: { flexDirection: "row", alignItems: "center", gap: 12 },
   title: { fontSize: 17, fontWeight: "700", color: c.onSurface },

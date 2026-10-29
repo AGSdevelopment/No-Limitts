@@ -144,7 +144,7 @@ export default function Assistant() {
 }
 
 const useStyles = makeStyles((c) => ({
-  root: { flex: 1, backgroundColor: c.surface },
+  root: { flex: 1, backgroundColor: c.background },
   clear: { color: c.brandPrimary, fontWeight: "600", fontSize: 15 },
   empty: { flex: 1, alignItems: "center", justifyContent: "center", padding: 16, gap: 6 },
   emptyTitle: { fontSize: 18, fontWeight: "700", color: c.onSurface, marginTop: 12 },

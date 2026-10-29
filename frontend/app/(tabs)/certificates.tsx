@@ -155,7 +155,7 @@ export default function Certificates() {
 }
 
 const useStyles = makeStyles((c) => ({
-  root: { flex: 1, backgroundColor: c.surfaceSecondary },
+  root: { flex: 1, backgroundColor: c.background },
   chipRow: { flexGrow: 0, height: 56, backgroundColor: c.surface },
   chipContent: { paddingHorizontal: 16, gap: 8, alignItems: "center" },
   summary: { flexDirection: "row", backgroundColor: c.surface, borderRadius: 16, padding: 16, marginBottom: 4 },

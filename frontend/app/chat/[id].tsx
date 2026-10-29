@@ -129,7 +129,7 @@ export default function ChatThread() {
 }
 
 const useStyles = makeStyles((c) => ({
-  root: { flex: 1, backgroundColor: c.surface },
+  root: { flex: 1, backgroundColor: c.background },
   headerBtn: { flexDirection: "row", alignItems: "center", gap: 4, minHeight: 44, paddingHorizontal: 8 },
   headerBtnText: { color: c.brandPrimary, fontWeight: "600", fontSize: 15 },
   msgRow: { flexDirection: "row", alignItems: "flex-end", gap: 8 },

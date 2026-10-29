@@ -19,7 +19,7 @@ type Target = DirSpace | "favourite";
 const TARGETS: { key: Target; label: string }[] = [
   { key: "therapist", label: "Therapist" },
   { key: "participant", label: "Participant" },
-  { key: "favourite", label: "AGTS Favourite" },
+  { key: "favourite", label: "No Limitts Favourite" },
 ];
 const EMPTY = { name: "", services: "", contact: "", phone: "", email: "", address: "", link: "", note: "" };
 
@@ -52,11 +52,11 @@ export default function DirectoryNew() {
 
   const isAdmin = user?.role === "admin";
   const suggesting = !isAdmin && !params.edit;
-  const SUGGESTABLE = ["Trusted Referral Partner Organisations", "Suppliers", "Activities"];
-  const suggestCategory = params.category && SUGGESTABLE.includes(params.category) ? params.category : "Trusted Referral Partner Organisations";
+  const SUGGESTABLE = ["Suppliers", "Activities"];
+  const suggestCategory = params.category && SUGGESTABLE.includes(params.category) ? params.category : "Suppliers";
   useEffect(() => {
     if (suggesting) {
-      setTarget(suggestCategory === "Trusted Referral Partner Organisations" ? "therapist" : (params.space ?? "therapist"));
+      setTarget(params.space ?? "therapist");
       setCategory(suggestCategory);
     }
   }, [suggesting, suggestCategory, params.space]);
@@ -116,10 +116,10 @@ export default function DirectoryNew() {
 
   return (
     <KeyboardAwareScrollView style={styles.root} contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 24 }} keyboardShouldPersistTaps="handled" bottomOffset={24} testID="directory-new-screen">
-      <Stack.Screen options={{ title: params.edit ? "Edit entry" : suggesting ? `Suggest ${suggestCategory === "Trusted Referral Partner Organisations" ? "a referral partner" : suggestCategory === "Suppliers" ? "a supplier" : "an activity"}` : "Add to Company Drive" }} />
+      <Stack.Screen options={{ title: params.edit ? "Edit entry" : suggesting ? `Suggest ${suggestCategory === "Suppliers" ? "a supplier" : "an activity"}` : "Add to Company Drive" }} />
       {suggesting && (
         <Text style={[styles.label, { marginBottom: 16 }]} testID="directory-suggest-intro">
-          Suggest {suggestCategory === "Trusted Referral Partner Organisations" ? "a Trusted Referral Partner Organisation" : suggestCategory === "Suppliers" ? "a supplier" : "an activity"}. An admin will check it before it goes live for the team.
+          Suggest {suggestCategory === "Suppliers" ? "a supplier" : "an activity"}. An admin will check it before it goes live for the team.
         </Text>
       )}
       {!params.edit && isAdmin && (
@@ -180,7 +180,7 @@ export default function DirectoryNew() {
 }
 
 const useStyles = makeStyles((c) => ({
-  root: { flex: 1, backgroundColor: c.surface },
+  root: { flex: 1, backgroundColor: c.background },
   label: { fontSize: 14, fontWeight: "600", color: c.onSurfaceSecondary, marginBottom: 8 },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 },
   file: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44, paddingLeft: 10, borderRadius: 10, backgroundColor: c.surfaceSecondary, marginBottom: 8 },

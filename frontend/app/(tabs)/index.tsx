@@ -313,7 +313,7 @@ export default function Home() {
 }
 
 const useStyles = makeStyles((c) => ({
-  root: { flex: 1, backgroundColor: c.surface },
+  root: { flex: 1, backgroundColor: c.background },
   resTitle: { fontSize: 15, fontWeight: "700", color: c.onSurface },
   resSub: { fontSize: 13, color: c.muted },
   reviewStars: { fontSize: 14, color: c.warning, marginTop: 2 },

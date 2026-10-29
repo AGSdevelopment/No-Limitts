@@ -14,7 +14,7 @@ from storage import APP_NAME, get_object, put_object
 router = APIRouter(prefix="/api")
 
 CATEGORIES = {
-    "therapist": ["Suppliers", "Templates", "Trusted Referral Partner Organisations"],
+    "therapist": ["Suppliers", "Templates"],
     "participant": ["Suppliers", "Activities", "Resources"],
 }
 RATEABLE = ("Suppliers", "Activities")
@@ -22,7 +22,7 @@ HIGHLIGHT = (("therapist", "Templates"), ("participant", "Resources"))
 REFERRAL = "Trusted Referral Partner Organisations"
 SHARE_KEY = "referral_share_channel"
 SHAREABLE = {REFERRAL: "🤝 Referral partner", "Suppliers": "🛒 Supplier", "Activities": "🎯 Activity"}
-SUGGESTABLE = (REFERRAL, "Suppliers", "Activities")
+SUGGESTABLE = ("Suppliers", "Activities")
 FIELDS = ("name", "services", "contact", "phone", "email", "address", "link", "note")
 
 
