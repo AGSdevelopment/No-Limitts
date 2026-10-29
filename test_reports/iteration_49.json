@@ -1,0 +1,43 @@
+{
+  "summary": "Iteration 49 tested in-app participants, Support Worker assignment, caseload scoping for workers, the Day-to-Day case note forms with prefilled fields, emailing the plan review PDF through private links, and Forms categories and sorting. Backend: 20/20 pytest pass, run serially with -n0. Participants: a support worker gets 403 on add; names shorter than 2 characters and case-insensitive duplicates get 400; assign keeps only support_worker ids (the admin and bogus ids are dropped and duplicates removed); unknown ids get 404; delete returns ok, a second delete gives 404, and a worker gets 403. Caseload: the admin gets can_manage=true and the assigned list with names; the worker gets worker=true, only assigned participants, and only kind=day notes. Caseload forms: an unassigned worker gets 403; an assigned worker gets 8 Day-to-Day forms only, with participant, staff name and email prefilled; the admin also gets 'Coordinator Case Note'. Summary, PDF and email are all 403 for the worker. Email returns 400 with empty user_ids and 404 with no saved summary. With a seeded summary, one email was sent ONLY to user_testadmin01 (sent=['Alex Admin']), and the share token opens a valid %PDF (application/pdf); a bad token gives 404. Therapy Triage is rejected with 400 and no form uses it. A manual check with temporary sessions: the support_coordinator could add, assign and delete (200), and HR got 403 on add while still seeing all participants. Frontend (375x667): /forms has no Therapy Triage header, exactly one HR header, and A-Z sorting in each section. Admin /caseload: the Add participant sheet works (adds a title-cased name, the input clears, and a duplicate shows the 'already on the list' toast). An expanded card shows write, assign and remove. The write sheet lists Coordinator Case Note plus 8 Day-to-Day forms. The assign sheet lists only support workers; saving updates the card to '1 Support Worker · Assigned: ...'. The remove confirm sheet's Cancel keeps the participant and Remove deletes it with a toast. Summarise with AI on a real Jotform participant made a summary and showed the PDF and Email buttons, and the Email sheet listed staff (I did not send from the UI). Worker: the Library shows a 'My participants' row; the caseload title is 'My participants' with no add, assign, remove, summarise or top 'Write a case note' controls; write lists Day-to-Day forms only, and the Shift Handover popup URL is prefilled. No page errors. No deprecated Expo packages.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "participant_key (caseload.py:188)", "issue": "Only strip() and title() are applied, so internal whitespace is not collapsed. A real Jotform participant shows as 'Pronathi  Nair' (double space); if a coordinator adds 'Pronathi Nair' in the app, it becomes a separate card with no notes, and an assigned worker sees no notes. title() also turns 'McDonald' into 'Mcdonald'. Suggest ' '.join(name.split()) and case-insensitive matching instead of title()."},
+      {"endpoint": "fetch_rows coordinator fallback (caseload.py:142)", "issue": "For forms with no staff-name question (e.g. Conflict Of Interest Form), find(fields, ..., 'staff') matches an unrelated field. The note header shows '6 Oct 2026 · 1' (author '1')."},
+      {"endpoint": "case_forms (caseload.py:78)", "issue": "Any Day-to-Day form with a participant-name field counts as a 'case note', so the Conflict Of Interest Form and the Incident Reports are listed and their submissions are shown to workers and summarised. Confirm this is intended."},
+      {"endpoint": "POST /api/caseload/summary/email", "issue": "If none of the chosen user_ids exist or have an email, it returns 502 'Couldn't send the email', which is misleading. Should be 400."},
+      {"endpoint": "DELETE /api/participants/{id}", "issue": "caseload_summaries and caseload_shares are not cleaned up. Already-sent share links keep working for 7 days after a participant is removed."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "participant-sheets.tsx / staff-email-sheet.tsx bottom sheets", "issues": ["The bottom-sheet Modals have no keyboard avoidance (KeyboardAvoidingView or react-native-keyboard-controller). On iOS and Android, the autoFocus input in Add participant, and the search inputs in the Assign and Email sheets, will open the keyboard over the sheet's input and Save button.", "ConfirmSheet 'Remove participant' has no loading or disabled state, so a double tap can fire DELETE twice (the second returns a 404 toast)."]}
+    ],
+    "react_native_issues": [
+      {"component": "Bottom sheet keyboard handling", "issue": "The Modal sheets with TextInput (autoFocus) don't avoid the keyboard. Reference: /app/frontend/src/components/participant-sheets.tsx:19-25 and /app/frontend/src/components/staff-email-sheet.tsx:44-46"}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter49_participants_assign_caseload_email.py", "/app/test_reports/pytest/pytest_iter49.xml"],
+  "action_items": [
+    "Normalise participant names: collapse internal whitespace (' '.join(name.split())) and match case-insensitively instead of title() in participant_key, so in-app participants link to Jotform notes like 'Pronathi  Nair'.",
+    "Wrap the bottom-sheet content in participant-sheets.tsx and staff-email-sheet.tsx in KeyboardAvoidingView (behavior 'padding' on iOS) or use the keyboard-controller's KeyboardAvoidingView.",
+    "Fix the coordinator/author fallback in fetch_rows so it doesn't use an unrelated 'staff' field. Use an empty string when the form has no staff-name question.",
+    "Optional: return 400 from /caseload/summary/email when no valid recipients have an email; delete summaries and shares when a participant is removed; add a loading state to the ConfirmSheet button.",
+    "Optional: confirm with the product owner whether Conflict Of Interest and Incident Report forms should count as Support Worker case notes."
+  ],
+  "critical_code_review_comments": [
+    "GET /api/users excludes hidden users for everyone, including admins. The seeded test worker user_testemp001 is hidden, so it never appears in the Assign sheet; assignment for it was tested through the API. Real, non-hidden support workers do show (verified with a temporary non-hidden worker).",
+    "Share-token expiry compares ISO strings; this works because both sides are UTC isoformat.",
+    "pytest.ini forces -n 2 --dist loadscope. Suites with shared state across classes must run with -n0."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter49_participants_assign_caseload_email.py"],
+  "success_rate": {"backend": "100% (20/20)", "frontend": "100% of requested flows"},
+  "seed_data_creation": "Temporary data, all removed afterwards: participants (Test Zed Participant, Test Ui Person, Test Worker Person, Test Sc Person), a non-hidden support worker user_test_sw49, temporary sc/hr users and sessions, a seeded summary plus share, and an AI summary for 'Pronathi  Nair'. The DB now has 0 participants, 0 summaries and 0 shares. One test email was sent to user_testadmin01 (admin.test@example.com) only.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run the pytest suite with -n0 (pytest.ini adds xdist). user_sessions.expires_at must be a datetime, not a string. user_testemp001 is hidden, so it is not listed in /api/users or the Assign sheet; seed a non-hidden support_worker for UI assign tests. Sheets animate in, so wait about 1.5s before clicking inputs. Real Jotform data includes 1 note for 'Pronathi  Nair' (Conflict Of Interest Form). Card testIDs use the exact name, e.g. caseload-participant-Pronathi  Nair (with the double space).",
+  "rca_of_issue": ""
+}

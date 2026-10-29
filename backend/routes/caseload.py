@@ -1,17 +1,19 @@
-"""Coordinator caseload: participants and recent case notes, read from the Jotform 'Coordinator Case Note Form'."""
+"""Caseload: participants and their case notes from Jotform (Coordinator Case Note Form + Day-to-Day Support Worker case notes)."""
 import json
 import os
 import re
+import secrets
 import time
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from html import escape
-from typing import Optional
+from typing import List, Optional
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from pydantic import BaseModel
 from core import bearer, current_user, db, dmy, logger, now_iso, user_from_token
+from email_service import send_email
 from pdf_brand import FIRST_TOP, add_logo
 import ai_service
 
@@ -60,37 +62,109 @@ async def team_header(c: httpx.AsyncClient, base: str) -> dict:
     return {}
 
 
+PNAME = re.compile(r"(participant|client)(['’]s)?( full)? name|participant\(s\) involved - name", re.I)
+ANAME = re.compile(r"staff name|staff member|entered by|completed by|staff involved|your name", re.I)
+NAME_TYPES = ("control_fullname", "control_textbox")
+
+
+def jot_base() -> str:
+    return (os.environ.get("JOTFORM_BASE_URL") or "https://nolimitts.jotform.com/API").rstrip("/")  # No Limitts Enterprise API
+
+
+def pick(qs: list, rx, types=NAME_TYPES) -> dict:
+    return next((q for q in qs if q.get("type") in types and rx.search(q.get("text") or "")), {})
+
+
+async def case_forms(c: httpx.AsyncClient, team: dict) -> list:
+    """The Coordinator Case Note Form plus every Day-to-Day form that asks for a participant/client name
+    (the Support Worker case notes). Cached for 30 minutes."""
+    if _cache.get("forms") is not None and time.time() - _cache.get("forms_at", 0) < 1800:
+        return _cache["forms"]
+    base = jot_base()
+    wanted = [{"form_id": FORM_ID, "title": "Coordinator Case Note", "url": f"https://nolimitts.jotform.com/{FORM_ID}",
+               "kind": "coordinator"}]
+    slugs = None
+    async for f in db.forms.find({"category": "Day-to-Day"}, {"_id": 0, "title": 1, "url": 1}).sort("title", 1):
+        last = (f.get("url") or "").rstrip("/").split("/")[-1].split("?")[0]
+        if not last.isdigit():
+            if slugs is None:
+                r = await c.get(f"{base}/user/forms", headers=team, params={"limit": 1000})
+                slugs = {x["url"].rstrip("/").split("/")[-1]: x["id"] for x in (r.json().get("content") or [])} if r.status_code == 200 else {}
+            last = slugs.get(last, "")
+        if last:
+            wanted.append({"form_id": last, "title": f["title"], "url": f["url"], "kind": "day"})
+    out = []
+    for w in wanted:
+        r = await c.get(f"{base}/form/{w['form_id']}/questions", headers=team)
+        if r.status_code != 200:
+            continue
+        qs = sorted((r.json().get("content") or {}).values(), key=lambda q: int(q.get("order") or 0))
+        pq = pick(qs, PNAME)
+        if not pq:
+            continue
+        aq = pick(qs, ANAME)
+        eq = next((q for q in qs if q.get("type") == "control_email" and "staff" in ((q.get("text") or "") + (q.get("name") or "")).lower()), {})
+        out.append({**w, "p_name": pq.get("name"), "p_type": pq.get("type"), "a_name": aq.get("name"), "a_type": aq.get("type"),
+                    "e_name": eq.get("name")})
+    _cache.update(forms=out, forms_at=time.time())
+    return out
+
+
 async def fetch_rows() -> list:
-    """Last ~1000 submissions, cached for 5 minutes (Jotform has daily API limits)."""
+    """Recent submissions from every case note form, cached for 5 minutes (Jotform has daily API limits)."""
     if _cache["rows"] is not None and time.time() - _cache["at"] < 300:
         return _cache["rows"]
-    base = (os.environ.get("JOTFORM_BASE_URL") or "https://nolimitts.jotform.com/API").rstrip("/")  # No Limitts Enterprise API
-    rows = []
+    base = jot_base()
+    out = []
     async with httpx.AsyncClient(timeout=20, headers={"APIKEY": os.environ["JOTFORM_API_KEY"].strip()}) as c:
         team = await team_header(c, base)
-        for offset in range(0, 1000, 500):
-            r = await c.get(f"{base}/form/{FORM_ID}/submissions", headers=team,
-                            params={"offset": offset, "limit": 500, "orderby": "created_at",
-                                    "filter": json.dumps({"status:ne": "DELETED"})})
-            r.raise_for_status()
-            content = r.json().get("content") or []
-            rows += content
-            if len(content) < 500:
-                break
-    out = []
-    for s in rows:
-        fields = sorted(({"order": int(a.get("order") or 0), "label": (a.get("text") or a.get("name") or "").strip(),
-                          "value": as_text(a.get("answer"))}
-                         for a in (s.get("answers") or {}).values() if a.get("type") not in SKIP_TYPES and "answer" in a),
-                        key=lambda f: f["order"])
-        participant = find(fields, "participant", "client") or "Unnamed participant"
-        out.append({"id": s.get("id"), "created_at": s.get("created_at"), "participant": participant,
-                    "coordinator": find(fields, "coordinator", "your name", "completed by", "staff"),
-                    "email": find(fields, "email"),
-                    "date": find(fields, "date of contact", "contact date", "date") or (s.get("created_at") or "")[:10],
-                    "fields": [{"label": f["label"], "value": f["value"]} for f in fields if f["value"]]})
+        for form in await case_forms(c, team):
+            rows = []
+            for offset in range(0, 1000, 500):
+                r = await c.get(f"{base}/form/{form['form_id']}/submissions", headers=team,
+                                params={"offset": offset, "limit": 500, "orderby": "created_at",
+                                        "filter": json.dumps({"status:ne": "DELETED"})})
+                if form["kind"] == "coordinator":
+                    r.raise_for_status()
+                elif r.status_code != 200:
+                    break
+                content = r.json().get("content") or []
+                rows += content
+                if len(content) < 500:
+                    break
+            for s in rows:
+                answers = [a for a in (s.get("answers") or {}).values() if a.get("type") not in SKIP_TYPES and "answer" in a]
+                named = {a.get("name"): as_text(a.get("answer")) for a in answers}
+                fields = sorted(({"order": int(a.get("order") or 0), "label": (a.get("text") or a.get("name") or "").strip(),
+                                  "value": as_text(a.get("answer"))} for a in answers), key=lambda f: f["order"])
+                out.append({"id": s.get("id"), "created_at": s.get("created_at"), "kind": form["kind"], "source": form["title"],
+                            "participant": named.get(form["p_name"]) or find(fields, "participant", "client") or "Unnamed participant",
+                            "coordinator": named.get(form["a_name"]) or (find(fields, "coordinator", "your name", "completed by") if form["kind"] == "coordinator" else ""),
+                            "email": named.get(form["e_name"]) or find(fields, "email"),
+                            "date": find(fields, "date of contact", "contact date", "date") or (s.get("created_at") or "")[:10],
+                            "fields": [{"label": f["label"], "value": f["value"]} for f in fields if f["value"]]})
     _cache.update(at=time.time(), rows=out)
     return out
+
+
+def prefill(form: dict, participant: str, user: dict) -> str:
+    """Form link with the participant and staff member filled in (Jotform URL prefill by field unique name)."""
+    from urllib.parse import urlencode
+    params: dict = {}
+
+    def put(name, typ, value):
+        if not name or not value:
+            return
+        if typ == "control_fullname":
+            first, _, last = value.partition(" ")
+            params[f"{name}[first]"], params[f"{name}[last]"] = first, last
+        else:
+            params[name] = value
+    put(form.get("p_name"), form.get("p_type"), participant)
+    put(form.get("a_name"), form.get("a_type"), user.get("name") or "")
+    put(form.get("e_name"), "control_email", user.get("email") or "")
+    url = form["url"]
+    return f"{url}{'&' if '?' in url else '?'}{urlencode(params)}" if params else url
 
 
 def check_access(user: dict):
@@ -112,25 +186,134 @@ async def load_rows() -> list:
 
 
 def participant_key(name: str) -> str:
-    return name.strip().title()
+    """Match key: ignores extra spaces and capitals, so 'Pronathi  Nair' and 'pronathi nair' are the same person."""
+    return " ".join((name or "").split()).casefold()
+
+
+def display_name(name: str) -> str:
+    n = " ".join((name or "").split())
+    return n.title() if n.islower() or n.isupper() else n
+
+
+def can_manage(user: dict) -> bool:
+    """Service & Support Coordinators and Admins add participants and assign Support Workers."""
+    return user.get("role") == "admin" or user.get("user_type") == "support_coordinator"
+
+
+def is_worker(user: dict) -> bool:
+    return user.get("role") != "admin" and user.get("user_type") == "support_worker"
+
+
+@router.get("/caseload/forms")
+async def caseload_forms(participant: str, user=Depends(current_user)):
+    """Case note forms to write a note for this participant, with the participant and staff member pre-filled.
+    Support Workers get the Day-to-Day case notes, and only for participants assigned to them."""
+    worker = is_worker(user)
+    key = participant_key(participant)
+    if worker:
+        if not await db.participants.find_one({"key": key, "assigned_ids": user["user_id"]}):
+            raise HTTPException(403, "You're not assigned to this participant")
+    else:
+        check_access(user)
+    if not configured():
+        raise HTTPException(400, "Jotform isn't connected yet")
+    async with httpx.AsyncClient(timeout=20, headers={"APIKEY": os.environ["JOTFORM_API_KEY"].strip()}) as c:
+        try:
+            forms = await case_forms(c, await team_header(c, jot_base()))
+        except httpx.HTTPError:
+            raise HTTPException(502, "Couldn't load the case note forms right now")
+    return [{"title": f["title"], "url": prefill(f, display_name(participant), user), "kind": f["kind"]}
+            for f in forms if not (worker and f["kind"] != "day")]
 
 
 @router.get("/caseload")
 async def caseload(user=Depends(current_user), refresh: Optional[bool] = False):
-    check_access(user)
-    if not configured():
-        return {"configured": False, "participants": []}
-    if refresh:
-        _cache["rows"] = None
-        _cache.pop("team", None)
-    rows = await load_rows()
-    # Coordinators and HR have full access: everyone allowed here sees every participant
+    """Coordinators, HR and Admins see every participant and all notes. Support Workers see only participants
+    they're assigned to, and only notes written by Support Workers."""
+    worker = is_worker(user)
+    if not worker:
+        check_access(user)
+    pq = {"assigned_ids": user["user_id"]} if worker else {}
+    listed = await db.participants.find(pq, {"_id": 0}).sort("name", 1).to_list(2000)
+    rows = []
+    if configured():
+        if refresh:
+            _cache["rows"] = None
+            _cache.pop("team", None)
+            _cache.pop("forms", None)
+        rows = await load_rows()
+    by_key = {p["key"]: p for p in listed}
+    if worker:  # Support Workers only read Support Worker (Day-to-Day) case notes for their own participants
+        rows = [r for r in rows if participant_key(r["participant"]) in by_key and r["kind"] == "day"]
     people: dict = {}
+    shown: dict = {}
     for r in rows:
         people.setdefault(participant_key(r["participant"]), []).append(r)
-    out = [{"name": k, "count": len(v), "last_date": max(n["date"] for n in v),
-            "notes": sorted(v, key=lambda n: (n["date"], n["created_at"] or ""), reverse=True)[:10]} for k, v in people.items()]
-    return {"configured": True, "participants": sorted(out, key=lambda p: p["last_date"], reverse=True)}
+        shown.setdefault(participant_key(r["participant"]), display_name(r["participant"]))
+    for k in by_key:
+        people.setdefault(k, [])
+    names: dict = {}
+    if not worker:
+        ids = {i for p in listed for i in p.get("assigned_ids", [])}
+        names = {u["user_id"]: u["name"] async for u in db.users.find({"user_id": {"$in": list(ids)}}, {"_id": 0, "user_id": 1, "name": 1})}
+    out = []
+    for k, v in people.items():
+        p = by_key.get(k) or {}
+        out.append({"name": p.get("name") or shown.get(k) or k, "participant_id": p.get("participant_id"), "count": len(v),
+                    "last_date": max((n["date"] for n in v), default=""),
+                    "assigned": [{"user_id": i, "name": names[i]} for i in p.get("assigned_ids", []) if i in names],
+                    "notes": sorted(v, key=lambda n: (n["date"], n["created_at"] or ""), reverse=True)[:10]})
+    out.sort(key=lambda p: (p["last_date"], p["name"]), reverse=True)
+    return {"configured": configured(), "can_manage": can_manage(user), "worker": worker, "participants": out}
+
+
+class ParticipantIn(BaseModel):
+    name: str
+
+
+class AssignIn(BaseModel):
+    user_ids: List[str]
+
+
+def manager(user=Depends(current_user)):
+    if not can_manage(user):
+        raise HTTPException(403, "Only Service & Support Coordinators and Admins can manage participants")
+    return user
+
+
+@router.post("/participants")
+async def add_participant(body: ParticipantIn, user=Depends(manager)):
+    name = display_name(body.name)
+    if len(name) < 2:
+        raise HTTPException(400, "Enter the participant's name")
+    if await db.participants.find_one({"key": participant_key(name)}):
+        raise HTTPException(400, f"{name} is already on the list")
+    doc = {"participant_id": f"par_{secrets.token_hex(6)}", "name": name, "key": participant_key(name), "assigned_ids": [],
+           "created_by": user.get("name") or "", "created_at": now_iso()}
+    await db.participants.insert_one(dict(doc))
+    return doc
+
+
+@router.put("/participants/{participant_id}/assign")
+async def assign_participant(participant_id: str, body: AssignIn, user=Depends(manager)):
+    ids = list(dict.fromkeys(body.user_ids))
+    valid = [u["user_id"] async for u in db.users.find({"user_id": {"$in": ids}, "user_type": "support_worker"}, {"_id": 0, "user_id": 1})]
+    res = await db.participants.update_one({"participant_id": participant_id},
+                                           {"$set": {"assigned_ids": valid, "updated_at": now_iso()}})
+    if not res.matched_count:
+        raise HTTPException(404, "Participant not found")
+    return {"assigned_ids": valid}
+
+
+@router.delete("/participants/{participant_id}")
+async def remove_participant(participant_id: str, user=Depends(manager)):
+    p = await db.participants.find_one_and_delete({"participant_id": participant_id})
+    if not p:
+        raise HTTPException(404, "Participant not found")
+    key = p.get("key") or participant_key(p["name"])
+    await db.caseload_summaries.delete_many({"participant": key})
+    await db.caseload_shares.delete_many({"participant": key})
+    return {"ok": True}
 
 
 SUMMARY_SYSTEM = (
@@ -162,14 +345,14 @@ async def caseload_summary(body: SummaryIn, user=Depends(current_user)):
             break
         blocks.append(block)
     try:
-        summary = await ai_service.answer(SUMMARY_SYSTEM, f"Case notes for {participant_key(body.name)} (newest first):\n\n" + "\n\n".join(blocks))
+        summary = await ai_service.answer(SUMMARY_SYSTEM, f"Case notes for {display_name(body.name)} (newest first):\n\n" + "\n\n".join(blocks))
     except Exception as e:
         logger.error(f"Caseload summary failed: {type(e).__name__}")
         raise HTTPException(502, "Couldn't summarise right now. Please try again.")
     summary = summary.replace("**", "").strip()
     await db.caseload_summaries.update_one(
         {"participant": participant_key(body.name)},
-        {"$set": {"participant": participant_key(body.name), "summary": summary, "note_count": len(blocks),
+        {"$set": {"participant": participant_key(body.name), "display": display_name(body.name), "summary": summary, "note_count": len(blocks),
                   "by": user.get("name") or "", "created_at": now_iso()}}, upsert=True)
     return {"summary": summary, "note_count": len(blocks)}
 
@@ -220,7 +403,76 @@ async def caseload_summary_pdf(name: str, request: Request, token: Optional[str]
         raise HTTPException(404, "Create an AI summary for this participant first")
     notes = sorted((r for r in await load_rows() if participant_key(r["participant"]) == key),
                    key=lambda n: (n["date"], n["created_at"] or ""), reverse=True)
-    pdf = await run_in_threadpool(build_summary_pdf, key, saved, notes)
-    fname = re.sub(r"[^A-Za-z0-9]+", "_", key).strip("_")
+    shown = saved.get("display") or display_name(name)
+    pdf = await run_in_threadpool(build_summary_pdf, shown, saved, notes)
+    fname = re.sub(r"[^A-Za-z0-9]+", "_", shown).strip("_")
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'inline; filename="Participant_Summary_{fname}.pdf"'})
+
+
+class EmailIn(BaseModel):
+    name: str
+    user_ids: List[str]
+
+
+@router.post("/caseload/summary/email")
+async def email_summary(body: EmailIn, user=Depends(current_user)):
+    """Email the plan review PDF to chosen No Limitts staff. Recipients come from staff records (never typed addresses);
+    each gets a private link that opens the PDF for 7 days."""
+    check_access(user)
+    key = participant_key(body.name)
+    ids = list(dict.fromkeys(body.user_ids))[:15]
+    if not ids:
+        raise HTTPException(400, "Choose at least one team member")
+    saved = await db.caseload_summaries.find_one({"participant": key}, {"_id": 0})
+    if not saved:
+        raise HTTPException(404, "Create an AI summary for this participant first")
+    staff = await db.users.find({"user_id": {"$in": ids}, "email": {"$nin": [None, ""]}},
+                                {"_id": 0, "user_id": 1, "name": 1, "email": 1}).to_list(15)
+    if not staff:
+        raise HTTPException(400, "None of the people you chose have an email address on file")
+    shown = saved.get("display") or display_name(body.name)
+    base = (os.environ.get("PUBLIC_BACKEND_URL") or "").rstrip("/")
+    expires = datetime.now(timezone.utc) + timedelta(days=7)
+    sent = []
+    for s in staff:
+        token = secrets.token_urlsafe(24)
+        await db.caseload_shares.insert_one({"token": token, "participant": key, "recipient_id": s["user_id"],
+                                             "sent_by": user.get("name") or "", "expires_at": expires.isoformat(),
+                                             "created_at": now_iso()})
+        link = f"{base}/api/caseload/shared/{token}"
+        html = (f'<table role="presentation" width="100%"><tr><td style="padding:24px;font-family:Arial,sans-serif;color:#11181C">'
+                f'<p>Hi {escape(s["name"].split(" ")[0])},</p>'
+                f'<p>{escape(user.get("name") or "A coordinator")} shared the plan review summary for '
+                f'<strong>{escape(shown)}</strong> with you.</p>'
+                f'<p><a href="{escape(link)}" style="display:inline-block;background:#673E8D;color:#ffffff;padding:12px 20px;'
+                f'border-radius:10px;text-decoration:none;font-weight:bold">Open the summary (PDF)</a></p>'
+                f'<p style="font-size:13px;color:#555">This private link works for 7 days. It contains participant information, '
+                f'so please don\'t forward it.</p>'
+                f'<p style="font-size:12px;color:#888">Sent by {escape(os.environ.get("EMAIL_FROM_NAME") or "No Limitts")}.</p>'
+                f'</td></tr></table>')
+        if await send_email(to=s["email"], subject=f"Plan review summary: {shown}", html=html):
+            sent.append(s["name"])
+    if not sent:
+        raise HTTPException(502, "Couldn't send the email right now. Please try again.")
+    return {"sent": sent}
+
+
+@router.get("/caseload/shared/{token}")
+async def shared_summary_pdf(token: str):
+    share = await db.caseload_shares.find_one({"token": token}, {"_id": 0})
+    if not share or share["expires_at"] < datetime.now(timezone.utc).isoformat():
+        raise HTTPException(404, "This link has expired. Ask the coordinator to send it again.")
+    saved = await db.caseload_summaries.find_one({"participant": share["participant"]}, {"_id": 0})
+    if not saved:
+        raise HTTPException(404, "This summary is no longer available")
+    try:
+        notes = [r for r in await load_rows() if participant_key(r["participant"]) == share["participant"]]
+    except HTTPException:
+        notes = []
+    notes.sort(key=lambda n: (n["date"], n["created_at"] or ""), reverse=True)
+    shown = saved.get("display") or display_name(share["participant"])
+    pdf = await run_in_threadpool(build_summary_pdf, shown, saved, notes)
+    fname = re.sub(r"[^A-Za-z0-9]+", "_", shown).strip("_")
     return Response(content=pdf, media_type="application/pdf",
                     headers={"Content-Disposition": f'inline; filename="Participant_Summary_{fname}.pdf"'})

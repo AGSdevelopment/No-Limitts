@@ -70,7 +70,7 @@ function RootStack() {
         <Stack.Screen name="celebration/[key]" options={{ ...header, title: "Celebration" }} />
         <Stack.Screen name="reminder-history" options={{ ...header, title: "Reminder history" }} />
         <Stack.Screen name="integrations" options={{ ...header, title: "Integrations" }} />
-        <Stack.Screen name="caseload" options={{ ...header, title: "My caseload" }} />
+        <Stack.Screen name="caseload" options={{ ...header, title: user?.user_type === "support_worker" && user?.role !== "admin" ? "My participants" : "My caseload" }} />
       </Stack.Protected>
       {/* Single change-password route: forced (no header) for temp passwords, normal from Library. */}
       <Stack.Protected guard={!!user}>

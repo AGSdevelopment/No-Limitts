@@ -7,6 +7,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { API_URL, api, getApiToken, openLink } from "@/src/api";
 import { useAuth } from "@/src/auth";
+import { StaffEmailSheet } from "@/src/components/staff-email-sheet";
+import { AddParticipantSheet, AssignSheet, CaseFormsSheet, ConfirmSheet } from "@/src/components/participant-sheets";
 import { useToast } from "@/src/components/toast";
 import { Avatar, Button, EmptyState, ErrorState, Ionicons, Loading, formatDate } from "@/src/components/ui";
 import { makeStyles, useTheme } from "@/src/theme";
@@ -19,13 +21,34 @@ export default function Caseload() {
   const { colors } = useTheme();
   const [refreshing, setRefreshing] = useState(false);
   const { user } = useAuth();
-  const allowed = user?.role === "admin" || ["support_coordinator", "hr"].includes(user?.user_type ?? "");
+  const allowed = user?.role === "admin" || ["support_coordinator", "hr", "support_worker"].includes(user?.user_type ?? "");
   const q = useQuery<any>({ queryKey: ["caseload"], queryFn: () => api("/caseload"), enabled: allowed });
   const [open, setOpen] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const toast = useToast();
   const [summaries, setSummaries] = useState<Record<string, string>>({});
   const [summarising, setSummarising] = useState<string | null>(null);
+  const [emailing, setEmailing] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [assigning, setAssigning] = useState<any>(null);
+  const [writing, setWriting] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<any>(null);
+  const [removeBusy, setRemoveBusy] = useState(false);
+
+  const remove = async () => {
+    if (removeBusy) return;
+    setRemoveBusy(true);
+    try {
+      await api(`/participants/${removing.participant_id}`, { method: "DELETE" });
+      toast(`${removing.name} removed from the list`, "success");
+      q.refetch();
+    } catch (e: any) {
+      toast(e.message, "error");
+    } finally {
+      setRemoveBusy(false);
+      setRemoving(null);
+    }
+  };
 
   const summarise = async (name: string) => {
     setSummarising(name);
@@ -49,13 +72,15 @@ export default function Caseload() {
     }
   };
 
-  if (!allowed) return <EmptyState icon="lock-closed-outline" title="Not available" subtitle="The caseload is for Service & Support Coordinators and HR." />;
+  if (!allowed) return <EmptyState icon="lock-closed-outline" title="Not available" subtitle="The caseload is for Coordinators, HR and Support Workers." />;
 
   if (q.isLoading) return <Loading />;
   if (q.isError) return <ErrorState message={(q.error as any)?.message ?? "Couldn't load your caseload"} onRetry={q.refetch} />;
+  const worker = !!q.data.worker;
   const people = (q.data.participants ?? []).filter((p: any) => p.name.toLowerCase().includes(search.trim().toLowerCase()));
 
   return (
+    <>
     <FlatList
       style={styles.root}
       testID="caseload-screen"
@@ -66,21 +91,27 @@ export default function Caseload() {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.brandPrimary} />}
       ListHeaderComponent={
         <View style={{ gap: 10 }}>
-          <Pressable onPress={() => openLink(CASE_NOTE_FORM)} style={styles.newNote} testID="caseload-new-note">
-            <Ionicons name="create-outline" size={20} color={colors.onBrandPrimary} />
-            <Text style={styles.newNoteText}>Write a case note</Text>
-          </Pressable>
-          {q.data.configured && (
-            <TextInput value={search} onChangeText={setSearch} placeholder="Search participants" placeholderTextColor={colors.muted}
-              style={styles.search} testID="caseload-search" />
+          {!worker && (
+            <Pressable onPress={() => openLink(CASE_NOTE_FORM)} style={styles.newNote} testID="caseload-new-note">
+              <Ionicons name="create-outline" size={20} color={colors.onBrandPrimary} />
+              <Text style={styles.newNoteText}>Write a case note</Text>
+            </Pressable>
           )}
+          {q.data.can_manage && (
+            <Button label="Add participant" icon="person-add-outline" variant="secondary" onPress={() => setAdding(true)} testID="caseload-add-participant" />
+          )}
+          {worker && <Text style={styles.meta}>Participants you&apos;re assigned to. Tap one to write a case note or read their Support Worker notes.</Text>}
+          <TextInput value={search} onChangeText={setSearch} placeholder="Search participants" placeholderTextColor={colors.muted}
+            style={styles.search} testID="caseload-search" />
         </View>
       }
       ListEmptyComponent={
-        !q.data.configured ? (
+        worker ? (
+          <EmptyState icon="people-outline" title="No participants assigned yet" subtitle="Your Service Coordinator will assign the participants you work with." />
+        ) : !q.data.configured ? (
           <EmptyState icon="link-outline" title="Waiting for Jotform" subtitle="Case notes will appear here once your admin connects the Jotform account." />
         ) : (
-          <EmptyState icon="people-outline" title="No participants yet" subtitle="Participants appear here once you submit a Coordinator Case Note for them. Pull down to refresh." />
+          <EmptyState icon="people-outline" title="No participants yet" subtitle="Add a participant, or they'll appear once a case note is submitted for them. Pull down to refresh." />
         )
       }
       renderItem={({ item }) => {
@@ -91,11 +122,33 @@ export default function Caseload() {
               <Avatar name={item.name} size={44} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.name}>{item.name}</Text>
-                <Text style={styles.meta}>{item.count} note{item.count > 1 ? "s" : ""} · last {formatDate(item.last_date)}</Text>
+                <Text style={styles.meta}>
+                  {item.count ? `${item.count} note${item.count > 1 ? "s" : ""} · last ${formatDate(item.last_date)}` : "No notes yet"}
+                  {!worker && item.participant_id ? ` · ${item.assigned.length} Support Worker${item.assigned.length === 1 ? "" : "s"}` : ""}
+                </Text>
               </View>
               <Ionicons name={expanded ? "chevron-up" : "chevron-down"} size={20} color={colors.muted} />
             </Pressable>
             {expanded && (
+              <View style={{ gap: 8 }}>
+                <Button label="Write a case note" icon="create-outline" onPress={() => setWriting(item.name)} testID={`caseload-write-${item.name}`} />
+                {q.data.can_manage && item.participant_id && (
+                  <>
+                    {!!item.assigned.length && <Text style={styles.meta}>Assigned: {item.assigned.map((a: any) => a.name).join(", ")}</Text>}
+                    <View style={styles.manageRow}>
+                      <Button label="Assign Support Workers" icon="people-outline" variant="secondary" onPress={() => setAssigning(item)} style={{ flex: 1 }} testID={`caseload-assign-${item.name}`} />
+                      <Pressable onPress={() => setRemoving(item)} style={styles.trash} accessibilityLabel={`Remove ${item.name}`} testID={`caseload-remove-${item.name}`}>
+                        <Ionicons name="trash-outline" size={20} color={colors.errorText} />
+                      </Pressable>
+                    </View>
+                  </>
+                )}
+                {q.data.can_manage && !item.participant_id && (
+                  <Text style={styles.meta}>Only in case notes. Add {item.name} as a participant to assign Support Workers.</Text>
+                )}
+              </View>
+            )}
+            {expanded && !worker && item.count > 0 && (
               <View style={styles.aiBox} testID={`caseload-summary-box-${item.name}`}>
                 {summaries[item.name] ? (
                   <>
@@ -111,6 +164,8 @@ export default function Caseload() {
                     <Button label="Export PDF for plan review" icon="document-text-outline" variant="secondary"
                       onPress={() => openLink(`${API_URL}/caseload/summary/pdf?name=${encodeURIComponent(item.name)}&token=${encodeURIComponent(getApiToken() ?? "")}`)}
                       testID={`caseload-summary-pdf-${item.name}`} />
+                    <Button label="Email to support team" icon="mail-outline" variant="secondary"
+                      onPress={() => setEmailing(item.name)} testID={`caseload-summary-email-${item.name}`} />
                   </>
                 ) : (
                   <Button label={summarising === item.name ? "Summarising…" : "Summarise with AI"} icon="sparkles-outline" variant="secondary"
@@ -121,6 +176,7 @@ export default function Caseload() {
             {expanded && item.notes.map((n: any) => (
               <View key={n.id} style={styles.note} testID={`caseload-note-${n.id}`}>
                 <Text style={styles.noteDate}>{formatDate(n.date)}{n.coordinator ? ` · ${n.coordinator}` : ""}</Text>
+                {!!n.source && <Text style={styles.meta}>{n.source}</Text>}
                 {n.fields.slice(0, 8).map((f: any, i: number) => (
                   <Text key={i} style={styles.field}><Text style={styles.fieldLabel}>{f.label}: </Text>{f.value}</Text>
                 ))}
@@ -130,6 +186,14 @@ export default function Caseload() {
         );
       }}
     />
+    <StaffEmailSheet participant={emailing} onClose={() => setEmailing(null)} />
+    <AddParticipantSheet visible={adding} onClose={() => setAdding(false)} onDone={q.refetch} />
+    <AssignSheet participant={assigning} onClose={() => setAssigning(null)} onDone={q.refetch} />
+    <CaseFormsSheet participant={writing} onClose={() => setWriting(null)} />
+    <ConfirmSheet visible={!!removing} title={`Remove ${removing?.name ?? ""}?`}
+      sub="They'll be taken off the participant list and Support Workers will lose access. Case notes in Jotform aren't deleted."
+      confirmLabel="Remove participant" busy={removeBusy} onConfirm={remove} onClose={() => setRemoving(null)} />
+    </>
   );
 }
 
@@ -146,6 +210,8 @@ const useStyles = makeStyles((c) => ({
   noteDate: { fontSize: 13, fontWeight: "700", color: c.brandPrimary },
   field: { fontSize: 14, color: c.onSurface, lineHeight: 20 },
   fieldLabel: { fontWeight: "700", color: c.onSurfaceSecondary },
+  manageRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  trash: { width: 48, height: 48, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: c.surfaceSecondary },
   aiBox: { backgroundColor: c.brandTertiary, borderRadius: 12, padding: 12, gap: 6 },
   aiHead: { flexDirection: "row", alignItems: "center", gap: 6 },
   aiTitle: { flex: 1, fontSize: 14, fontWeight: "700", color: c.brandPrimary },

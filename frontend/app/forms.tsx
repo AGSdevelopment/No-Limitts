@@ -33,11 +33,12 @@ export default function Forms() {
   const [del, setDel] = useState<any>(null);
   const q = useQuery<any[]>({ queryKey: ["forms"], queryFn: () => api("/forms") });
   // Every category header always shows (empty ones say so) so admins can see where forms go.
-  const favs = (q.data ?? []).filter((f) => f.favourite);
+  const byTitle = (a: any, b: any) => (a.title ?? "").localeCompare(b.title ?? "", undefined, { sensitivity: "base" });
+  const favs = (q.data ?? []).filter((f) => f.favourite).sort(byTitle);
   const sections = [
     ...(favs.length ? [{ title: "★ Favourites", data: favs.map((f) => ({ ...f, key: `fav-${f.form_id}` })) }] : []),
     ...FORM_CATEGORIES.map((c) => {
-      const data = (q.data ?? []).filter((f) => (f.category || "Day-to-Day") === c);
+      const data = (q.data ?? []).filter((f) => (f.category || "Day-to-Day") === c).sort(byTitle);
       return { title: c, data: data.length ? data : [{ form_id: `empty-${c}`, empty: true, category: c }] };
     }),
   ];

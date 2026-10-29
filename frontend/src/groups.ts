@@ -36,9 +36,7 @@ export const FORM_CATEGORIES = [
   "HR",
   "Participant Management & Onboarding",
   "New Starter",
-  "HR",
   "Compliance",
   "Referral Triage",
-  "Therapy Triage",
   "Support Office",
 ] as const;

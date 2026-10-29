@@ -30,6 +30,7 @@ export default function Library() {
     { icon: "notifications-outline", label: "Notifications", to: "/notifications", id: "notifications", count: dash.data?.unread_notifications },
     ...(user?.user_type === "support_worker" ? [{ icon: "key-outline", label: "Change password", to: "/change-password", id: "change-password" } as Row] : []),
     ...(["support_coordinator", "hr"].includes(user?.user_type ?? "") || isAdmin ? [{ icon: "folder-open-outline", label: "Caseload", to: "/caseload", id: "caseload" } as Row] : []),
+    ...(user?.user_type === "support_worker" && !isAdmin ? [{ icon: "people-outline", label: "My participants", to: "/caseload", id: "caseload" } as Row] : []),
     { icon: "megaphone-outline", label: "Company updates", to: "/updates", id: "updates" },
     { icon: "checkbox-outline", label: "My tasks", to: "/tasks", id: "tasks", count: dash.data?.open_task_count },
     { icon: "clipboard-outline", label: "Forms", to: "/forms", id: "forms" },

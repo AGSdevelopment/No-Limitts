@@ -24,7 +24,7 @@ class FormPatch(BaseModel):
 
 
 FORM_CATEGORIES = ("Operations", "Day-to-Day", "HR", "Participant Management & Onboarding", "New Starter", "Compliance",
-                   "Referral Triage", "Therapy Triage", "Support Office")
+                   "Referral Triage", "Support Office")
 
 
 def clean_category(value: str) -> str:
