@@ -5,7 +5,9 @@ import time
 from typing import Optional
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from core import current_user, logger
+import ai_service
 
 router = APIRouter(prefix="/api")
 FORM_ID = "262772090420048"
@@ -85,17 +87,14 @@ async def fetch_rows() -> list:
     return out
 
 
-@router.get("/caseload")
-async def caseload(user=Depends(current_user), refresh: Optional[bool] = False):
+def check_access(user: dict):
     if user.get("role") != "admin" and user.get("user_type") not in ("hr", "support_coordinator"):
         raise HTTPException(403, "For Service & Support Coordinators and HR")
-    if not configured():
-        return {"configured": False, "participants": []}
-    if refresh:
-        _cache["rows"] = None
-        _cache.pop("team", None)
+
+
+async def load_rows() -> list:
     try:
-        rows = await fetch_rows()
+        return await fetch_rows()
     except httpx.HTTPStatusError as e:
         logger.error(f"Jotform case notes failed: HTTP {e.response.status_code}")
         if e.response.status_code in (401, 403):
@@ -104,10 +103,61 @@ async def caseload(user=Depends(current_user), refresh: Optional[bool] = False):
     except Exception as e:
         logger.error(f"Jotform case notes failed: {type(e).__name__}")
         raise HTTPException(502, "Couldn't load case notes from Jotform right now")
+
+
+def participant_key(name: str) -> str:
+    return name.strip().title()
+
+
+@router.get("/caseload")
+async def caseload(user=Depends(current_user), refresh: Optional[bool] = False):
+    check_access(user)
+    if not configured():
+        return {"configured": False, "participants": []}
+    if refresh:
+        _cache["rows"] = None
+        _cache.pop("team", None)
+    rows = await load_rows()
     # Coordinators and HR have full access: everyone allowed here sees every participant
     people: dict = {}
     for r in rows:
-        people.setdefault(r["participant"].strip().title(), []).append(r)
+        people.setdefault(participant_key(r["participant"]), []).append(r)
     out = [{"name": k, "count": len(v), "last_date": max(n["date"] for n in v),
             "notes": sorted(v, key=lambda n: (n["date"], n["created_at"] or ""), reverse=True)[:10]} for k, v in people.items()]
     return {"configured": True, "participants": sorted(out, key=lambda p: p["last_date"], reverse=True)}
+
+
+SUMMARY_SYSTEM = (
+    "You help NDIS Service & Support Coordinators at No Limitts catch up on a participant. From the case notes given, "
+    "write a short plain-English summary (Australian English, no markdown, no asterisks) with these labelled lines: "
+    "'Overview:' (2-3 sentences on where things stand), 'Recent activity:' (the latest few contacts, newest first), "
+    "'Follow-ups:' (open actions, goals or risks to watch, or 'None noted'). Only use facts in the notes; never invent details."
+)
+
+
+class SummaryIn(BaseModel):
+    name: str
+
+
+@router.post("/caseload/summary")
+async def caseload_summary(body: SummaryIn, user=Depends(current_user)):
+    check_access(user)
+    if not configured():
+        raise HTTPException(400, "Jotform isn't connected yet")
+    notes = [r for r in await load_rows() if participant_key(r["participant"]) == participant_key(body.name)]
+    if not notes:
+        raise HTTPException(404, "No case notes found for this participant")
+    notes.sort(key=lambda n: (n["date"], n["created_at"] or ""), reverse=True)
+    blocks, total = [], 0
+    for n in notes[:20]:
+        block = f"[{n['date']}] by {n['coordinator'] or 'unknown'}\n" + "\n".join(f"{f['label']}: {f['value']}" for f in n["fields"])
+        total += len(block)
+        if total > 40000:
+            break
+        blocks.append(block)
+    try:
+        summary = await ai_service.answer(SUMMARY_SYSTEM, f"Case notes for {participant_key(body.name)} (newest first):\n\n" + "\n\n".join(blocks))
+    except Exception as e:
+        logger.error(f"Caseload summary failed: {type(e).__name__}")
+        raise HTTPException(502, "Couldn't summarise right now. Please try again.")
+    return {"summary": summary.replace("**", "").strip(), "note_count": len(blocks)}

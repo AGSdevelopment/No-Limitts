@@ -7,7 +7,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api, openLink } from "@/src/api";
 import { useAuth } from "@/src/auth";
-import { Avatar, EmptyState, ErrorState, Ionicons, Loading, formatDate } from "@/src/components/ui";
+import { useToast } from "@/src/components/toast";
+import { Avatar, Button, EmptyState, ErrorState, Ionicons, Loading, formatDate } from "@/src/components/ui";
 import { makeStyles, useTheme } from "@/src/theme";
 
 const CASE_NOTE_FORM = "https://nolimitts.jotform.com/262772090420048";
@@ -22,6 +23,21 @@ export default function Caseload() {
   const q = useQuery<any>({ queryKey: ["caseload"], queryFn: () => api("/caseload"), enabled: allowed });
   const [open, setOpen] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const toast = useToast();
+  const [summaries, setSummaries] = useState<Record<string, string>>({});
+  const [summarising, setSummarising] = useState<string | null>(null);
+
+  const summarise = async (name: string) => {
+    setSummarising(name);
+    try {
+      const r = await api<any>("/caseload/summary", { method: "POST", body: { name } });
+      setSummaries((s) => ({ ...s, [name]: r.summary }));
+    } catch (e: any) {
+      toast(e.message ?? "Couldn't summarise right now", "error");
+    } finally {
+      setSummarising(null);
+    }
+  };
 
   const refresh = async () => {
     setRefreshing(true);
@@ -79,6 +95,26 @@ export default function Caseload() {
               </View>
               <Ionicons name={expanded ? "chevron-up" : "chevron-down"} size={20} color={colors.muted} />
             </Pressable>
+            {expanded && (
+              <View style={styles.aiBox} testID={`caseload-summary-box-${item.name}`}>
+                {summaries[item.name] ? (
+                  <>
+                    <View style={styles.aiHead}>
+                      <Ionicons name="sparkles" size={16} color={colors.brandPrimary} />
+                      <Text style={styles.aiTitle}>AI summary</Text>
+                      <Pressable onPress={() => summarise(item.name)} hitSlop={10} style={styles.aiRedo} testID={`caseload-summary-refresh-${item.name}`}>
+                        <Ionicons name="refresh" size={18} color={colors.brandPrimary} />
+                      </Pressable>
+                    </View>
+                    <Text style={styles.field} testID={`caseload-summary-text-${item.name}`}>{summaries[item.name]}</Text>
+                    <Text style={styles.aiNote}>AI can make mistakes. Check the notes below before acting.</Text>
+                  </>
+                ) : (
+                  <Button label={summarising === item.name ? "Summarising…" : "Summarise with AI"} icon="sparkles-outline" variant="secondary"
+                    loading={summarising === item.name} onPress={() => summarise(item.name)} testID={`caseload-summarise-${item.name}`} />
+                )}
+              </View>
+            )}
             {expanded && item.notes.map((n: any) => (
               <View key={n.id} style={styles.note} testID={`caseload-note-${n.id}`}>
                 <Text style={styles.noteDate}>{formatDate(n.date)}{n.coordinator ? ` · ${n.coordinator}` : ""}</Text>
@@ -107,4 +143,9 @@ const useStyles = makeStyles((c) => ({
   noteDate: { fontSize: 13, fontWeight: "700", color: c.brandPrimary },
   field: { fontSize: 14, color: c.onSurface, lineHeight: 20 },
   fieldLabel: { fontWeight: "700", color: c.onSurfaceSecondary },
+  aiBox: { backgroundColor: c.brandTertiary, borderRadius: 12, padding: 12, gap: 6 },
+  aiHead: { flexDirection: "row", alignItems: "center", gap: 6 },
+  aiTitle: { flex: 1, fontSize: 14, fontWeight: "700", color: c.brandPrimary },
+  aiRedo: { width: 44, height: 32, alignItems: "flex-end", justifyContent: "center" },
+  aiNote: { fontSize: 12, color: c.muted },
 }));

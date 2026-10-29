@@ -219,3 +219,4 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Caseload (Jotform form 262772090420048) deferred: key returns 401
 - Caseload fixed: Jotform case note form lives in Team workspace "No limitts"; backend auto-discovers team via /team/user/me and sends `jf-team-id` header (cached). Form currently has 0 submissions.
 - Branded splash: native splash bg #F7A51D (imageWidth 260); in-app loading screen shows logo on orange. Tab bar uses `background` token.
+- Caseload AI summary: POST /api/caseload/summary {name} (coordinators/HR/admin) → Overview / Recent activity / Follow-ups via ai_service (Claude); "Summarise with AI" button in expanded participant card
