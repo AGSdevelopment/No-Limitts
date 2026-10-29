@@ -10,6 +10,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 from core import DIGEST_TZ, P, admin_user, bearer, db, dmy, logger, notify, user_from_token
 from email_service import send_email
+from pdf_brand import FIRST_TOP, add_logo
 from routes.certificates import missing_required, requirements, with_status
 from routes.compliance import NEW_STARTER_GROUPS, STAFF_GROUP_LABELS, starter_checklist
 from routes.cpd import cpd_year_start
@@ -235,11 +236,11 @@ def build_profile_pdf(d: dict) -> bytes:
     writer = pymupdf.DocumentWriter(buf)
     dev = writer.begin_page(pymupdf.paper_rect("a4"))
     story = pymupdf.Story(html=html)
-    story.place(pymupdf.paper_rect("a4") + (36, 36, -36, -36))  # one page: anything beyond is cut
+    story.place(pymupdf.paper_rect("a4") + (36, FIRST_TOP, -36, -36))  # one page: anything beyond is cut
     story.draw(dev)
     writer.end_page()
     writer.close()
-    return buf.getvalue()
+    return add_logo(buf.getvalue())
 
 
 @router.get("/staff/{user_id}/profile/pdf")

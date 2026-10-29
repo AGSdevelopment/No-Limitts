@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, View } from "react-native";
+import { Text } from "@/src/components/text";
 
 import { api } from "@/src/api";
 import { useToast } from "@/src/components/toast";

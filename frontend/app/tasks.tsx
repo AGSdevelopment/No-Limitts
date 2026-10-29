@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { FlatList, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
+import { FlatList, Pressable, RefreshControl, ScrollView, View } from "react-native";
+import { Text } from "@/src/components/text";
 import { Stack, useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";

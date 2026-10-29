@@ -1,5 +1,6 @@
 import { createElement, useState } from "react";
-import { ActivityIndicator, Linking, Platform, Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Linking, Platform, Pressable, View } from "react-native";
+import { Text } from "@/src/components/text";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { WebView } from "react-native-webview";

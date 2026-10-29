@@ -1,5 +1,6 @@
 import React from "react";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, View } from "react-native";
+import { Text } from "@/src/components/text";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Ionicons, IconName } from "@/src/components/ui";

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { FlatList, Modal, Pressable, Text, TextInput, View } from "react-native";
+import { FlatList, Modal, Pressable, View } from "react-native";
+import { Text, TextInput } from "@/src/components/text";
 import { useQuery } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 

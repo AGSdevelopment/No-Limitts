@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, FlatList, Modal, Pressable, RefreshControl, ScrollView, Switch, Text, View } from "react-native";
+import { ActivityIndicator, FlatList, Modal, Pressable, RefreshControl, ScrollView, Switch, View } from "react-native";
+import { Text } from "@/src/components/text";
 import { Stack } from "expo-router";
 import * as DocumentPicker from "expo-document-picker";
 import { useQuery, useQueryClient } from "@tanstack/react-query";

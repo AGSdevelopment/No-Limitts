@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Linking, Modal, Platform, Pressable, ScrollView, Switch, Text, View } from "react-native";
+import { Linking, Modal, Platform, Pressable, ScrollView, Switch, View } from "react-native";
+import { Text } from "@/src/components/text";
 import { Stack, useRouter } from "expo-router";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";

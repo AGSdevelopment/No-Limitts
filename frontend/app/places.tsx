@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { useLocalSearchParams } from "expo-router";
 import { useAuth } from "@/src/auth";
-import { FlatList, Pressable, RefreshControl, Text, TextInput, View } from "react-native";
+import { FlatList, Pressable, RefreshControl, View } from "react-native";
+import { Text, TextInput } from "@/src/components/text";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";

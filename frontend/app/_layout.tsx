@@ -1,4 +1,5 @@
 import { QueryClientProvider } from "@tanstack/react-query";
+import { useFonts } from "expo-font";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { LogBox, StyleSheet, View, ActivityIndicator } from "react-native";
@@ -6,6 +7,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 
 import { ErrorBoundary } from "@/src/components/error-boundary";
+import { fonts } from "@/src/components/text";
 import { ToastProvider } from "@/src/components/toast";
 import { AuthProvider, useAuth } from "@/src/auth";
 import { queryClient } from "@/src/query-client";
@@ -28,7 +30,7 @@ function RootStack() {
   const header = {
     headerShown: true,
     headerTintColor: colors.brandPrimary,
-    headerTitleStyle: { color: colors.onSurface, fontWeight: "600" as const },
+    headerTitleStyle: { color: colors.onSurface, fontFamily: "Nunito-700" },
     headerStyle: { backgroundColor: colors.surface },
     headerShadowVisible: false,
     headerBackButtonDisplayMode: "minimal" as const,
@@ -77,6 +79,8 @@ function RootStack() {
 }
 
 export default function RootLayout() {
+  const [fontsLoaded, fontError] = useFonts(fonts);
+  if (!fontsLoaded && !fontError) return null;
   return (
     <GestureHandlerRootView style={styles.root}>
       <ErrorBoundary>

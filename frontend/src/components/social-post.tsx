@@ -1,4 +1,5 @@
-import { Pressable, Text, View } from "react-native";
+import { Pressable, View } from "react-native";
+import { Text } from "@/src/components/text";
 import { Image } from "expo-image";
 
 import { openLink } from "@/src/api";

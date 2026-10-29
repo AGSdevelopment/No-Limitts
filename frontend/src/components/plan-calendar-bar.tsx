@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
-import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, View } from "react-native";
+import { Text } from "@/src/components/text";
 import { useFocusEffect } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 

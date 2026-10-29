@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Pressable, RefreshControl, Text, View } from "react-native";
+import { Pressable, RefreshControl, View } from "react-native";
+import { Text } from "@/src/components/text";
 import { useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";

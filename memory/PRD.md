@@ -173,3 +173,6 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - No Limitts logo (from EPS) for login, app icon, splash, favicon
 - Palette: purple #673E8D (primary), pink #EB3F7F (accent), orange #F7A51D, background #FCFEFF, yellow #EBE837 (highlight)
 - App name StaffHub -> No Limitts; email/PDF headings use the purple
+- Home welcome card (greeting, first name, date, brand dots, heart tree)
+- Nunito brand font app-wide via src/components/text.tsx (Text/TextInput wrappers)
+- No Limitts logo on staff profile + team plans PDFs (backend/pdf_brand.py)

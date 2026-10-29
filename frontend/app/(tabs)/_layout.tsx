@@ -57,7 +57,7 @@ export default function TabsLayout() {
           ...(Platform.OS === "web" ? { height: 64 } : {}),
         },
         tabBarItemStyle: { alignSelf: "center" },
-        tabBarLabelStyle: { fontSize: 11, fontWeight: "600" },
+        tabBarLabelStyle: { fontSize: 11, fontFamily: "Nunito-700" },
       }}
     >
       <Tabs.Screen name="index" options={{ title: "Home", tabBarIcon: icon("home", "home-outline"), tabBarButtonTestID: "tab-home" }} />

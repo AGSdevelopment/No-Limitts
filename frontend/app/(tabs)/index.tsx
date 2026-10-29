@@ -1,7 +1,9 @@
-import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
+import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { Text } from "@/src/components/text";
 import { useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { Image } from "expo-image";
+import { LinearGradient } from "expo-linear-gradient";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -47,7 +49,7 @@ export default function Home() {
 
   return (
     <View style={styles.root} testID="home-screen">
-      <TabHeader title={user?.name?.split(" ")[0] ?? ""} subtitle={greeting()}>
+      <TabHeader title="Home">
         <HeaderIcon icon="notifications-outline" badge={d?.unread_notifications} onPress={() => router.push("/notifications")} testID="home-notifications-button" />
       </TabHeader>
       {q.isLoading ? (
@@ -59,6 +61,18 @@ export default function Home() {
           contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: bottomChrome + 24 }}
           refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => { q.refetch(); newStuff.refetch(); reviews.refetch(); dashboards.refetch(); }} tintColor={colors.brandPrimary} />}
         >
+          <Animated.View entering={FadeInDown.duration(400)} style={styles.welcome} testID="home-welcome-card">
+            <LinearGradient colors={[colors.highlightSoft, colors.accentSoft, colors.brandSecondary]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
+            <View style={{ flex: 1, gap: 4 }}>
+              <Text style={styles.welcomeHi}>{greeting()},</Text>
+              <Text style={styles.welcomeName} numberOfLines={1} testID="home-welcome-name">{user?.name?.split(" ")[0] ?? ""}!</Text>
+              <Text style={styles.welcomeSub}>{new Date().toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}</Text>
+              <View style={styles.welcomeDots}>
+                {[colors.brandPrimary, colors.accent, colors.sky, colors.highlight].map((c) => <View key={c} style={[styles.welcomeDot, { backgroundColor: c }]} />)}
+              </View>
+            </View>
+            <Image source={require("@/assets/images/brand-mark.png")} style={styles.welcomeTree} contentFit="contain" />
+          </Animated.View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickRow} style={{ marginHorizontal: -16 }}>
             {actions.map((a) => (
               <Pressable key={a.id} testID={`quick-action-${a.id}`} onPress={() => router.push(a.to)} style={({ pressed }) => [styles.quick, pressed && { opacity: 0.7 }]}>
@@ -296,6 +310,13 @@ const useStyles = makeStyles((c) => ({
   resSub: { fontSize: 13, color: c.muted },
   reviewStars: { fontSize: 14, color: c.warning, marginTop: 2 },
   reviewText: { fontSize: 14, color: c.onSurface, marginVertical: 4, fontStyle: "italic" },
+  welcome: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 20, overflow: "hidden", padding: 18, paddingRight: 8, marginTop: 16, minHeight: 140, borderWidth: 1, borderColor: c.border },
+  welcomeHi: { fontSize: 15, fontWeight: "600", color: c.onSurfaceSecondary },
+  welcomeName: { fontSize: 28, fontWeight: "800", color: c.brandPrimary },
+  welcomeSub: { fontSize: 13, color: c.onSurfaceSecondary },
+  welcomeDots: { flexDirection: "row", gap: 6, marginTop: 6 },
+  welcomeDot: { width: 10, height: 10, borderRadius: 5 },
+  welcomeTree: { width: 120, height: 120 },
   quickRow: { paddingHorizontal: 16, paddingVertical: 16, gap: 12 },
   quick: { width: 76, alignItems: "center", gap: 6, flexShrink: 0 },
   quickLabel: { fontSize: 12, fontWeight: "600", color: c.onSurfaceSecondary },

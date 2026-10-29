@@ -337,13 +337,13 @@ def plans_email(first: str, rows: list, today: int) -> Optional[tuple]:
                 f'<ul style="margin:0;padding-left:18px;font-size:14px;color:#1f2937">{li}</ul>')
     b = lambda s: f"<b>{escape(s)}</b>"
     html = (f'<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:auto;color:#1f2937">'
-            f'<h2 style="color:#205790;margin:0 0 6px">Your participant plans – {d.strftime("%B %Y")}</h2>'
+            f'<h2 style="color:#673E8D;margin:0 0 6px">Your participant plans – {d.strftime("%B %Y")}</h2>'
             f'<p style="font-size:14px;margin:0 0 4px">Hi {escape(first)}, here is what needs doing for your participants this month.</p>'
             + sec("Plan reviews overdue", [f"{b(r['name'])} – review was due {_fmt(r['rev'])}, plan ends {_fmt(r['end'])}" for r in overdue], "#b42318")
             + sec("Plan reviews due this month", [f"{b(r['name'])} – review due {_fmt(r['rev'])}" for r in due], "#8f5f00")
             + sec("Plans ending this month", [f"{b(r['name'])} – plan ends {_fmt(r['end'])}" for r in ending], "#b42318")
             + sec("Reviews booked this month", [f"{b(r['name'])} – review booked for {_fmt(r['booked_date'])}" for r in booked], "#1e7b3a")
-            + sec("Forms to action", [f"{b(r['name'])} – {escape(', '.join(x))}" for r, x in forms], "#205790")
+            + sec("Forms to action", [f"{b(r['name'])} – {escape(', '.join(x))}" for r, x in forms], "#673E8D")
             + '<p style="font-size:13px;color:#6b7280;margin-top:22px">Open No Limitts → Home → My participant plans to see details '
               'or tick a review as booked. Booked reviews drop off this email.</p></div>')
     n = len(overdue) + len(due) + len(ending)
@@ -539,12 +539,12 @@ def team_report_email(first: str, d: dict) -> tuple:
     rows = "".join(f"<tr><td style='{td}'>{e(', '.join(p['owners']) or p['name'])}</td><td style='{td};text-align:center'>{len(p['overdue'])}</td>"
                    f"<td style='{td};text-align:center'>{len(p['forms'])}</td><td style='{td};text-align:center'>{len(p['due_30'])}</td>"
                    f"<td style='{td};text-align:center'>{len(p['ending_30'])}</td></tr>" for p in d["pages"])
-    th = "padding:6px 8px;background:#EFE8F5;font-size:12px;text-align:left;color:#205790"
-    btn = (f'<p style="margin:20px 0"><a href="{link}" style="background:#205790;color:#ffffff;padding:12px 18px;border-radius:10px;'
+    th = "padding:6px 8px;background:#EFE8F5;font-size:12px;text-align:left;color:#673E8D"
+    btn = (f'<p style="margin:20px 0"><a href="{link}" style="background:#673E8D;color:#ffffff;padding:12px 18px;border-radius:10px;'
            f'text-decoration:none;font-weight:bold;font-size:14px">Download the team plans PDF</a></p>'
            f'<p style="font-size:12px;color:#6b7280">The link opens the latest figures and expires in 14 days.</p>') if link else ""
     html = (f'<table role="presentation" width="100%"><tr><td style="padding:20px;font-family:Arial,Helvetica,sans-serif;color:#1f2937">'
-            f'<h2 style="color:#205790;margin:0 0 6px">Monthly team plans report – {e(d.get("today") or "")}</h2>'
+            f'<h2 style="color:#673E8D;margin:0 0 6px">Monthly team plans report – {e(d.get("today") or "")}</h2>'
             f'<p style="font-size:14px">Hi {e(first)}, here is this month\'s participant plans snapshot for the team meeting.</p>'
             f'<p style="font-size:14px"><b>{t.get("overdue", 0)}</b> reviews overdue · <b>{t.get("forms", 0)}</b> participants with forms to action · '
             f'<b>{t.get("due_30", 0)}</b> reviews due in 30 days · <b>{t.get("ending_30", 0)}</b> plans ending in 30 days · '
@@ -613,17 +613,19 @@ def build_overview_pdf(d: dict) -> bytes:
         html += parts or "<p style='font-size:9px'>All up to date.</p>"
     if not d["pages"]:
         html += "<p style='font-size:10px'>No plan data uploaded yet.</p>"
+    from pdf_brand import FIRST_TOP, add_logo
     buf = io.BytesIO()
     writer = pymupdf.DocumentWriter(buf)
     story = pymupdf.Story(html=html)
-    page, more = pymupdf.paper_rect("a4"), True
+    page, more, top = pymupdf.paper_rect("a4"), True, FIRST_TOP
     while more:  # flow onto as many pages as needed
         dev = writer.begin_page(page)
-        more, _ = story.place(page + (36, 36, -36, -36))
+        more, _ = story.place(page + (36, top, -36, -36))
         story.draw(dev)
         writer.end_page()
+        top = 36
     writer.close()
-    return buf.getvalue()
+    return add_logo(buf.getvalue())
 
 
 async def overview_data() -> dict:

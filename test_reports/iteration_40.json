@@ -1,0 +1,30 @@
+{
+  "summary": "No Limitts rebrand tested. Backend: 10/10 pytest pass. Team overview PDF (2 pages) and staff profile PDF (1 page) are valid, the logo is on page 1 only (top-left, y<=112pt) and no text overlaps it (rendered and checked by eye). Auth checks: 401/403 for no token or employee, 404 for an unknown user. Frontend (375x667): login-brand-logo shows; home-welcome-card shows the greeting, first name (Alex! for admin, Erin! for employee), date, 4 coloured dots and the tree image. All 4 Nunito weights load (document.fonts all 'loaded'). Swept 21 screens (Chat, Certificates, Socials, Library, Tasks, Events, Policies, Team, Notifications, Ask AI, Upload certificate, staff profile, plans-overview, new-chat, updates, cpd, forms, places, leaderboard, pathway, compliance): no crashes or page errors, and every text node uses Nunito (no fallback font found). Typing works in assistant-input, new-chat-search-input (filtering works), chat-message-input and compose-title-input (task). No react-native Text/TextInput imports are left outside the wrapper. No deprecated Expo packages were checked/found in the changed files.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Home welcome card", "issues": ["assets/images/brand-mark.png (tree crop of the logo) still has fragments of the purple 'N' and the orange peace-sign letters at its bottom edge. They show as small marks under the tree trunk in the welcome card. Re-crop the image a few px higher or mask the bottom."]},
+      {"screen": "Home / Company updates", "issues": ["The seeded DB data still says 'StaffHub' (pinned update 'Welcome to StaffHub' with author 'StaffHub'). Not in code, only in the DB, so it needs a data update for a full rebrand. /app/memory/test_credentials.md title also says StaffHub."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter40_brand_pdfs.py", "/app/test_reports/pytest/pytest_iter40.xml"],
+  "action_items": [
+    "Optional: re-crop brand-mark.png so the letter fragments at the bottom are removed",
+    "Optional: update the seeded 'Welcome to StaffHub' update/author in the DB to No Limitts"
+  ],
+  "critical_code_review_comments": [
+    "text.tsx brandFont: sets fontWeight 'normal' and maps weight to a font file. Fine. Italic styles have no italic Nunito file, so italic is synthesised on web and may not show on native. Minor.",
+    "_layout.tsx returns null until fonts load. If loading fails (fontError), the app still renders with the fallback font. OK.",
+    "pdf_brand.add_logo re-opens and re-serialises the PDF on every request. Acceptable for these sizes."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter40_brand_pdfs.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Erin Employee (user_testemp001) is not returned by /api/users, so new-chat search for 'Erin' is empty by design. Use 'Saraya' to test search. PDF text extraction turns ff/fi into ligatures (ﬀ, ﬁ), so assert on names, not on 'Staff profile'.",
+  "rca_of_issue": ""
+}

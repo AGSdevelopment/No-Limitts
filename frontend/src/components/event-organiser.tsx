@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, View } from "react-native";
+import { Text } from "@/src/components/text";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/src/api";

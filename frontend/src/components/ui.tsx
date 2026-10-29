@@ -1,16 +1,6 @@
 import React from "react";
-import {
-  ActivityIndicator,
-  Modal,
-  Pressable,
-  PressableProps,
-  StyleProp,
-  Text,
-  TextInput,
-  TextInputProps,
-  View,
-  ViewStyle,
-} from "react-native";
+import { ActivityIndicator, Modal, Pressable, PressableProps, StyleProp, TextInputProps, View, ViewStyle } from "react-native";
+import { Text, TextInput } from "@/src/components/text";
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
