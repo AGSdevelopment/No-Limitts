@@ -1,7 +1,8 @@
 """Company updates."""
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from core import P, admin_user, all_user_ids, current_user, db, new_id, notify, now_iso
+from core import P, admin_user, all_user_ids, current_user, db, new_id, notify, now_iso, spawn
+from routes.teams import announce
 
 router = APIRouter(prefix="/api")
 
@@ -26,6 +27,8 @@ async def create_update(body: UpdateIn, admin=Depends(admin_user)):
            "created_at": now_iso()}
     await db.updates.insert_one(dict(doc))
     await notify(await all_user_ids(admin["user_id"]), "update", "Company update", doc["title"], "/updates")
+    if not admin.get("hidden"):
+        spawn(announce("updates", f"📣 **Company update: {doc['title']}**\n\n{doc['body'][:3000]}\n\n— {admin['name']}, via No Limitts"))
     return doc
 
 

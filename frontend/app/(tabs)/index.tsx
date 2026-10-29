@@ -27,8 +27,7 @@ export default function Home() {
   const styles = useStyles();
   const { colors } = useTheme();
   const q = useQuery({ queryKey: ["dashboard"], queryFn: () => api("/dashboard"), refetchInterval: 30000 });
-  const isStarter = !!user?.staff_group?.startsWith("new_starter");
-  const starter = useQuery<any>({ queryKey: ["starter-checklist"], queryFn: () => api("/starter-checklist"), enabled: isStarter });
+  const starter = useQuery<any>({ queryKey: ["starter-checklist"], queryFn: () => api("/starter-checklist"), enabled: !!q.data?.is_new_starter });
   const isEmerging = user?.staff_group === "emerging_therapist";
   const newStuff = useQuery<any[]>({ queryKey: ["directory-highlights"], queryFn: () => api("/directory/highlights") });
   const reviews = useQuery<any[]>({ queryKey: ["directory-latest-reviews"], queryFn: () => api("/directory/reviews/latest") });
@@ -113,11 +112,11 @@ export default function Home() {
             ))}
           </ScrollView>
 
-          {isStarter && starter.data && starter.data.done < starter.data.total && (
+          {!!q.data?.is_new_starter && starter.data && starter.data.done < starter.data.total && (
             <Pressable testID="home-starter-card" onPress={() => router.push("/starter-checklist")} style={({ pressed }) => [styles.starter, pressed && { opacity: 0.85 }]}>
               <Ionicons name="list" size={24} color={colors.onBrandPrimary} />
               <View style={{ flex: 1, gap: 6 }}>
-                <Text style={styles.starterTitle}>Your New Starter checklist</Text>
+                <Text style={styles.starterTitle}>Your first-week checklist</Text>
                 <View style={styles.starterBar}>
                   <View style={[styles.starterFill, { width: `${Math.round((starter.data.done / starter.data.total) * 100)}%` }]} />
                 </View>
@@ -188,7 +187,7 @@ export default function Home() {
                 <View style={{ flex: 1, gap: 4 }}>
                   <View style={styles.socialHead}>
                     <Ionicons name={SOCIAL_BRAND[d.latest_social.source]?.icon ?? "megaphone"} size={14} color={SOCIAL_BRAND[d.latest_social.source]?.color} />
-                    <Text style={styles.rowSub}>{SOCIAL_BRAND[d.latest_social.source] ? d.latest_social.author_name.replace("Aspire & Grow on ", "") : ""} · {timeAgo(d.latest_social.created_at)}</Text>
+                    <Text style={styles.rowSub}>{SOCIAL_BRAND[d.latest_social.source] ? d.latest_social.author_name.replace(/^(Aspire & Grow|No Limitts) on /, "") : ""} · {timeAgo(d.latest_social.created_at)}</Text>
                   </View>
                   <Text style={styles.socialText} numberOfLines={3}>{d.latest_social.body || d.latest_social.title}</Text>
                 </View>

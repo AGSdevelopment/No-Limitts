@@ -29,6 +29,26 @@ export default function Integrations() {
   const [folderLink, setFolderLink] = useState("");
   const [editingSpace, setEditingSpace] = useState<string | null>(null);
   const [digestBusy, setDigestBusy] = useState(false);
+  const ann = useQuery<any>({ queryKey: ["teams-announcements"], queryFn: () => api("/integrations/teams-announcements"), enabled: user?.role === "admin" });
+  const [annHook, setAnnHook] = useState("");
+  const saveAnn = async (patch: Record<string, any>) => {
+    setBusy(true);
+    try {
+      const r = await api("/integrations/teams-announcements", { method: "PUT", body: { updates: ann.data?.updates ?? true, events: ann.data?.events ?? true, ...patch } });
+      setAnnHook("");
+      ann.refetch();
+      if (patch.webhook_url) toast(r.test_delivered ? "Linked — test message sent to Teams" : "Linked, but the test message failed", r.test_delivered ? "success" : "error");
+    } catch (e: any) {
+      toast(e.message, "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const removeAnn = async () => {
+    await api("/integrations/teams-announcements", { method: "DELETE" }).catch(() => {});
+    ann.refetch();
+    toast("Announcements channel unlinked", "info");
+  };
   const hasDriveFolder = Object.values(drive.data?.spaces ?? {}).some((s: any) => !!s.folder_id);
   const soc = useQuery<any>({ queryKey: ["socials"], queryFn: () => api("/socials") });
   const connectSocial = async (kind: string) => {
@@ -237,6 +257,35 @@ export default function Integrations() {
         <Text style={styles.note}>
           In Teams: open the channel → ••• → Workflows → “Post to a channel when a webhook request is received” → copy the link and paste it below.
         </Text>
+        <View style={styles.twoWayBox} testID="teams-announcements">
+          <Text style={styles.twoWayTitle}>Announcements channel {ann.data?.linked ? "· Linked" : ""}</Text>
+          <Text style={styles.note}>New company updates and events are posted here automatically.</Text>
+          <TextInput
+            testID="teams-announcements-input"
+            value={annHook}
+            onChangeText={setAnnHook}
+            placeholder={ann.data?.linked ? "Paste a new link to change channel" : "https://….logic.azure.com/…"}
+            placeholderTextColor={colors.muted}
+            autoCapitalize="none"
+            autoCorrect={false}
+            style={[styles.input, { backgroundColor: colors.surface }]}
+          />
+          {ann.data?.linked && (
+            <View style={{ gap: 8 }}>
+              {(["updates", "events"] as const).map((k) => (
+                <Pressable key={k} onPress={() => saveAnn({ [k]: !ann.data[k] })} style={styles.channelRow} testID={`teams-announcements-toggle-${k}`}>
+                  <Ionicons name={ann.data[k] ? "checkbox" : "square-outline"} size={22} color={colors.brandPrimary} />
+                  <Text style={styles.channelName}>{k === "updates" ? "Company updates" : "New events"}</Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            {ann.data?.linked && <Button label="Unlink" variant="ghost" onPress={removeAnn} style={{ flex: 1 }} testID="teams-announcements-unlink" />}
+            <Button label="Save" loading={busy} disabled={!annHook.trim()} onPress={() => saveAnn({ webhook_url: annHook })} style={{ flex: 1 }} testID="teams-announcements-save" />
+          </View>
+        </View>
+        <Text style={styles.twoWayTitle}>Copy chat channels to Teams</Text>
         {channels.map((c) => (
           <View key={c.conversation_id} style={styles.channel} testID={`teams-channel-${c.name}`}>
             <View style={styles.channelRow}>

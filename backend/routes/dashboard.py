@@ -5,6 +5,7 @@ from fastapi.responses import FileResponse
 from core import P, current_user, db
 from pdf_brand import LOGO
 from routes.celebrations import celebrations
+from routes.compliance import is_new_starter
 from routes.certificates import with_status
 from routes.events import event_fields, photo_highlights, visible_events
 
@@ -31,7 +32,7 @@ async def dashboard(user=Depends(current_user)):
             "photo_highlights": await photo_highlights(user),
             "open_task_count": len(tasks), "updates": updates, "unread_notifications": unread,
             "pending_policies": pending_policies, "latest_social": latest_social,
-            "celebrations": await celebrations(user)}
+            "celebrations": await celebrations(user), "is_new_starter": is_new_starter(user)}
 
 
 @router.get("/brand/logo.png")

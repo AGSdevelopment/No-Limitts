@@ -12,7 +12,7 @@ from core import DIGEST_TZ, P, admin_user, bearer, db, dmy, logger, notify, user
 from email_service import send_email
 from pdf_brand import FIRST_TOP, add_logo
 from routes.certificates import missing_required, requirements, with_status
-from routes.compliance import NEW_STARTER_GROUPS, STAFF_GROUP_LABELS, starter_checklist
+from routes.compliance import STAFF_GROUP_LABELS, is_new_starter, starter_checklist
 from routes.cpd import cpd_year_start
 from routes.tasks import TaskIn, create_task
 
@@ -37,7 +37,7 @@ async def profile_data(user_id: str) -> dict:
                                            "version": 1}).sort("title", 1).to_list(1000)
     checkins = await db.events.find({"checkin_for": user_id}, {"_id": 0, "attendees": 0}).sort("date", -1).to_list(100)
     starter = None
-    if u.get("staff_group") in NEW_STARTER_GROUPS:
+    if is_new_starter(u):
         items = await starter_checklist(u)
         starter = {"done": sum(i["done"] for i in items), "total": len(items)}
     return {
@@ -241,7 +241,7 @@ def build_profile_pdf(d: dict) -> bytes:
             f"{'Admin' if u.get('role') == 'admin' else 'Employee'}"
             f"{' · ' + escape(d.get('group_label') or '') if d.get('group_label') else ''}"
             f"{'<br/>' + ' · '.join(meta) if meta else ''}<br/>"
-            f"Generated {dmy(date.today().isoformat())} by No Limitts (Aspire &amp; Grow)</p>"
+            f"Generated {dmy(date.today().isoformat())} by No Limitts</p>"
             f"<p style='font-size:9.5px'><b>Summary:</b> {len(d['certificates'])} certificates · "
             f"{d['cpd']['year_hours']} CPD hours in {d['cpd']['year']} · {len(acked)}/{len(d['policies'])} policies "
             f"acknowledged · {d['open_tasks']} open tasks</p>"

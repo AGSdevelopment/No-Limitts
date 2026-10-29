@@ -1,10 +1,14 @@
 """Staff directory and user types (Executive, Admin, Support Office, Support Worker)."""
+import os
 import re
+from html import escape
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
-from core import P, USER_P, USER_TYPES, admin_user, current_user, db, new_id, now_iso, type_fields
+from core import P, USER_P, USER_TYPES, admin_user, current_user, db, new_id, now_iso, spawn, type_fields
+from email_service import send_email
 from routes.auth import hash_password, temp_password
+from routes.compliance import send_starter_welcome
 
 router = APIRouter(prefix="/api")
 
@@ -49,7 +53,38 @@ async def add_user(body: NewUserIn, admin=Depends(admin_user)):
     await db.users.insert_one({"user_id": uid, "email": email, "name": name, "picture": None,
                                "job_title": body.job_title.strip(), "created_at": now_iso(), **type_fields(body.user_type)})
     pw = await issue_password(uid) if body.user_type == "support_worker" else None
-    return {"user": await db.users.find_one({"user_id": uid}, USER_P), "temporary_password": pw}
+    user = await db.users.find_one({"user_id": uid}, USER_P)
+    spawn(send_welcome(user, pw))
+    if body.user_type == "support_worker":
+        spawn(send_starter_welcome(uid))
+    return {"user": user, "temporary_password": pw}
+
+
+async def send_welcome(u: dict, temp_pw: Optional[str]):
+    """Branded welcome email with how to sign in (Support Workers also get their temporary password)."""
+    if not u.get("email") or u["email"].endswith("@example.com"):
+        return
+    app_url = (os.environ.get("PUBLIC_BACKEND_URL") or "").rstrip("/")
+    first = escape(u["name"].split(" ")[0])
+    if temp_pw:
+        how = ("<p><b>How to sign in</b></p><ol>"
+               f"<li>Open the No Limitts app{f' (or <a href={chr(39)}{app_url}{chr(39)}>open it in your browser</a>)' if app_url.startswith('https://') else ''}.</li>"
+               "<li>Under <b>Support Workers</b>, enter:<br>"
+               f"Email: <b>{escape(u['email'])}</b><br>Temporary password: <b style='font-size:17px'>{escape(temp_pw)}</b></li>"
+               "<li>Choose your own password when asked.</li></ol>"
+               "<p>Your <b>first-week checklist</b> will be waiting on the Home screen to help you get set up.</p>")
+    else:
+        how = ("<p><b>How to sign in</b></p><ol>"
+               f"<li>Open the No Limitts app{f' (or <a href={chr(39)}{app_url}{chr(39)}>open it in your browser</a>)' if app_url.startswith('https://') else ''}.</li>"
+               "<li>Tap <b>Sign in with Microsoft</b> and use your work account "
+               f"(<b>{escape(u['email'])}</b>).</li></ol>")
+    await send_email(to=u["email"], subject="Welcome to No Limitts! Here's how to sign in", html=(
+        "<div style='font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px;color:#11181C'>"
+        f"<h2 style='color:#673E8D'>Welcome to No Limitts, {first}!</h2>"
+        f"<p>You've been added to the No Limitts staff app as <b>{USER_TYPES.get(u.get('user_type'), '')}</b>. "
+        "It's where you'll find team chat, policies, training certificates, events and company updates.</p>"
+        f"{how}<p>Any questions? Just reply to your admin or message the team in the app.</p>"
+        "<p style='color:#EB3F7F;font-weight:bold'>Where possibilities are limitless 💜</p></div>"))
 
 
 class TypeIn(BaseModel):

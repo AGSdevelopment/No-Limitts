@@ -9,8 +9,9 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 from typing import List, Optional
 from core import (DIGEST_TZ, MAX_UPLOAD_BYTES, P, all_user_ids, bearer, current_user, db, dmy, logger, new_id, notify,
-                  now_iso, user_from_token)
+                  now_iso, spawn, user_from_token)
 from email_service import send_email
+from routes.teams import announce
 from storage import APP_NAME, get_object, put_object
 
 router = APIRouter(prefix="/api")
@@ -197,6 +198,11 @@ async def create_event(body: EventIn, user=Depends(current_user)):
     extra = f" (and {count - 1} more, repeating {body.repeat})" if count > 1 else ""
     await notify(await all_user_ids(user["user_id"]), "event", f"New event from {user['name'].split(' ')[0]}",
                  f"{docs[0]['title']} on {dmy(docs[0]['date'])}{extra}. Tap to RSVP.", f"/event/{docs[0]['event_id']}")
+    if not user.get("hidden"):
+        d0 = docs[0]
+        spawn(announce("events", f"📅 **New event: {d0['title']}**\n\n{dmy(d0['date'])}{' · ' + d0['time'] if d0['time'] else ''}"
+                                 f"{' · ' + d0['location'] if d0['location'] else ''}{extra}\n\n{d0['description'][:1500]}\n\n"
+                                 f"RSVP in the No Limitts app. Posted by {user['name']}."))
     return {**shape(docs[0], user), "created": count}
 
 
@@ -405,7 +411,7 @@ async def event_ics(event_id: str, request: Request, token: Optional[str] = None
         when = f"DTSTART;VALUE=DATE:{day.strftime('%Y%m%d')}\r\nDTEND;VALUE=DATE:{(day + timedelta(days=1)).strftime('%Y%m%d')}"
     desc = "\n".join(x for x in (ev.get("description"), ev.get("catering") and f"Food & drink: {ev['catering']}",
                                  ev.get("conditions")) if x)
-    body = ("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//No Limitts//Aspire & Grow//EN\r\nBEGIN:VEVENT\r\n"
+    body = ("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//No Limitts//Staff App//EN\r\nBEGIN:VEVENT\r\n"
             f"UID:{ev['event_id']}@staffhub\r\nDTSTAMP:{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}\r\n"
             f"{when}\r\nSUMMARY:{ics_escape(ev['title'])}\r\nLOCATION:{ics_escape(ev.get('location', ''))}\r\n"
             f"DESCRIPTION:{ics_escape(desc)}\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n")

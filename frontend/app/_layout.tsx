@@ -62,7 +62,7 @@ function RootStack() {
         <Stack.Screen name="drive" options={{ ...header, title: "Company Drive" }} />
         <Stack.Screen name="cpd" options={{ ...header, title: "CPD" }} />
         <Stack.Screen name="compliance" options={{ ...header, title: "Compliance" }} />
-        <Stack.Screen name="starter-checklist" options={{ ...header, title: "New Starter checklist" }} />
+        <Stack.Screen name="starter-checklist" options={{ ...header, title: "First-week checklist" }} />
         <Stack.Screen name="starter/[id]" options={{ ...header, title: "Starter progress" }} />
         <Stack.Screen name="cert-requirements" options={{ ...header, title: "Required certificates" }} />
         <Stack.Screen name="staff/[id]" options={{ ...header, title: "Staff profile" }} />

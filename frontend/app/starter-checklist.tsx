@@ -53,7 +53,7 @@ export default function StarterChecklist() {
         refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => q.refetch()} tintColor={colors.brandPrimary} />}
         ListHeaderComponent={
           <View style={styles.hero} testID="starter-progress">
-            <Text style={styles.heroTitle}>{done === total ? "You're all set! 🎉" : "Welcome to Aspire & Grow"}</Text>
+            <Text style={styles.heroTitle}>{done === total ? "You're all set! 🎉" : "Welcome to No Limitts"}</Text>
             <Text style={styles.heroSub}>{done} of {total} steps complete</Text>
             <View style={styles.bar}>
               <View style={[styles.barFill, { width: `${Math.round(pct * 100)}%` }]} />
@@ -81,7 +81,7 @@ export default function StarterChecklist() {
               {!!item.description && <Text style={styles.sub} numberOfLines={2}>{item.description}</Text>}
               <Text style={styles.hint}>
                 {item.type === "form"
-                  ? !canTick ? "Only New Starter staff can tick this step" : item.done ? "Submitted · tap the circle to undo" : "Open the form, then tap the circle when submitted"
+                  ? !canTick ? "Only new Support Workers can tick this step" : item.done ? "Submitted · tap the circle to undo" : "Open the form, then tap the circle when submitted"
                   : item.type === "policies"
                     ? `${item.progress[0]} of ${item.progress[1]} acknowledged · ticks itself off`
                     : item.done ? `${item.progress[0]} uploaded` : "Ticks itself off when you upload one"}

@@ -26,7 +26,7 @@ export default function Library() {
   const isAdmin = user?.role === "admin";
 
   const resources: Row[] = [
-    ...(user?.staff_group?.startsWith("new_starter") ? [{ icon: "list-outline", label: "New Starter checklist", to: "/starter-checklist", id: "starter" } as Row] : []),
+    ...(dash.data?.is_new_starter ? [{ icon: "list-outline", label: "First-week checklist", to: "/starter-checklist", id: "starter" } as Row] : []),
     { icon: "notifications-outline", label: "Notifications", to: "/notifications", id: "notifications", count: dash.data?.unread_notifications },
     ...(user?.user_type === "support_worker" ? [{ icon: "key-outline", label: "Change password", to: "/change-password", id: "change-password" } as Row] : []),
     { icon: "megaphone-outline", label: "Company updates", to: "/updates", id: "updates" },

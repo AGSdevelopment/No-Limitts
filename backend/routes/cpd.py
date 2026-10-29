@@ -76,7 +76,7 @@ def build_cpd_report(user: dict, year: int, logs: list, evidence: dict) -> bytes
     html = (f"<h2 style='color:#673E8D'>CPD Report {year}</h2>"
             f"<p><b>{escape(user['name'])}</b><br/>{escape(user.get('email', ''))}</p>"
             f"<p>Total CPD hours: <b>{total}</b> across {len(logs)} activit{'y' if len(logs) == 1 else 'ies'}.<br/>"
-            f"Generated {dmy(date.today().isoformat())} by No Limitts (Aspire &amp; Grow).</p>"
+            f"Generated {dmy(date.today().isoformat())} by No Limitts.</p>"
             "<table style='width:100%;border-collapse:collapse;font-size:10px' border='1' cellpadding='4'>"
             "<tr style='background:#EFE8F5'><th>Date</th><th>Activity</th><th>Type</th><th>Hours</th><th>Evidence</th></tr>"
             f"{rows or '<tr><td colspan=5>No CPD logged this year.</td></tr>'}</table>")

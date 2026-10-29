@@ -1,4 +1,5 @@
 import { useState } from "react";
+import * as Clipboard from "expo-clipboard";
 import { FlatList, Modal, Pressable, View } from "react-native";
 import { Text } from "@/src/components/text";
 import { Stack, useRouter } from "expo-router";
@@ -33,6 +34,21 @@ export default function Team() {
   const [busy, setBusy] = useState(false);
   const [issued, setIssued] = useState<{ name: string; email: string; password: string } | null>(null);
   const [confirm, setConfirm] = useState<{ kind: "reset" | "remove"; u: any } | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const copyLogin = async () => {
+    if (!issued) return;
+    try {
+      await Clipboard.setStringAsync(
+        `Hi ${issued.name.split(" ")[0]}, here's your No Limitts app login:\nEmail: ${issued.email}\nTemporary password: ${issued.password}\n` +
+        `Open the No Limitts app, sign in under "Support Workers", then choose your own password.`
+      );
+      setCopied(true);
+      toast("Login details copied", "success");
+    } catch {
+      toast("Couldn't copy. Press and hold the password to copy it instead.", "error");
+    }
+  };
 
   const refresh = () => qc.invalidateQueries({ queryKey: ["users"] });
   const canManage = (u: any) => isAdmin && u.user_id !== user?.user_id && (isExec || u.user_type !== "executive");
@@ -198,7 +214,8 @@ export default function Team() {
               <Text style={styles.credLabel}>Temporary password</Text>
               <Text selectable style={[styles.credValue, { fontSize: 20 }]} testID="team-temp-password-value">{issued?.password}</Text>
             </View>
-            <Button label="Done" onPress={() => setIssued(null)} testID="team-temp-password-done" />
+            <Button label={copied ? "Copied!" : "Copy login details"} icon={copied ? "checkmark" : "copy-outline"} variant="secondary" onPress={copyLogin} testID="team-temp-password-copy" />
+            <Button label="Done" onPress={() => { setIssued(null); setCopied(false); }} testID="team-temp-password-done" />
           </View>
         </View>
       </Modal>

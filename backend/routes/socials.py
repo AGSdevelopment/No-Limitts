@@ -124,7 +124,7 @@ async def import_social_posts(posts: list, notify_new: bool) -> int:
         text = (p.get("text") or "").strip()
         title = text.split("\n")[0][:90] if text else f"New {label} post"
         doc = {"update_id": new_id("upd"), "title": title, "body": text, "pinned": False,
-               "author_id": "social", "author_name": f"Aspire & Grow on {label}", "source": p["source"],
+               "author_id": "social", "author_name": f"No Limitts on {label}", "source": p["source"],
                "external_id": p["external_id"], "link": p.get("link"), "image_url": p.get("image_url"),
                "created_at": p.get("published_at") or now_iso()}
         await db.updates.insert_one(dict(doc))

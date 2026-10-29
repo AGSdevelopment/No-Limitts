@@ -71,7 +71,18 @@ async def compliance_export(request: Request, token: Optional[str] = None):
 STAFF_GROUP_LABELS = {"support_office": "Support Office", "support_worker": "Support Worker"}
 
 
-NEW_STARTER_GROUPS = ("new_starter_employee", "new_starter_contractor")
+STARTER_DAYS = 30
+
+
+def is_new_starter(u: dict) -> bool:
+    """Support Workers in their first 30 days (from start date, or from when they were added)."""
+    if not u or u.get("user_type") != "support_worker":
+        return False
+    try:
+        start = date.fromisoformat((u.get("start_date") or u.get("created_at") or "")[:10])
+    except ValueError:
+        return False
+    return start >= datetime.now(DIGEST_TZ).date() - timedelta(days=STARTER_DAYS)
 
 
 async def starter_checklist(user: dict) -> list:
@@ -99,13 +110,13 @@ async def starter_checklist(user: dict) -> list:
 async def get_starter_checklist(user=Depends(current_user)):
     items = await starter_checklist(user)
     return {"items": items, "done": sum(i["done"] for i in items), "total": len(items),
-            "is_new_starter": user.get("staff_group") in NEW_STARTER_GROUPS}
+            "is_new_starter": is_new_starter(user)}
 
 
 @router.post("/starter-checklist/{item_key}")
 async def toggle_starter_item(item_key: str, user=Depends(current_user)):
-    if user.get("staff_group") not in NEW_STARTER_GROUPS:
-        raise HTTPException(403, "Only New Starter staff can tick checklist steps")
+    if not is_new_starter(user):
+        raise HTTPException(403, "Only new Support Workers can tick checklist steps")
     if not item_key.startswith("form:"):
         raise HTTPException(400, "This item completes automatically")
     if not await db.forms.find_one({"form_id": item_key[5:], "category": "New Starter", **forms_query(user)}):
@@ -123,7 +134,7 @@ async def check_starter_complete(user: dict):
     """Tell every admin (in-app + email) the first time a new starter has finished every checklist step."""
     try:
         user = await db.users.find_one({"user_id": user["user_id"]}, P)
-        if not user or user.get("staff_group") not in NEW_STARTER_GROUPS or user.get("starter_completed_at"):
+        if not is_new_starter(user) or user.get("starter_completed_at"):
             return
         items = await starter_checklist(user)
         if not items or not all(i["done"] for i in items):
@@ -151,7 +162,7 @@ async def check_starter_complete(user: dict):
 async def compliance_data():
     """Per-staff policy acknowledgement, certificate status and CPD hours (this year)."""
     users = await db.users.find({"hidden": {"$ne": True}}, {"_id": 0, "user_id": 1, "name": 1, "picture": 1, "email": 1,
-                                                            "staff_group": 1, "role": 1}).sort("name", 1).to_list(2000)
+                                                            "staff_group": 1, "role": 1, "user_type": 1, "start_date": 1, "created_at": 1}).sort("name", 1).to_list(2000)
     reqs = await requirements()
     policies = await db.policies.find({}, {"_id": 0, "policy_id": 1, "title": 1, "acknowledged_by": 1}).to_list(1000)
     certs = await db.certificates.find({"is_deleted": {"$ne": True}}, {"_id": 0, "owner_id": 1, "title": 1,
@@ -174,7 +185,7 @@ async def compliance_data():
                      "no_certs": not mine, "missing_required": missing_required(mine, reqs.get(u.get("staff_group") or "", [])),
                      "needs_attention": False})
         rows[-1]["needs_attention"] = bool(pending or expired or expiring or not mine or rows[-1]["missing_required"])
-        if u.get("staff_group") in NEW_STARTER_GROUPS:
+        if is_new_starter(u):
             items = await starter_checklist(u)
             rows[-1]["starter"] = {"done": sum(i["done"] for i in items), "total": len(items)}
     n = len(rows) or 1
@@ -390,11 +401,11 @@ async def create_followup(ev: dict, admin: dict) -> Optional[str]:
     return gid
 
 
-# ---- Welcome email when someone is made a New Starter
+# ---- In-app welcome + probation for a new Support Worker (the welcome email is sent from routes/users.py)
 async def send_starter_welcome(user_id: str):
     try:
         u = await db.users.find_one({"user_id": user_id}, P)
-        if not u or u.get("staff_group") not in NEW_STARTER_GROUPS:
+        if not is_new_starter(u):
             return
         from routes.profile import default_probation  # local import: profile imports this module
         await default_probation(user_id)
@@ -403,19 +414,7 @@ async def send_starter_welcome(user_id: str):
         if not claim.modified_count:
             return
         items = await starter_checklist(u)
-        await notify([user_id], "starter", "Welcome to the team!",
-                     f"Your New Starter checklist has {len(items)} steps to get you set up.", "/starter-checklist")
-        if u.get("hidden") or not u.get("email") or u["email"].endswith("@example.com"):
-            return
-        steps = "".join(f"<li>{escape(i['title'])}</li>" for i in items)
-        await send_email(to=u["email"], subject="Welcome to Aspire & Grow! Your New Starter checklist", html=(
-            "<div style='font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px'>"
-            f"<h2 style='color:#673E8D'>Welcome aboard, {escape(u['name'].split(' ')[0])}!</h2>"
-            "<p>We're so glad you're joining us. To help you settle in, we've put together a short checklist "
-            "in No Limitts:</p>"
-            f"<ol>{steps}</ol>"
-            "<p>Open the No Limitts app and tap <b>New Starter checklist</b> on the Home screen to get started. "
-            "Forms tick off as you go, and policies and certificates update automatically.</p>"
-            "<p>If you have any questions, message the team in No Limitts chat. We're here to help!</p></div>"))
+        await notify([user_id], "starter", "Welcome to No Limitts!",
+                     f"Your first-week checklist has {len(items)} steps to get you set up.", "/starter-checklist")
     except Exception as e:
         logger.error(f"Starter welcome failed: {e}")

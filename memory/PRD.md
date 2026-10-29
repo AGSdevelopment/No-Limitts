@@ -188,3 +188,7 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - USER TYPES: user_type executive|admin|support_office|support_worker (role/executive/staff_group derived via core.type_fields). Team screen: add staff, change type, reset password, remove. Old Aspire staff deleted; old groups folded into support_worker.
 - Microsoft 365 replaces all Google: SharePoint folders (ms_services.py, app-only Graph) for Company Drive/AI index/cert copies/policy attachments; Outlook invites for check-ins (routes/calendar.py); Teams Workflows webhooks per channel (routes/teams.py). Google Chat two-way sync removed.
 - Socials: No Limitts Instagram/Facebook, LinkedIn removed; "Our websites" (Core, Charters, Support Coordination) on Socials tab.
+- Team: 'Copy login details' button on temp-password dialog (expo-clipboard)
+- Welcome email on add staff (users.send_welcome): Microsoft steps for office, email+temp password for Support Workers
+- First-week checklist: Support Workers within 30 days of start_date/created_at (compliance.is_new_starter); dashboard.is_new_starter drives Home/Library
+- Teams announcements channel (integrations key teams_announcements): new company updates + events auto-posted (routes/teams.announce)

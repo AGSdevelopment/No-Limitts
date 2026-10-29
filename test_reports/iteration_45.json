@@ -1,0 +1,36 @@
+{
+  "summary": "Tested 4 features on backend and frontend: the copy-login button, the welcome email, Support Worker first-week onboarding and the Teams announcements channel. Backend: all 16 new pytest checks pass. They cover: a new Support Worker gets a temporary password, logs in, changes password, then is_new_starter is true and checklist ticks work. Office users and workers with an old start date are not new starters and get 403. The in-app 'Welcome to No Limitts!' notification is created. The send_welcome HTML passes the real email safety checks when send_email is mocked, for both office and Support Worker emails, and @example.com is skipped. Teams announcements endpoints: 403 for non-admins, 400 for bad URLs, 400 for a toggle-only PUT when not linked, link (webhook stored encrypted), toggles persist, DELETE works. announce() is called on update and event creation for non-hidden users only, and it respects the toggles and never raises. Frontend: all requested flows pass. The copy button switches to 'Copied!' and the clipboard text is correct. The Announcements channel box handles invalid-URL toast, link, toggle and unlink. A new-starter worker sees the Home card and the Library row; admins see neither. The login screen renders. One UI text bug: the first-week checklist hero still says 'Welcome to Aspire & Grow'. No deprecated Expo packages found.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "data: forms 'Worker Screening & Set Up' (form_7528aa4b52ec, category New Starter)", "issue": "Audience is ['support_office'] only, so Support Workers (the only new starters now) never see it in their checklist. POST /starter-checklist/form:form_7528aa4b52ec returns 404 'Form not found' for a worker. Check this is intended."},
+      {"endpoint": "routes/compliance.py is_new_starter", "issue": "Uses date.today() (server UTC) instead of DIGEST_TZ (Australia). The 30-day boundary can be off by one day. Low impact."},
+      {"endpoint": "tests/test_iter44_microsoft_auth_users.py", "issue": "5 old tests now fail only because Microsoft is configured: they assert the 'not configured' status and redirects. These tests are out of date; this is not a product bug."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "starter-checklist.tsx hero title", "issue": "Shows 'Welcome to Aspire & Grow' (old brand). Should be 'Welcome to No Limitts'. Reference: /app/frontend/app/starter-checklist.tsx:56", "testID": "starter-checklist-screen", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter45_welcome_starter_announcements.py", "/app/test_reports/pytest/pytest_iter45.xml"],
+  "action_items": [
+    "Change the starter-checklist hero text at /app/frontend/app/starter-checklist.tsx:56 from 'Welcome to Aspire & Grow' to 'Welcome to No Limitts'. Optionally also clean up the old 'Aspire & Grow' strings in socials.py author_name, the cpd.py and profile.py PDF footers, and events.py ICS PRODID.",
+    "Decide whether the 'Worker Screening & Set Up' New Starter form should include the support_worker audience. It is currently office-only.",
+    "Optional: in team.tsx copyLogin, wrap Clipboard.setStringAsync in try/catch so a clipboard failure shows an error toast instead of an unhandled rejection."
+  ],
+  "critical_code_review_comments": [
+    "The Support Worker welcome email puts the temporary password in plain text. This is what was requested, and must_change_password is forced on first login, so the risk is acceptable. Note that reset-password does not re-send an email; the admin copies the details manually.",
+    "announce() decrypts the webhook and sends with retries in a background spawn, and errors are logged. This is good."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter45_welcome_starter_announcements.py"],
+  "success_rate": {"backend": "100% (16/16 new tests)", "frontend": "100% of requested flows (1 text bug)"},
+  "seed_data_creation": "None kept. All TEST users were deleted, the announcements link was removed, and emp.test password is unchanged (TestWorker#2026).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Server date is Oct 2026. emp.test (support_worker, created 2026-10-26, no start_date) is currently a new starter, so the Home card and Library row show for that user. New Starter form available to support workers: form_ec94f72dc6de. The backend hot-reloads when files in tests/ change. Announcements unit tests monkeypatch routes.updates/events (announce, spawn, notify, all_user_ids, db).",
+  "rca_of_issue": ""
+}
