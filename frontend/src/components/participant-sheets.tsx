@@ -1,6 +1,6 @@
 // Caseload sheets: add a participant, assign Support Workers, and pick a case note form to write.
 import { useEffect, useState } from "react";
-import { FlatList, Modal, Pressable, View } from "react-native";
+import { FlatList, Modal, Pressable, ScrollView, View } from "react-native";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useQuery } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -37,6 +37,25 @@ export function ConfirmSheet({ visible, title, sub, confirmLabel, busy, onConfir
     <Sheet visible={visible} onClose={onClose} title={title} sub={sub} testID="confirm-sheet">
       <Button label={confirmLabel} icon="trash-outline" variant="danger" loading={busy} disabled={busy} onPress={onConfirm} testID="confirm-sheet-yes" />
       <Button label="Cancel" variant="ghost" onPress={onClose} testID="confirm-sheet-cancel" />
+    </Sheet>
+  );
+}
+
+export function ImportResultSheet({ result, onClose }: { result: { added: any[]; updated: any[]; skipped: any[] } | null; onClose: () => void }) {
+  const styles = useStyles();
+  const unknown = [...(result?.added ?? []), ...(result?.updated ?? [])].filter((r) => r.unknown?.length);
+  return (
+    <Sheet visible={!!result} onClose={onClose} title="Import finished"
+      sub={`${result?.added.length ?? 0} added · ${result?.updated.length ?? 0} updated · ${result?.skipped.length ?? 0} skipped`} testID="participants-import-result">
+      <ScrollView style={{ maxHeight: 320 }} contentContainerStyle={{ gap: 6 }}>
+        {unknown.map((r) => (
+          <Text key={`u${r.row}`} style={styles.sub}>Row {r.row} ({r.name}): couldn&apos;t find Support Worker {r.unknown.join(", ")}</Text>
+        ))}
+        {(result?.skipped ?? []).map((r) => (
+          <Text key={`s${r.row}`} style={styles.sub}>Row {r.row}: {r.reason}</Text>
+        ))}
+      </ScrollView>
+      <Button label="Done" onPress={onClose} testID="participants-import-done" />
     </Sheet>
   );
 }

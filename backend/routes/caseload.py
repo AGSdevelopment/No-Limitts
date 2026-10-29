@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 from html import escape
 from typing import List, Optional
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from pydantic import BaseModel
@@ -262,6 +262,8 @@ async def caseload(user=Depends(current_user), refresh: Optional[bool] = False):
         out.append({"name": p.get("name") or shown.get(k) or k, "participant_id": p.get("participant_id"), "count": len(v),
                     "last_date": max((n["date"] for n in v), default=""),
                     "assigned": [{"user_id": i, "name": names[i]} for i in p.get("assigned_ids", []) if i in names],
+                    "handover": max((n for n in v if "handover" in (n.get("source") or "").lower()),
+                                    key=lambda n: (n["date"], n["created_at"] or ""), default=None),
                     "notes": sorted(v, key=lambda n: (n["date"], n["created_at"] or ""), reverse=True)[:10]})
     out.sort(key=lambda p: (p["last_date"], p["name"]), reverse=True)
     return {"configured": configured(), "can_manage": can_manage(user), "worker": worker, "participants": out}
@@ -303,6 +305,93 @@ async def assign_participant(participant_id: str, body: AssignIn, user=Depends(m
     if not res.matched_count:
         raise HTTPException(404, "Participant not found")
     return {"assigned_ids": valid}
+
+
+@router.post("/participants/import")
+async def import_participants(file: UploadFile = File(...), user=Depends(manager)):
+    """Bulk add participants and assign Support Workers from an Excel/CSV sheet: 'Participant name' plus an optional
+    'Support Workers' column (emails or full names, separated by commas). Workers are added to existing assignments."""
+    from routes.users import read_rows
+    data = await file.read()
+    if len(data) > 5 * 1024 * 1024:
+        raise HTTPException(413, "File too large (max 5 MB)")
+    try:
+        rows = await run_in_threadpool(read_rows, file.filename or "", data)
+    except Exception:
+        raise HTTPException(400, "Couldn't read that file. Upload an Excel (.xlsx) or CSV file")
+    rows = [r for r in rows if any(str(c or "").strip() for c in r)]
+    if len(rows) < 2:
+        raise HTTPException(400, "The sheet needs a header row and at least one participant")
+    if len(rows) > 1001:
+        raise HTTPException(400, "Import up to 1000 participants at a time")
+    header = [" ".join(str(c or "").lower().split()) for c in rows[0]]
+    pcol = next((i for i, h in enumerate(header) if h in ("participant name", "participant", "client name", "client", "name")), None)
+    wcol = next((i for i, h in enumerate(header) if "worker" in h or h in ("assigned to", "staff")), None)
+    if pcol is None:
+        raise HTTPException(400, "Couldn't find a 'Participant name' column in the first row")
+    workers = await db.users.find({"user_type": "support_worker"}, {"_id": 0, "user_id": 1, "name": 1, "email": 1}).to_list(5000)
+    lookup = {}
+    for w in workers:
+        lookup[participant_key(w["name"])] = w
+        if w.get("email"):
+            lookup[w["email"].lower()] = w
+    added, updated, skipped = [], [], []
+    for n, r in enumerate(rows[1:], start=2):
+        name = display_name(str(r[pcol] if pcol < len(r) else "") or "")
+        if len(name) < 2:
+            skipped.append({"row": n, "name": name, "reason": "Missing participant name"})
+            continue
+        raw = str(r[wcol] if wcol is not None and wcol < len(r) and r[wcol] else "")
+        ids, unknown = [], []
+        for part in re.split(r"[,;\n]+", raw):
+            part = part.strip()
+            if not part:
+                continue
+            w = lookup.get(part.lower()) or lookup.get(participant_key(part))
+            (ids.append(w["user_id"]) if w else unknown.append(part))
+        key = participant_key(name)
+        existing = await db.participants.find_one({"key": key}, {"_id": 0})
+        if existing:
+            new_ids = list(dict.fromkeys(existing.get("assigned_ids", []) + ids))
+            await db.participants.update_one({"key": key}, {"$set": {"assigned_ids": new_ids, "updated_at": now_iso()}})
+            updated.append({"row": n, "name": existing["name"], "assigned": len(new_ids), "unknown": unknown})
+        else:
+            await db.participants.insert_one({"participant_id": f"par_{secrets.token_hex(6)}", "name": name, "key": key,
+                                              "assigned_ids": list(dict.fromkeys(ids)), "created_by": user.get("name") or "",
+                                              "created_at": now_iso()})
+            added.append({"row": n, "name": name, "assigned": len(set(ids)), "unknown": unknown})
+    return {"added": added, "updated": updated, "skipped": skipped}
+
+
+@router.get("/participants/import-template")
+async def participants_template(request: Request, token: Optional[str] = None):
+    user = await user_from_token(bearer(request) or token)
+    if not user or not can_manage(user):
+        raise HTTPException(403, "Only Service & Support Coordinators and Admins")
+    import io
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Participants"
+    ws.append(["Participant name", "Support Workers"])
+    ws.append(["Jane Example", "sam.example@gmail.com, Alex Sample"])
+    ws.append(["Chris Sample", ""])
+    for c in ws[1]:
+        c.font, c.fill = Font(bold=True, color="FFFFFF"), PatternFill("solid", fgColor="673E8D")
+    ws.column_dimensions["A"].width, ws.column_dimensions["B"].width = 28, 60
+    info = wb.create_sheet("How to fill this in")
+    for row in [["Column", "Required?", "What to enter"],
+                ["Participant name", "Yes", "Full name, the same as on case notes"],
+                ["Support Workers", "No", "Support Workers' emails or full names, separated by commas"],
+                [], ["Participants already in the app keep their Support Workers; anyone listed is added."],
+                ["Delete the example rows before importing. Only the first sheet is read."]]:
+        info.append(row)
+    info.column_dimensions["A"].width, info.column_dimensions["C"].width = 18, 80
+    buf = io.BytesIO()
+    wb.save(buf)
+    return Response(content=buf.getvalue(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": 'attachment; filename="No Limitts participants template.xlsx"'})
 
 
 @router.delete("/participants/{participant_id}")

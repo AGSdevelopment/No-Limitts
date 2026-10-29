@@ -5,10 +5,12 @@ import { Text, TextInput } from "@/src/components/text";
 import { useQuery } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { API_URL, api, getApiToken, openLink } from "@/src/api";
+import { API_URL, api, authHeaders, getApiToken, openLink } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { StaffEmailSheet } from "@/src/components/staff-email-sheet";
-import { AddParticipantSheet, AssignSheet, CaseFormsSheet, ConfirmSheet } from "@/src/components/participant-sheets";
+import { AddParticipantSheet, AssignSheet, CaseFormsSheet, ConfirmSheet, ImportResultSheet } from "@/src/components/participant-sheets";
+import * as DocumentPicker from "expo-document-picker";
+import { uploadForm } from "@/src/utils/upload";
 import { useToast } from "@/src/components/toast";
 import { Avatar, Button, EmptyState, ErrorState, Ionicons, Loading, formatDate } from "@/src/components/ui";
 import { makeStyles, useTheme } from "@/src/theme";
@@ -34,6 +36,27 @@ export default function Caseload() {
   const [writing, setWriting] = useState<string | null>(null);
   const [removing, setRemoving] = useState<any>(null);
   const [removeBusy, setRemoveBusy] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [imported, setImported] = useState<{ added: any[]; updated: any[]; skipped: any[] } | null>(null);
+
+  const importSheet = async () => {
+    const pick = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true,
+      type: ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "text/csv", "text/comma-separated-values", "application/vnd.ms-excel"] });
+    const f = pick.canceled ? null : pick.assets?.[0];
+    if (!f) return;
+    setImporting(true);
+    try {
+      const res = await uploadForm(`${API_URL}/participants/import`, { headers: authHeaders(), files: { file: { uri: f.uri, name: f.name, mimeType: f.mimeType ?? undefined } } });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(typeof body.detail === "string" ? body.detail : "Import failed");
+      setImported(body);
+      q.refetch();
+    } catch (e: any) {
+      toast(e.message, "error");
+    } finally {
+      setImporting(false);
+    }
+  };
 
   const remove = async () => {
     if (removeBusy) return;
@@ -98,7 +121,18 @@ export default function Caseload() {
             </Pressable>
           )}
           {q.data.can_manage && (
-            <Button label="Add participant" icon="person-add-outline" variant="secondary" onPress={() => setAdding(true)} testID="caseload-add-participant" />
+            <>
+              <View style={styles.manageRow}>
+                <Button label="Add one" icon="person-add-outline" variant="secondary" onPress={() => setAdding(true)} style={{ flex: 1 }} testID="caseload-add-participant" />
+                <Button label={importing ? "Importing…" : "Import sheet"} icon="cloud-upload-outline" variant="secondary" loading={importing}
+                  onPress={importSheet} style={{ flex: 1 }} testID="caseload-import" />
+              </View>
+              <Pressable onPress={() => openLink(`${API_URL}/participants/import-template?token=${encodeURIComponent(getApiToken() ?? "")}`)}
+                style={styles.templateLink} testID="caseload-import-template">
+                <Ionicons name="download-outline" size={16} color={colors.brandPrimary} />
+                <Text style={styles.templateText}>Download the participant spreadsheet template</Text>
+              </Pressable>
+            </>
           )}
           {worker && <Text style={styles.meta}>Participants you&apos;re assigned to. Tap one to write a case note or read their Support Worker notes.</Text>}
           <TextInput value={search} onChangeText={setSearch} placeholder="Search participants" placeholderTextColor={colors.muted}
@@ -131,6 +165,19 @@ export default function Caseload() {
             </Pressable>
             {expanded && (
               <View style={{ gap: 8 }}>
+                {item.handover && (
+                  <View style={styles.handover} testID={`caseload-handover-${item.name}`}>
+                    <View style={styles.aiHead}>
+                      <Ionicons name="swap-horizontal" size={16} color={colors.brandPrimary} />
+                      <Text style={styles.aiTitle}>Latest shift handover</Text>
+                      <Text style={styles.meta}>{formatDate(item.handover.date)}</Text>
+                    </View>
+                    {!!item.handover.coordinator && <Text style={styles.meta}>From {item.handover.coordinator}</Text>}
+                    {item.handover.fields.filter((f: any) => !/name|email/i.test(f.label)).slice(0, 10).map((f: any, i: number) => (
+                      <Text key={i} style={styles.field}><Text style={styles.fieldLabel}>{f.label}: </Text>{f.value}</Text>
+                    ))}
+                  </View>
+                )}
                 <Button label="Write a case note" icon="create-outline" onPress={() => setWriting(item.name)} testID={`caseload-write-${item.name}`} />
                 {q.data.can_manage && item.participant_id && (
                   <>
@@ -193,6 +240,7 @@ export default function Caseload() {
     <ConfirmSheet visible={!!removing} title={`Remove ${removing?.name ?? ""}?`}
       sub="They'll be taken off the participant list and Support Workers will lose access. Case notes in Jotform aren't deleted."
       confirmLabel="Remove participant" busy={removeBusy} onConfirm={remove} onClose={() => setRemoving(null)} />
+    <ImportResultSheet result={imported} onClose={() => setImported(null)} />
     </>
   );
 }
@@ -212,6 +260,9 @@ const useStyles = makeStyles((c) => ({
   fieldLabel: { fontWeight: "700", color: c.onSurfaceSecondary },
   manageRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   trash: { width: 48, height: 48, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: c.surfaceSecondary },
+  templateLink: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 36, alignSelf: "flex-start" },
+  templateText: { fontSize: 13, fontWeight: "600", color: c.brandPrimary },
+  handover: { backgroundColor: c.warningSoft, borderRadius: 12, padding: 12, gap: 4, borderLeftWidth: 4, borderLeftColor: c.brandPrimary },
   aiBox: { backgroundColor: c.brandTertiary, borderRadius: 12, padding: 12, gap: 6 },
   aiHead: { flexDirection: "row", alignItems: "center", gap: 6 },
   aiTitle: { flex: 1, fontSize: 14, fontWeight: "700", color: c.brandPrimary },

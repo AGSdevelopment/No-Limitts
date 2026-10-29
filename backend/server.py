@@ -95,8 +95,8 @@ NO_LIMITTS_FORMS = [  # (category, audiences, title, url); empty audiences = all
     ("Day-to-Day", [], "Participant Money Event", "https://nolimitts.jotform.com/262641740900048"),
     ("Day-to-Day", [], "Personal Domestic Activities", "https://nolimitts.jotform.com/262641883172057"),
     ("Day-to-Day", [], "Appointment Follow Up Case Note", "https://nolimitts.jotform.com/262642055038050"),
-    ("HR", [], "Vehicle Checklist", "https://nolimitts.jotform.com/262852316614053"),
-    ("HR", [], "VIVO Checks", "https://nolimitts.jotform.com/262852065506054"),
+    ("New Starter", [], "Vehicle Checklist", "https://nolimitts.jotform.com/262852316614053"),
+    ("New Starter", [], "VIVO Checks", "https://nolimitts.jotform.com/262852065506054"),
     ("HR", [], "Leave Request & Absence Notification", "https://nolimitts.jotform.com/262771962802059"),
     ("HR", [], "Training / Shadowing Record", "https://nolimitts.jotform.com/262641955099065"),
     *[("Participant Management & Onboarding", ["support_coordinator"], t, u) for t, u in (
@@ -275,6 +275,11 @@ async def startup():
     await migrate_no_limitts()
     await clear_jotforms_v1()
     await seed_no_limitts_forms_v1()
+    if not await db.meta.find_one({"key": "forms_new_starter_v1"}):  # Vehicle Checklist + VIVO Checks live under New Starter
+        await db.forms.update_many({"url": {"$in": ["https://nolimitts.jotform.com/262852316614053",
+                                                     "https://nolimitts.jotform.com/262852065506054"]}},
+                                   {"$set": {"category": "New Starter"}})
+        await db.meta.insert_one({"key": "forms_new_starter_v1", "created_at": now_iso()})
     await seed_cert_requirements_v1()
     await seed_hr_coordinator_v1()
     await db.conversations.update_many({"type": "channel", "name": {"$regex": "^allied[- ]health$", "$options": "i"}},
