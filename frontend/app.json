@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "StaffHub",
+    "name": "No Limitts",
     "slug": "frontend",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -19,7 +19,7 @@
       "permissions": ["android.permission.CAMERA"],
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#FFFFFF"
+        "backgroundColor": "#FCFEFF"
       },
       "package": "com.emergent.staffhub.obhj8k"
     },
@@ -36,7 +36,7 @@
           "image": "./assets/images/splash-image.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#FFFFFF"
+          "backgroundColor": "#FCFEFF"
         }
       ],
       "expo-font",

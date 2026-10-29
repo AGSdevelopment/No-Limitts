@@ -134,10 +134,10 @@ async def probation_reminder_loop():
                     if a.get("email") and not a["email"].endswith("@example.com"):
                         await send_email(to=a["email"], subject=f"{u['name']}'s probation ends on {when}", html=(
                             "<div style='font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px'>"
-                            f"<h2 style='color:#205890'>Probation ending soon</h2>"
+                            f"<h2 style='color:#673E8D'>Probation ending soon</h2>"
                             f"<p>Hi {escape(a['name'].split(' ')[0])},</p><p><b>{escape(u['name'])}</b>'s "
                             f"probation period ends on <b>{when}</b>, two weeks from now.</p>"
-                            "<p>Open their staff profile in StaffHub to review certificates, CPD, policies and "
+                            "<p>Open their staff profile in No Limitts to review certificates, CPD, policies and "
                             "check-in notes before their probation review.</p></div>"))
                 logger.info(f"Probation reminder sent for {u['user_id']}")
         except Exception as e:
@@ -212,23 +212,23 @@ def build_profile_pdf(d: dict) -> bytes:
     if d["starter"]:
         meta.append(f"Starter checklist {d['starter']['done']}/{d['starter']['total']}")
     tbl = "<table style='width:100%;border-collapse:collapse;font-size:8.5px' border='1' cellpadding='3'>"
-    html = (f"<h2 style='color:#205890;margin:0'>Staff profile: {escape(u['name'])}</h2>"
+    html = (f"<h2 style='color:#673E8D;margin:0'>Staff profile: {escape(u['name'])}</h2>"
             f"<p style='font-size:9.5px'>{escape(u.get('email') or '')} · "
             f"{'Admin' if u.get('role') == 'admin' else 'Employee'}"
             f"{' · ' + escape(d.get('group_label') or '') if d.get('group_label') else ''}"
             f"{'<br/>' + ' · '.join(meta) if meta else ''}<br/>"
-            f"Generated {dmy(date.today().isoformat())} by StaffHub (Aspire &amp; Grow)</p>"
+            f"Generated {dmy(date.today().isoformat())} by No Limitts (Aspire &amp; Grow)</p>"
             f"<p style='font-size:9.5px'><b>Summary:</b> {len(d['certificates'])} certificates · "
             f"{d['cpd']['year_hours']} CPD hours in {d['cpd']['year']} · {len(acked)}/{len(d['policies'])} policies "
             f"acknowledged · {d['open_tasks']} open tasks</p>"
-            f"<h4 style='color:#205890'>Certificates</h4>{tbl}<tr style='background:#E3F1FE'><th>Certificate</th>"
+            f"<h4 style='color:#673E8D'>Certificates</h4>{tbl}<tr style='background:#EFE8F5'><th>Certificate</th>"
             f"<th>Expiry</th><th>Status</th></tr>{certs or '<tr><td colspan=3>None on file</td></tr>'}</table>"
-            f"<h4 style='color:#205890'>CPD {d['cpd']['year']} (latest)</h4>{tbl}<tr style='background:#E3F1FE'>"
+            f"<h4 style='color:#673E8D'>CPD {d['cpd']['year']} (latest)</h4>{tbl}<tr style='background:#EFE8F5'>"
             f"<th>Date</th><th>Activity</th><th>Hours</th></tr>{cpd or '<tr><td colspan=3>None logged</td></tr>'}</table>"
-            f"<h4 style='color:#205890'>Policies not yet acknowledged ({len(pending)})</h4>"
+            f"<h4 style='color:#673E8D'>Policies not yet acknowledged ({len(pending)})</h4>"
             f"<p style='font-size:8.5px'>{escape(', '.join(pending[:25])) or 'All acknowledged'}"
             f"{' and ' + str(len(pending) - 25) + ' more' if len(pending) > 25 else ''}</p>"
-            f"<h4 style='color:#205890'>Check-ins (latest)</h4>{tbl}<tr style='background:#E3F1FE'><th>Date</th>"
+            f"<h4 style='color:#673E8D'>Check-ins (latest)</h4>{tbl}<tr style='background:#EFE8F5'><th>Date</th>"
             f"<th>Outcome</th><th>Notes</th></tr>{checks or '<tr><td colspan=3>None yet</td></tr>'}</table>")
     import io
     buf = io.BytesIO()

@@ -26,7 +26,7 @@ async def set_gchat(conv_id: str, body: WebhookIn, admin=Depends(admin_user)):
     if not res.matched_count:
         raise HTTPException(404, "Channel not found")
     conv = await db.conversations.find_one({"conversation_id": conv_id}, P)
-    ok = await gs.post_to_gchat(url, f"StaffHub is now connected to #{conv['name']}. "
+    ok = await gs.post_to_gchat(url, f"No Limitts is now connected to #{conv['name']}. "
                                      "Messages posted there will appear here.")
     return {"ok": True, "test_delivered": ok}
 
@@ -84,7 +84,7 @@ async def gchat_callback(state: str = "", code: str = "", error: str = ""):
         logger.error(f"Google Chat OAuth failed: {e}")
         if "invalid_client" in str(e):
             return result_page("Google Chat not connected",
-                               "Google rejected StaffHub's sign-in credentials (client ID or secret is wrong). "
+                               "Google rejected No Limitts's sign-in credentials (client ID or secret is wrong). "
                                "Please re-enter them and try again.")
         return result_page("Google Chat not connected", "Something went wrong while connecting.")
     await db.integrations.update_one({"key": GCHAT_KEY}, {"$set": {
@@ -93,12 +93,12 @@ async def gchat_callback(state: str = "", code: str = "", error: str = ""):
     # start syncing from the moment of connection for channels already switched on
     await db.conversations.update_many({"gchat_two_way": True},
                                        {"$set": {"gchat_cursor": now().strftime("%Y-%m-%dT%H:%M:%S.%fZ")}})
-    return result_page("Google Chat connected", "Replies from your Google Chat spaces can now flow into StaffHub.")
+    return result_page("Google Chat connected", "Replies from your Google Chat spaces can now flow into No Limitts.")
 
 
 @router.post("/integrations/google-chat/events")
 async def gchat_events(request: Request):
-    """Endpoint required by the Google Chat API app configuration. StaffHub reads space messages via the
+    """Endpoint required by the Google Chat API app configuration. No Limitts reads space messages via the
     Chat API (two-way sync), so interaction events are simply acknowledged."""
     return {}
 

@@ -320,7 +320,7 @@ export default function UploadCertificate() {
           <Text style={styles.sheetTitle}>{camSheet === "settings" ? "Camera access is off" : "Snap your certificate"}</Text>
           <Text style={styles.sheetMsg}>
             {camSheet === "settings"
-              ? "Turn on camera access for StaffHub in Settings to photograph certificates. You can still choose a file instead."
+              ? "Turn on camera access for No Limitts in Settings to photograph certificates. You can still choose a file instead."
               : "Allow camera access to photograph your certificate. Claude reads it and fills in the name and dates for you."}
           </Text>
           {camSheet === "settings" ? (

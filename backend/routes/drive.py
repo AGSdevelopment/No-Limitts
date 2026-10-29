@@ -91,12 +91,12 @@ async def drive_callback(state: str = "", code: str = "", error: str = ""):
         logger.error(f"Drive OAuth failed: {e}")
         if "invalid_client" in str(e):
             return result_page("Google Drive not connected",
-                               "Google rejected StaffHub's sign-in credentials (client ID or secret is wrong).")
+                               "Google rejected No Limitts's sign-in credentials (client ID or secret is wrong).")
         return result_page("Google Drive not connected", "Something went wrong while connecting.")
     await db.integrations.update_one({"key": DRIVE_KEY}, {"$set": {
         "key": DRIVE_KEY, "refresh_token": enc, "email": email, "folder_id": folder_id,
         "connected_by": st["user_id"], "updated_at": now_iso()}}, upsert=True)
-    return result_page("Google Drive connected", f"StaffHub is now linked to {email}.")
+    return result_page("Google Drive connected", f"No Limitts is now linked to {email}.")
 
 
 @router.delete("/integrations/google-drive")
@@ -198,7 +198,7 @@ def clean_pdf_text(text: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
-async def import_policies_from_drive(svc, folder_id: str, by_name: str = "StaffHub") -> int:
+async def import_policies_from_drive(svc, folder_id: str, by_name: str = "No Limitts") -> int:
     """Create a policy for every readable document in the folder (skips ones already imported)."""
     files = await run_in_threadpool(gs.drive_walk, svc, folder_id)
     added = []

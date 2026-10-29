@@ -54,12 +54,12 @@ async def calendar_callback(state: str = "", code: str = "", error: str = ""):
     except Exception as e:
         logger.error(f"Calendar OAuth failed: {e}")
         return result_page("Google Calendar not connected", "Something went wrong while connecting. "
-                           "Check that the Google Calendar API is turned on for StaffHub's Google project.")
+                           "Check that the Google Calendar API is turned on for No Limitts's Google project.")
     admin = await db.users.find_one({"user_id": st["user_id"]}, P) or {}
     await db.integrations.update_one({"key": key}, {"$set": {
         "key": key, "refresh_token": enc, "email": admin.get("email", ""), "user_id": st["user_id"],
         "updated_at": now_iso()}}, upsert=True)
-    return result_page("Google Calendar connected", "StaffHub can now add dates to your Google Calendar. You can close this page.")
+    return result_page("Google Calendar connected", "No Limitts can now add dates to your Google Calendar. You can close this page.")
 
 
 @router.delete("/integrations/google-calendar")

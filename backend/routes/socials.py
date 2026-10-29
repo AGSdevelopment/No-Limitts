@@ -69,7 +69,7 @@ async def meta_callback(state: str = "", code: str = "", error: str = ""):
     except Exception as e:
         logger.error(f"Meta OAuth failed: {e}")
         return result_page("Facebook not connected", "Couldn't read your Facebook Page. Make sure you manage the "
-                                                     "Page and allow StaffHub to see it.")
+                                                     "Page and allow No Limitts to see it.")
     await db.integrations.update_one({"key": "meta"}, {"$set": {
         "key": "meta", "page_id": info["page_id"], "page_name": info["page_name"],
         "page_token": gs.encrypt(info["page_token"]), "ig_user_id": info["ig_user_id"],
@@ -77,7 +77,7 @@ async def meta_callback(state: str = "", code: str = "", error: str = ""):
         "initial_sync_done": False, "updated_at": now_iso()}}, upsert=True)
     spawn(sync_socials())
     extra = f" and Instagram @{info['ig_username']}" if info["ig_username"] else ""
-    return result_page("Facebook connected", f"StaffHub will share new posts from {info['page_name']}{extra}.")
+    return result_page("Facebook connected", f"No Limitts will share new posts from {info['page_name']}{extra}.")
 
 
 @router.get("/integrations/linkedin/callback")
@@ -98,7 +98,7 @@ async def linkedin_callback(state: str = "", code: str = "", error: str = ""):
         "connected_by": st["user_id"], "last_error": "", "initial_sync_done": False, "updated_at": now_iso()}},
         upsert=True)
     spawn(sync_socials())
-    return result_page("LinkedIn connected", "StaffHub will share new LinkedIn company posts.")
+    return result_page("LinkedIn connected", "No Limitts will share new LinkedIn company posts.")
 
 
 @router.delete("/integrations/{kind}")

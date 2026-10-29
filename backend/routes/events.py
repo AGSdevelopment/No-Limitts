@@ -310,14 +310,14 @@ async def event_reminder_loop():
                         if u.get("email") and not u["email"].endswith("@example.com"):
                             await send_email(to=u["email"], subject=f"Reminder: {ev['title']} is {when}", html=(
                                 "<div style='font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px'>"
-                                f"<h2 style='color:#205890'>See you tomorrow!</h2>"
+                                f"<h2 style='color:#673E8D'>See you tomorrow!</h2>"
                                 f"<p>Hi {escape(u['name'].split(' ')[0])},</p><p>Just a reminder that "
                                 f"<b>{escape(ev['title'])}</b> is on <b>{dmy(ev['date'])}"
                                 f"{' at ' + escape(ev['time']) if ev.get('time') else ''}</b>"
                                 f"{' at ' + escape(ev['location']) if ev.get('location') else ''}.</p>"
                                 + (f"<p>Food &amp; drink: {escape(ev['catering'])}</p>" if ev.get("catering") else "")
                                 + (f"<p>{escape(ev['conditions'])}</p>" if ev.get("conditions") else "")
-                                + "<p>Can't make it any more? Update your RSVP in StaffHub → Events.</p></div>"))
+                                + "<p>Can't make it any more? Update your RSVP in No Limitts → Events.</p></div>"))
                     logger.info(f"Event reminder sent for {ev['event_id']} to {len(people)} people")
         except Exception as e:
             logger.error(f"Event reminder loop failed: {e}")
@@ -405,7 +405,7 @@ async def event_ics(event_id: str, request: Request, token: Optional[str] = None
         when = f"DTSTART;VALUE=DATE:{day.strftime('%Y%m%d')}\r\nDTEND;VALUE=DATE:{(day + timedelta(days=1)).strftime('%Y%m%d')}"
     desc = "\n".join(x for x in (ev.get("description"), ev.get("catering") and f"Food & drink: {ev['catering']}",
                                  ev.get("conditions")) if x)
-    body = ("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//StaffHub//Aspire & Grow//EN\r\nBEGIN:VEVENT\r\n"
+    body = ("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//No Limitts//Aspire & Grow//EN\r\nBEGIN:VEVENT\r\n"
             f"UID:{ev['event_id']}@staffhub\r\nDTSTAMP:{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}\r\n"
             f"{when}\r\nSUMMARY:{ics_escape(ev['title'])}\r\nLOCATION:{ics_escape(ev.get('location', ''))}\r\n"
             f"DESCRIPTION:{ics_escape(desc)}\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n")

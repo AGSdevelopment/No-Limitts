@@ -135,7 +135,7 @@ async def all_user_ids(exclude: Optional[str] = None):
 def result_page(title: str, msg: str) -> HTMLResponse:
     return HTMLResponse(f"<html><head><meta name='viewport' content='width=device-width,initial-scale=1'></head>"
                         f"<body style='font-family:Arial;padding:32px;text-align:center'><h2>{escape(title)}</h2>"
-                        f"<p>{escape(msg)}</p><p>You can close this window and return to StaffHub.</p></body></html>")
+                        f"<p>{escape(msg)}</p><p>You can close this window and return to No Limitts.</p></body></html>")
 
 
 DIGEST_TZ = ZoneInfo("Australia/Perth")

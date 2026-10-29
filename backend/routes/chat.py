@@ -116,7 +116,7 @@ async def send_message(conv_id: str, body: MessageIn, user=Depends(current_user)
     if conv["type"] == "channel" and conv.get("gchat_webhook"):
         try:
             hook = gs.decrypt(conv["gchat_webhook"])
-            spawn(gs.post_to_gchat(hook, f"*{user['name']}* in #{conv['name']} (StaffHub):\n{text[:4000]}"))
+            spawn(gs.post_to_gchat(hook, f"*{user['name']}* in #{conv['name']} (No Limitts):\n{text[:4000]}"))
         except Exception as e:
             logger.error(f"Google Chat webhook unusable for {conv_id}: {e}")
     if conv["type"] == "dm":

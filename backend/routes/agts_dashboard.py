@@ -1,9 +1,9 @@
-"""AGTS Therapist Performance Dashboard inside StaffHub.
+"""AGTS Therapist Performance Dashboard inside No Limitts.
 
 Runs the team's own dashboard engine (assets/therapist-dashboard.html, unchanged logic) with a phone-first
 stylesheet, and plays the role of the Wix page: data is read from / saved to the same Wix CMS collection
 (`TherapistDashboard`) so updates made on the website show here and vice versa. Admins only.
-Until WIX_API_KEY + WIX_SITE_ID are set, data is kept in StaffHub (`agts_dashboard_parts`)."""
+Until WIX_API_KEY + WIX_SITE_ID are set, data is kept in No Limitts (`agts_dashboard_parts`)."""
 import asyncio
 import json
 import os
@@ -124,7 +124,7 @@ async def dashboard_save(body: SaveIn, request: Request, view: str = "", page: s
             prev = await read_part(client, "preview")
         full = json.loads(prev["data"]) if prev and prev.get("data") else {}
         full["nikki"] = json.loads(body.json).get("nikki") or {}
-        full["nikki"].pop("booked", None)  # booked ticks live in StaffHub, not in the shared Wix record
+        full["nikki"].pop("booked", None)  # booked ticks live in No Limitts, not in the shared Wix record
         return await write_part("preview", json.dumps(full, separators=(",", ":")), user["email"])
     return await write_part(body.part, body.json, user["email"])
 
@@ -159,7 +159,7 @@ def _fmt(serial: int) -> str:
 
 async def sync_plan_pages(nk: dict):
     """One private 'My participant plans' page per therapist tag found in the client list ("<Name>'s Clients"),
-    shared only with the StaffHub user whose first name matches (skipped when the name is ambiguous)."""
+    shared only with the No Limitts user whose first name matches (skipped when the name is ambiguous)."""
     import re
     tags = set()
     for c in nk.get("clients") or []:
@@ -344,7 +344,7 @@ def plans_email(first: str, rows: list, today: int) -> Optional[tuple]:
             + sec("Plans ending this month", [f"{b(r['name'])} – plan ends {_fmt(r['end'])}" for r in ending], "#b42318")
             + sec("Reviews booked this month", [f"{b(r['name'])} – review booked for {_fmt(r['booked_date'])}" for r in booked], "#1e7b3a")
             + sec("Forms to action", [f"{b(r['name'])} – {escape(', '.join(x))}" for r, x in forms], "#205790")
-            + '<p style="font-size:13px;color:#6b7280;margin-top:22px">Open StaffHub → Home → My participant plans to see details '
+            + '<p style="font-size:13px;color:#6b7280;margin-top:22px">Open No Limitts → Home → My participant plans to see details '
               'or tick a review as booked. Booked reviews drop off this email.</p></div>')
     n = len(overdue) + len(due) + len(ending)
     return f"Your participant plans: {n} review{'s' if n != 1 else ''} / plan date{'s' if n != 1 else ''} this month", html
@@ -465,7 +465,7 @@ async def _sync_plan_calendar(extra: Optional[tuple] = None) -> dict:
                 if ek in have:
                     continue
                 g = await run_in_threadpool(gs.calendar_insert, svc, {
-                    "summary": title, "description": "From StaffHub participant plans.", "transparency": "transparent",
+                    "summary": title, "description": "From No Limitts participant plans.", "transparency": "transparent",
                     "start": {"date": day(s)}, "end": {"date": day(s + 1)}})
                 await db.plan_cal_events.insert_one({"user_id": uid, "ekey": ek, "google_event_id": g["id"], "created_at": now_iso()})
                 added += 1
@@ -508,7 +508,7 @@ async def team_overview_pdf(request: Request, token: Optional[str] = None, exp: 
     import time
     if sig:
         if exp < time.time() or not hmac.compare_digest(sig, _pdf_sig(exp)):
-            raise HTTPException(403, "This link has expired. Open StaffHub → Team plans overview for the latest PDF.")
+            raise HTTPException(403, "This link has expired. Open No Limitts → Team plans overview for the latest PDF.")
     else:
         admin = await user_from_token(bearer(request) or token)
         if not admin or not is_executive(admin):
@@ -539,7 +539,7 @@ def team_report_email(first: str, d: dict) -> tuple:
     rows = "".join(f"<tr><td style='{td}'>{e(', '.join(p['owners']) or p['name'])}</td><td style='{td};text-align:center'>{len(p['overdue'])}</td>"
                    f"<td style='{td};text-align:center'>{len(p['forms'])}</td><td style='{td};text-align:center'>{len(p['due_30'])}</td>"
                    f"<td style='{td};text-align:center'>{len(p['ending_30'])}</td></tr>" for p in d["pages"])
-    th = "padding:6px 8px;background:#E3F1FE;font-size:12px;text-align:left;color:#205790"
+    th = "padding:6px 8px;background:#EFE8F5;font-size:12px;text-align:left;color:#205790"
     btn = (f'<p style="margin:20px 0"><a href="{link}" style="background:#205790;color:#ffffff;padding:12px 18px;border-radius:10px;'
            f'text-decoration:none;font-weight:bold;font-size:14px">Download the team plans PDF</a></p>'
            f'<p style="font-size:12px;color:#6b7280">The link opens the latest figures and expires in 14 days.</p>') if link else ""
@@ -551,8 +551,8 @@ def team_report_email(first: str, d: dict) -> tuple:
             f'<b>{t.get("booked", 0)}</b> reviews booked</p>'
             f'<table role="presentation" width="100%" style="border-collapse:collapse"><tr><th style="{th}">Therapist</th><th style="{th}">Overdue</th>'
             f'<th style="{th}">Forms</th><th style="{th}">Due ≤30d</th><th style="{th}">Ending ≤30d</th></tr>{rows}</table>'
-            f'{btn}<p style="font-size:12px;color:#6b7280">Sent by StaffHub (Aspire &amp; Grow) on the first Monday of each month. '
-            f'Names and dates are in the PDF and in StaffHub → Team plans overview.</p></td></tr></table>')
+            f'{btn}<p style="font-size:12px;color:#6b7280">Sent by No Limitts (Aspire &amp; Grow) on the first Monday of each month. '
+            f'Names and dates are in the PDF and in No Limitts → Team plans overview.</p></td></tr></table>')
     return f"Team plans report: {t.get('overdue', 0)} overdue reviews, {t.get('forms', 0)} forms to action", html
 
 
@@ -579,7 +579,7 @@ def build_overview_pdf(d: dict) -> bytes:
     import pymupdf
     from html import escape as e
     t = d.get("totals") or {}
-    th = "background:#E3F1FE;text-align:left"
+    th = "background:#EFE8F5;text-align:left"
     tbl = "<table style='width:100%;border-collapse:collapse;font-size:8.5px' border='1' cellpadding='3'>"
 
     def section(title, colour, head, rows):
@@ -593,14 +593,14 @@ def build_overview_pdf(d: dict) -> bytes:
                + "</tr>" + "".join(f"<tr><td>{e(', '.join(p['owners']) or p['name'])}</td><td>{p['participants']}</td><td>{len(p['overdue'])}</td>"
                                    f"<td>{len(p['forms'])}</td><td>{len(p['due_30'])}</td><td>{len(p['ending_30'])}</td><td>{len(p['booked'])}</td></tr>"
                                    for p in d["pages"]) + "</table>")
-    html = (f"<h2 style='color:#205890;margin:0'>Team plans overview</h2>"
-            f"<p style='font-size:9.5px'>As of {e(d.get('today') or '')} · generated by StaffHub (Aspire &amp; Grow). "
+    html = (f"<h2 style='color:#673E8D;margin:0'>Team plans overview</h2>"
+            f"<p style='font-size:9.5px'>As of {e(d.get('today') or '')} · generated by No Limitts (Aspire &amp; Grow). "
             f"Plan reviews fall due {d.get('review_months', 3)} months before the plan ends; booked reviews are not counted as overdue.<br/>"
             f"<b>Team totals:</b> {t.get('overdue', 0)} reviews overdue · {t.get('forms', 0)} participants with forms to action · "
             f"{t.get('due_30', 0)} reviews due in 30 days · {t.get('ending_30', 0)} plans ending in 30 days · {t.get('booked', 0)} reviews booked</p>"
             + summary)
     for p in d["pages"]:
-        html += f"<h3 style='color:#205890;margin:14px 0 2px'>{e(', '.join(p['owners']) or p['name'])} · {p['participants']} active participants</h3>"
+        html += f"<h3 style='color:#673E8D;margin:14px 0 2px'>{e(', '.join(p['owners']) or p['name'])} · {p['participants']} active participants</h3>"
         parts = (section("Reviews overdue", "#B42318", ("Participant", "Review was due", "Days overdue", "Plan ends"),
                          [(r["name"], r["review"], r["days_overdue"], r["end"]) for r in p["overdue"]])
                  + section("Forms to action", "#9A5B00", ("Participant", "Issue"), [(f["name"], ", ".join(f["issues"])) for f in p["forms"]])

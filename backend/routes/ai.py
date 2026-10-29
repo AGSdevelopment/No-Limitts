@@ -66,7 +66,7 @@ async def assistant_context(user: dict, question: str = "") -> str:
              .to_list(100)]
     cert_lines = "\n".join(f"- {c['title']}: expires {c['expiry_date']} ({c['status']})" for c in certs) or "none"
     drive = await drive_context(question)
-    return ("You are the StaffHub assistant for employees. Answer clearly and briefly using the company "
+    return ("You are the No Limitts assistant for employees. Answer clearly and briefly using the company "
             "policies and procedures and the company Drive documents below. If the answer isn't in them, say so "
             "and suggest asking a manager. Name the policy or Drive file you used. Never invent policy rules.\n"
             f"Today's date: {date.today().isoformat()}. Employee: {user['name']}.\n"

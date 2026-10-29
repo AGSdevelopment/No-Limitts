@@ -145,9 +145,9 @@ async def remind_policy(policy_id: str, admin=Depends(admin_user)):
         if u.get("email") and not u["email"].endswith("@example.com"):
             await send_email(to=u["email"], subject=f"Reminder: please read and acknowledge {p['title']}", html=(
                 "<div style='font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px'>"
-                f"<h2 style='color:#205890'>Please acknowledge a policy</h2><p>Hi {escape(u['name'].split(' ')[0])},</p>"
+                f"<h2 style='color:#673E8D'>Please acknowledge a policy</h2><p>Hi {escape(u['name'].split(' ')[0])},</p>"
                 f"<p>{escape(admin['name'])} has asked you to read and acknowledge <b>{escape(p['title'])}</b>.</p>"
-                "<p>Open StaffHub → Library → Policies &amp; procedures, read it and tap the acknowledge button at the bottom.</p></div>"))
+                "<p>Open No Limitts → Library → Policies &amp; procedures, read it and tap the acknowledge button at the bottom.</p></div>"))
     await db.policies.update_one({"policy_id": policy_id}, {"$set": {"last_reminded_at": now_iso()}})
     return {"reminded": len(pending)}
 
@@ -176,8 +176,8 @@ async def policy_reminder_loop():
                             more = f"<p>…and {n - 30} more.</p>" if n > 30 else ""
                             await send_email(to=u["email"], subject=f"Reminder: {n} polic{'y' if n == 1 else 'ies'} to acknowledge", html=(
                                 "<div style='font-family:Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px'>"
-                                f"<h2 style='color:#205890'>Policies waiting for you</h2><p>Hi {escape(u['name'].split(' ')[0])},</p>"
-                                f"<p>Please read and acknowledge these in StaffHub → Library → Policies &amp; procedures:</p>"
+                                f"<h2 style='color:#673E8D'>Policies waiting for you</h2><p>Hi {escape(u['name'].split(' ')[0])},</p>"
+                                f"<p>Please read and acknowledge these in No Limitts → Library → Policies &amp; procedures:</p>"
                                 f"<ul>{items}</ul>{more}</div>"))
                         sent += 1
                     await db.meta.update_one({"key": key}, {"$set": {"reminded": sent}})

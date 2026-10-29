@@ -168,3 +168,8 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 
 - Participant plans & safety is shared only with Nikki (dashboards.users via user_emails; allowed() checks users); 'Plans & safety' tab only injected in view=nk; nk data endpoint returns only preview.nikki (no billing/pay); nk save merges only the nikki key into preview. nikki_plan_alerts (hourly in dashboard_loop): plan end within 0–30 days for clients tagged cfg.tag → notify Nikki once per client+end (meta agts_plan_end_*)
 - Private plans pages per therapist: sync_plan_pages creates dashboards 'plans-<name>' (embed agts-nk, tag "<Name>'s Clients", users=[matching StaffHub user by unique first name]) from tags in the uploaded client list; engine/data/save take ?page=<dashboard_id>; tag override applied on read, Nikki's cfg.tag preserved on save. plan_alerts (hourly): plan ending ≤30 days, plan review overdue (end − cfg.months ≤ today, plan >30 days left), completed risk assessment older than cfg.formAge months → page owner, once per participant+date
+
+## Rebrand (Jun 2026)
+- No Limitts logo (from EPS) for login, app icon, splash, favicon
+- Palette: purple #673E8D (primary), pink #EB3F7F (accent), orange #F7A51D, background #FCFEFF, yellow #EBE837 (highlight)
+- App name StaffHub -> No Limitts; email/PDF headings use the purple

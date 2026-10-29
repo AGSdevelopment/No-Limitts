@@ -39,7 +39,7 @@ async def compliance_export(request: Request, token: Optional[str] = None):
     ws.append(head)
     for c in ws[1]:
         c.font = Font(bold=True, color="FFFFFF")
-        c.fill = PatternFill("solid", fgColor="205890")
+        c.fill = PatternFill("solid", fgColor="673E8D")
     for r in d["rows"]:
         issues = "; ".join(f"{c['title']} ({'expired' if c['status'] == 'expired' else 'expires'} {dmy(c['expiry_date'])})"
                            for c in r["certs_expired"] + r["certs_expiring"]) or ("No certificates" if r["no_certs"] else "")
@@ -65,7 +65,7 @@ async def compliance_export(request: Request, token: Optional[str] = None):
     wb.save(buf)
     return Response(content=buf.getvalue(),
                     media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    headers={"Content-Disposition": f'attachment; filename="StaffHub_Compliance_{date.today().isoformat()}.xlsx"'})
+                    headers={"Content-Disposition": f'attachment; filename="No Limitts_Compliance_{date.today().isoformat()}.xlsx"'})
 
 
 STAFF_GROUP_LABELS = {"support_office": "Support Office", "therapist_employee": "Therapist Employee",
@@ -145,7 +145,7 @@ async def check_starter_complete(user: dict):
             if a.get("email") and not a["email"].endswith("@example.com"):
                 await send_email(to=a["email"], subject=f"{user['name']} has finished the New Starter checklist", html=(
                     "<div style='font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px'>"
-                    f"<h2 style='color:#205890'>New Starter checklist complete</h2><p>Hi {escape(a['name'].split(' ')[0])},</p>"
+                    f"<h2 style='color:#673E8D'>New Starter checklist complete</h2><p>Hi {escape(a['name'].split(' ')[0])},</p>"
                     f"<p><b>{escape(user['name'])}</b> has completed all {len(items)} steps of their New Starter "
                     "checklist (forms, policies and certificates).</p><p>Now's a good time to book their next check-in.</p></div>"))
     except Exception as e:
@@ -245,10 +245,10 @@ async def send_cert_reminders(rows: list, trigger: str, by: str = "") -> int:
             items = "".join(f"<li>{escape(n)}</li>" for n in r["missing_required"])
             await send_email(to=r["email"], subject="Reminder: please upload your training certificates", html=(
                 "<div style='font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px'>"
-                f"<h2 style='color:#205890'>Certificates needed</h2><p>Hi {escape(r['name'].split(' ')[0])},</p>"
+                f"<h2 style='color:#673E8D'>Certificates needed</h2><p>Hi {escape(r['name'].split(' ')[0])},</p>"
                 + (f"<p>We don't have these certificates on file for you yet:</p><ul>{items}</ul>" if items else
                    "<p>We don't have any of your training certificates on file yet.</p>")
-                + "<p>Open StaffHub → Certificates → Upload certificate and snap a photo or attach the file. "
+                + "<p>Open No Limitts → Certificates → Upload certificate and snap a photo or attach the file. "
                   "It only takes a minute.</p></div>"))
     return len(rows)
 
@@ -318,11 +318,11 @@ async def book_checkin(user_id: str, body: CheckinIn, admin=Depends(admin_user))
     if invite["calendar"] != "sent" and u.get("email") and not u["email"].endswith("@example.com") and not u.get("hidden"):
         await send_email(to=u["email"], subject=f"Your check-in with {admin['name']} on {when}", html=(
             "<div style='font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px'>"
-            f"<h2 style='color:#205890'>Check-in booked</h2><p>Hi {escape(u['name'].split(' ')[0])},</p>"
+            f"<h2 style='color:#673E8D'>Check-in booked</h2><p>Hi {escape(u['name'].split(' ')[0])},</p>"
             f"<p>{escape(admin['name'])} has booked a check-in with you on <b>{escape(when)}</b>"
             + (f" at {escape(doc['location'])}" if doc["location"] else "") + ".</p>"
             + (f"<p>{escape(doc['description'])}</p>" if doc["description"] else "")
-            + "<p>You'll find it under Events in StaffHub.</p></div>"))
+            + "<p>You'll find it under Events in No Limitts.</p></div>"))
     doc.pop("attendees")
     return doc
 
@@ -414,12 +414,12 @@ async def send_starter_welcome(user_id: str):
         steps = "".join(f"<li>{escape(i['title'])}</li>" for i in items)
         await send_email(to=u["email"], subject="Welcome to Aspire & Grow! Your New Starter checklist", html=(
             "<div style='font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px'>"
-            f"<h2 style='color:#205890'>Welcome aboard, {escape(u['name'].split(' ')[0])}!</h2>"
+            f"<h2 style='color:#673E8D'>Welcome aboard, {escape(u['name'].split(' ')[0])}!</h2>"
             "<p>We're so glad you're joining us. To help you settle in, we've put together a short checklist "
-            "in StaffHub:</p>"
+            "in No Limitts:</p>"
             f"<ol>{steps}</ol>"
-            "<p>Open the StaffHub app and tap <b>New Starter checklist</b> on the Home screen to get started. "
+            "<p>Open the No Limitts app and tap <b>New Starter checklist</b> on the Home screen to get started. "
             "Forms tick off as you go, and policies and certificates update automatically.</p>"
-            "<p>If you have any questions, message the team in StaffHub chat. We're here to help!</p></div>"))
+            "<p>If you have any questions, message the team in No Limitts chat. We're here to help!</p></div>"))
     except Exception as e:
         logger.error(f"Starter welcome failed: {e}")

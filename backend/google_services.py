@@ -18,7 +18,7 @@ os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")  # Google may return ex
 
 fernet = Fernet(os.environ["WEBHOOK_ENCRYPTION_KEY"].encode())
 DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"]
-DRIVE_FOLDER_NAME = "StaffHub Certificates"
+DRIVE_FOLDER_NAME = "No Limitts Certificates"
 
 
 def encrypt(v: str) -> str:

@@ -124,16 +124,16 @@ async def seed():
                                                "description": desc, "member_ids": [], "last_message": "",
                                                "last_at": "", "created_at": now_iso()})
     if await db.updates.count_documents({}) == 0:
-        await db.updates.insert_one({"update_id": new_id("upd"), "title": "Welcome to StaffHub",
+        await db.updates.insert_one({"update_id": new_id("upd"), "title": "Welcome to No Limitts",
                                      "body": "This is a sample update. Admins can post company news here and "
                                              "everyone gets notified.", "pinned": True, "author_id": "system",
-                                     "author_name": "StaffHub", "created_at": now_iso()})
+                                     "author_name": "No Limitts", "created_at": now_iso()})
     if await db.policies.count_documents({}) == 0:
         await db.policies.insert_one({"policy_id": new_id("pol"), "title": "Sample: Health & Safety Policy",
                                       "category": "Policy",
                                       "content": "This is sample policy text. Admins can replace it with your "
                                                  "real policies and procedures. Employees tap 'Acknowledge' once "
-                                                 "they have read it.", "author_name": "StaffHub",
+                                                 "they have read it.", "author_name": "No Limitts",
                                       "acknowledged_by": [], "created_at": now_iso()})
 
 

@@ -199,10 +199,10 @@ async def task_reminder_loop():
                 if owner and owner.get("email") and not owner["email"].endswith("@example.com"):
                     await send_email(to=owner["email"], subject=f"Reminder: {t['title']} is due tomorrow", html=(
                         "<div style='font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px'>"
-                        f"<h2 style='color:#205890'>Task due tomorrow</h2><p>Hi {escape(owner['name'].split(' ')[0])},</p>"
+                        f"<h2 style='color:#673E8D'>Task due tomorrow</h2><p>Hi {escape(owner['name'].split(' ')[0])},</p>"
                         f"<p><b>{escape(t['title'])}</b> is due on {dmy(t['due_date'])} and isn't ticked off yet."
                         f"{' You are working on it with ' + escape(others) + '.' if others else ''}</p>"
-                        "<p>Open StaffHub → My tasks to mark it done.</p></div>"))
+                        "<p>Open No Limitts → My tasks to mark it done.</p></div>"))
         except Exception as e:
             logger.error(f"Task reminder loop error: {e}")
         await asyncio.sleep(3600)

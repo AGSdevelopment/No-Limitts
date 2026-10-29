@@ -38,16 +38,16 @@ async def build_digest() -> list:
 
 def digest_email_html(name: str, sections: list) -> str:
     blocks = "".join(
-        f"<div style='margin:0 0 20px;padding:16px;background:#E3F1FE;border-radius:12px'>"
-        f"<h3 style='margin:0 0 4px;color:#205890'>#{escape(s['channel'])}</h3>"
+        f"<div style='margin:0 0 20px;padding:16px;background:#EFE8F5;border-radius:12px'>"
+        f"<h3 style='margin:0 0 4px;color:#673E8D'>#{escape(s['channel'])}</h3>"
         f"<p style='margin:0 0 8px;color:#6b7280;font-size:13px'>{s['count']} message{'s' if s['count'] != 1 else ''}</p>"
         f"<p style='margin:0;white-space:pre-line;color:#111827;line-height:1.5'>{escape(s['summary'])}</p></div>"
         for s in sections)
     return (f"<div style='font-family:Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px'>"
-            f"<h2 style='color:#205890;margin:0 0 8px'>Your weekly StaffHub recap</h2>"
+            f"<h2 style='color:#673E8D;margin:0 0 8px'>Your weekly No Limitts recap</h2>"
             f"<p style='color:#374151'>Hi {escape(name.split(' ')[0] if name else 'there')}, here's what happened "
             f"in your team channels last week.</p>{blocks}"
-            f"<p style='color:#6b7280;font-size:12px'>Summaries written by Claude AI. Open StaffHub for the full "
+            f"<p style='color:#6b7280;font-size:12px'>Summaries written by Claude AI. Open No Limitts for the full "
             f"conversations.</p></div>")
 
 
@@ -60,7 +60,7 @@ async def send_digest(only_user: Optional[dict] = None) -> dict:
     for u in users:
         if u["email"].endswith("@example.com"):
             continue
-        if await send_email(to=u["email"], subject="Your weekly StaffHub recap",
+        if await send_email(to=u["email"], subject="Your weekly No Limitts recap",
                             html=digest_email_html(u.get("name", ""), sections)):
             sent += 1
     return {"sent": sent, "channels": len(sections)}
@@ -111,8 +111,8 @@ async def build_resource_digest() -> dict:
 def resource_digest_html(name: str, data: dict) -> str:
     space = {"therapist": "Therapist", "participant": "Participants"}
     def card(title, sub, note=""):
-        return (f"<div style='margin:0 0 10px;padding:12px 14px;background:#E3F1FE;border-radius:12px'>"
-                f"<b style='color:#205890'>{escape(title)}</b><br><span style='color:#6b7280;font-size:13px'>{escape(sub)}</span>"
+        return (f"<div style='margin:0 0 10px;padding:12px 14px;background:#EFE8F5;border-radius:12px'>"
+                f"<b style='color:#673E8D'>{escape(title)}</b><br><span style='color:#6b7280;font-size:13px'>{escape(sub)}</span>"
                 + (f"<p style='margin:6px 0 0;color:#111827'>{escape(note[:200])}</p>" if note else "") + "</div>")
     new = "".join(card(d["name"], f"{space.get(d['space'], '')} · {d['category']}"
                        + (f" · {len(d.get('files') or [])} file(s)" if d.get("files") else ""), d.get("note", ""))
@@ -120,11 +120,11 @@ def resource_digest_html(name: str, data: dict) -> str:
     sup = "".join(card(s["name"], f"{'★' * round(s['avg'])} {s['avg']} from {s['count']} rating(s) · {space.get(s['space'], '')}")
                   for s in data["suppliers"]) or "<p style='color:#6b7280'>No supplier ratings yet. Rate suppliers in Company Drive.</p>"
     return (f"<div style='font-family:Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px'>"
-            f"<h2 style='color:#205890;margin:0 0 8px'>This week in Company Drive</h2>"
+            f"<h2 style='color:#673E8D;margin:0 0 8px'>This week in Company Drive</h2>"
             f"<p style='color:#374151'>Hi {escape(name.split(' ')[0] if name else 'there')}, here's what's new for the team.</p>"
-            f"<h3 style='color:#205890'>New templates &amp; resources</h3>{new}"
-            f"<h3 style='color:#205890'>Top-rated suppliers</h3>{sup}"
-            f"<p style='color:#6b7280;font-size:12px'>Open StaffHub → Company Drive to see everything and add your ratings.</p></div>")
+            f"<h3 style='color:#673E8D'>New templates &amp; resources</h3>{new}"
+            f"<h3 style='color:#673E8D'>Top-rated suppliers</h3>{sup}"
+            f"<p style='color:#6b7280;font-size:12px'>Open No Limitts → Company Drive to see everything and add your ratings.</p></div>")
 
 
 async def send_resource_digest(only_user: Optional[dict] = None) -> dict:

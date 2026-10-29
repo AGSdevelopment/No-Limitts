@@ -30,7 +30,7 @@ export default function Login() {
           contentPosition={{ left: "50%", top: "70%" }}
           testID="login-hero-image"
         />
-        <LinearGradient colors={["rgba(32,88,144,0)", "rgba(32,88,144,0.35)"]} style={styles.heroOverlay} />
+        <LinearGradient colors={["rgba(103,62,141,0)", "rgba(103,62,141,0.35)"]} style={styles.heroOverlay} />
       </View>
       <Animated.View entering={FadeInDown.duration(500)} style={[styles.panel, { paddingBottom: insets.bottom + 24 }]}>
         <Image source={require("@/assets/images/brand-logo.png")} style={styles.logo} contentFit="contain" testID="login-brand-logo" />
@@ -60,7 +60,7 @@ const useStyles = makeStyles((c) => ({
   heroWrap: { flex: 1, minHeight: 260 },
   hero: { ...({ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 } as const) },
   heroOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 },
-  logo: { width: 140, height: 160, alignSelf: "center", marginTop: -96, marginBottom: 12, backgroundColor: c.surface, borderRadius: 20 },
+  logo: { width: 200, height: 150, alignSelf: "center", marginTop: -96, marginBottom: 12, padding: 8, backgroundColor: c.surface, borderRadius: 20 },
   panel: { backgroundColor: c.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, marginTop: -24, padding: 24 },
   title: { fontSize: 28, fontWeight: "700", color: c.onSurface, letterSpacing: -0.6, lineHeight: 34 },
   features: { marginTop: 20, marginBottom: 28, gap: 14 },

@@ -26,7 +26,7 @@ async def geocode(text: str) -> Optional[dict]:
     async with _geo_lock:  # free public OpenStreetMap geocoders: keep to ~1 request per second
         rows = None
         try:
-            async with httpx.AsyncClient(timeout=10, headers={"User-Agent": "AGTS-StaffHub/1.0 (referral partner map)"}) as client:
+            async with httpx.AsyncClient(timeout=10, headers={"User-Agent": "AGTS-No Limitts/1.0 (referral partner map)"}) as client:
                 r = await client.get("https://photon.komoot.io/api/",
                                      params={"q": f"{text} Australia", "limit": 5, "lat": -31.95, "lon": 115.86})
                 if r.status_code == 200:
@@ -72,7 +72,7 @@ PAGE = """<!doctype html><html><head><meta name="viewport" content="width=device
 <meta name="referrer" content="no-referrer">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>html,body,#map{height:100%;margin:0;font-family:Arial,sans-serif}.msg{padding:24px;color:#374151;text-align:center}
-.iw b{color:#205890;font-size:15px}.iw div{margin-top:4px;font-size:13px;color:#374151}
+.iw b{color:#673E8D;font-size:15px}.iw div{margin-top:4px;font-size:13px;color:#374151}
 .note{position:absolute;z-index:1000;bottom:8px;left:8px;right:8px;background:#fff;border-radius:10px;padding:8px 10px;font-size:12px;color:#374151;box-shadow:0 1px 4px rgba(0,0,0,.2)}</style>
 </head><body>__BODY__</body></html>"""
 
@@ -129,7 +129,7 @@ D.pins.forEach(p => {
   pts.push([p.lat, p.lng]);
 });
 if (D.centre) {
-  L.circleMarker([D.centre.lat, D.centre.lng], {radius: 9, color: '#fff', weight: 2, fillColor: '#205890', fillOpacity: 1}).addTo(map).bindTooltip(D.centre.label);
+  L.circleMarker([D.centre.lat, D.centre.lng], {radius: 9, color: '#fff', weight: 2, fillColor: '#673E8D', fillOpacity: 1}).addTo(map).bindTooltip(D.centre.label);
   map.setView([D.centre.lat, D.centre.lng], 11);
 } else if (pts.length > 1) { map.fitBounds(pts, {padding: [30, 30]}); } else if (pts.length === 1) { map.setView(pts[0], 12); }
 if (D.note) { const n = document.getElementById('note'); n.textContent = D.note; n.style.display = 'block'; }
