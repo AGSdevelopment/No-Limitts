@@ -1,0 +1,41 @@
+{
+  "summary": "Tested 4 new features end to end, on the backend and the frontend. Backend: 16/16 pytest pass. Covered: bulk import with xlsx and csv (added/skipped rows with reasons, header names matched case-insensitively, BOM-prefixed csv, user types, executive rule for exec vs non-exec admin, must_change_password, 400 for missing columns, header-only sheet, bad file and >500 rows, 413 for files over 5MB, 403 for non-admins); probation keeps the given start_date with probation_end = start + 12 months; send_starter_nudge sends once (True, then False; notification created; starter_reminder_sent_at set; no email for @example.com); post_celebrations_to_teams with a monkeypatched post_to_teams (one post, and no post when celebrations is toggled off); the celebrations toggle is saved; resend-welcome for a support worker (new password works, old password and old session are rejected) and for office staff (temporary_password null); resend-welcome 404 and 403 errors. Frontend (375x667): import hint and upload button render; the CSV upload goes through the file chooser and the result dialog shows 2 added and 1 skipped; the resend confirm sheet leads to a toast and the temporary password dialog; the Integrations celebrations toggle shows when linked and its tap is saved (DB updated); Home and Library render. No deprecated Expo packages found in the reviewed files.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/users/import", "issue": "Some values are dropped with no warning. A birthday without a year (e.g. '15/03', '15 Mar') or a numeric Excel serial date (a cell not formatted as a date, or a CSV export of one) makes parse_day return None, so the field is simply left out. Reproduced: a CSV row with Birthday '15/03' was imported with no birthday and no warning."},
+      {"endpoint": "POST /api/users/import", "issue": "Unknown User type values (e.g. 'Manager', 'Coordinator', a typo of 'Admin') silently become support_worker, and that person gets a password login. Consider skipping the row or adding a warning in the result."},
+      {"endpoint": "celebration_reminder_loop", "issue": "The day's meta key (celebration_teams_<date>) is claimed before posting, and announce() swallows errors. A Teams outage around 8am means that day's celebrations are never posted and nothing retries. Acceptable, but worth noting."},
+      {"endpoint": "POST /api/users/import -> send_starter_welcome", "issue": "Imported support workers whose start_date is more than 30 days ago (existing staff being migrated) get no default probation and no in-app welcome, because is_new_starter is False. Likely intended; confirm."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Team", "issues": [
+        "The import result summary always says 'Everyone added has been emailed their welcome', even for @example.com addresses (skipped) or failed sends. Imported support workers can only get their temporary password by email, so the admin may wrongly think it was delivered.",
+        "The resend-welcome confirm button uses the red/danger style although the action is not destructive.",
+        "Each member card stacks up to 5 action buttons (Profile, Change type, Reset password, Resend welcome, Remove), so cards are very tall on mobile. Consider an overflow menu."
+      ]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter46_import_nudge_celebrations_resend.py", "/app/test_reports/pytest/pytest_iter46.xml"],
+  "action_items": [
+    "Import: support DD/MM birthdays without a year and numeric Excel serial dates, or list rows whose date or birthday couldn't be read in the result.",
+    "Import: skip or warn on unrecognised User type values instead of silently making them support_worker.",
+    "Team import dialog: base the 'emailed' message on real delivery (or warn when an email couldn't be sent), since imported support workers' temporary passwords go only by email.",
+    "Optional: use a non-danger variant for the 'Send email' confirm button."
+  ],
+  "critical_code_review_comments": [
+    "users.import_users runs one db.users.find_one per row to check for duplicates (up to 500 queries). Fine at this size; could prefetch existing emails with a single $in query.",
+    "The 5MB check runs after file.read() has loaded the whole upload into memory. Acceptable."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter46_import_nudge_celebrations_resend.py"],
+  "success_rate": {"backend": "100% (16/16)", "frontend": "100% of tested flows"},
+  "seed_data_creation": "None kept. All TEST users, notifications and sessions deleted; the teams_announcements integration removed (there was none before testing); no birthdays changed on seeded users; emp.test password untouched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Unit tests for the async helpers (send_starter_nudge, post_celebrations_to_teams) use a fresh AsyncIOMotorClient that is monkeypatched into core, routes.compliance, routes.celebrations and routes.teams (see run_with_db). Web import works via page.expect_file_chooser on team-import-button. The server clock reads Oct 2026."
+}

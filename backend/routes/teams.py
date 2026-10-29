@@ -44,18 +44,19 @@ ANN_KEY = "teams_announcements"
 async def announcements_status(admin=Depends(admin_user)):
     doc = await db.integrations.find_one({"key": ANN_KEY}, P)
     return {"linked": bool(doc and doc.get("webhook")), "updates": (doc or {}).get("updates", True),
-            "events": (doc or {}).get("events", True)}
+            "events": (doc or {}).get("events", True), "celebrations": (doc or {}).get("celebrations", True)}
 
 
 class AnnouncementsIn(BaseModel):
     webhook_url: Optional[str] = None  # empty keeps the current link
     updates: bool = True
     events: bool = True
+    celebrations: bool = True
 
 
 @router.put("/integrations/teams-announcements")
 async def set_announcements(body: AnnouncementsIn, admin=Depends(admin_user)):
-    upd = {"key": ANN_KEY, "updates": body.updates, "events": body.events}
+    upd = {"key": ANN_KEY, "updates": body.updates, "events": body.events, "celebrations": body.celebrations}
     url = (body.webhook_url or "").strip()
     test = None
     if url:
@@ -76,11 +77,19 @@ async def remove_announcements(admin=Depends(admin_user)):
     return {"ok": True}
 
 
-async def announce(kind: str, text: str):
-    """kind: 'updates' | 'events'. Never raises (runs in the background)."""
+async def posted_keys() -> set:
+    doc = await db.meta.find_one({"key": "teams_posted_celebrations"}, P)
+    return set((doc or {}).get("keys", []))
+
+
+async def announce(kind: str, text: str) -> bool:
+    """kind: 'updates' | 'events' | 'celebrations'. Never raises (runs in the background).
+    Returns False only when a linked, enabled channel failed to receive the post."""
     try:
         doc = await db.integrations.find_one({"key": ANN_KEY}, P)
         if doc and doc.get("webhook") and doc.get(kind, True):
-            await ms.post_to_teams(ms.decrypt(doc["webhook"]), text)
+            return await ms.post_to_teams(ms.decrypt(doc["webhook"]), text)
+        return True
     except Exception as e:
         logger.error(f"Teams announcement failed: {e}")
+        return False

@@ -34,7 +34,7 @@ export default function Integrations() {
   const saveAnn = async (patch: Record<string, any>) => {
     setBusy(true);
     try {
-      const r = await api("/integrations/teams-announcements", { method: "PUT", body: { updates: ann.data?.updates ?? true, events: ann.data?.events ?? true, ...patch } });
+      const r = await api("/integrations/teams-announcements", { method: "PUT", body: { updates: ann.data?.updates ?? true, events: ann.data?.events ?? true, celebrations: ann.data?.celebrations ?? true, ...patch } });
       setAnnHook("");
       ann.refetch();
       if (patch.webhook_url) toast(r.test_delivered ? "Linked — test message sent to Teams" : "Linked, but the test message failed", r.test_delivered ? "success" : "error");
@@ -259,7 +259,7 @@ export default function Integrations() {
         </Text>
         <View style={styles.twoWayBox} testID="teams-announcements">
           <Text style={styles.twoWayTitle}>Announcements channel {ann.data?.linked ? "· Linked" : ""}</Text>
-          <Text style={styles.note}>New company updates and events are posted here automatically.</Text>
+          <Text style={styles.note}>New company updates, events and today&apos;s birthdays & work anniversaries are posted here automatically.</Text>
           <TextInput
             testID="teams-announcements-input"
             value={annHook}
@@ -272,10 +272,10 @@ export default function Integrations() {
           />
           {ann.data?.linked && (
             <View style={{ gap: 8 }}>
-              {(["updates", "events"] as const).map((k) => (
+              {(["updates", "events", "celebrations"] as const).map((k) => (
                 <Pressable key={k} onPress={() => saveAnn({ [k]: !ann.data[k] })} style={styles.channelRow} testID={`teams-announcements-toggle-${k}`}>
                   <Ionicons name={ann.data[k] ? "checkbox" : "square-outline"} size={22} color={colors.brandPrimary} />
-                  <Text style={styles.channelName}>{k === "updates" ? "Company updates" : "New events"}</Text>
+                  <Text style={styles.channelName}>{{ updates: "Company updates", events: "New events", celebrations: "Birthdays & work anniversaries" }[k]}</Text>
                 </Pressable>
               ))}
             </View>

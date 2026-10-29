@@ -1,12 +1,14 @@
 import { useState } from "react";
 import * as Clipboard from "expo-clipboard";
-import { FlatList, Modal, Pressable, View } from "react-native";
+import * as DocumentPicker from "expo-document-picker";
+import { ActivityIndicator, FlatList, Modal, Pressable, ScrollView, View } from "react-native";
 import { Text } from "@/src/components/text";
 import { Stack, useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { api } from "@/src/api";
+import { API_URL, api, authHeaders } from "@/src/api";
+import { uploadForm } from "@/src/utils/upload";
 import { useAuth } from "@/src/auth";
 import { GroupPickerSheet } from "@/src/components/group-picker";
 import { MilestoneBadge } from "@/src/components/milestone-badge";
@@ -33,8 +35,29 @@ export default function Team() {
   const [form, setForm] = useState({ name: "", email: "", user_type: "support_worker" });
   const [busy, setBusy] = useState(false);
   const [issued, setIssued] = useState<{ name: string; email: string; password: string } | null>(null);
-  const [confirm, setConfirm] = useState<{ kind: "reset" | "remove"; u: any } | null>(null);
+  const [confirm, setConfirm] = useState<{ kind: "reset" | "remove" | "resend"; u: any } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [imported, setImported] = useState<{ added: any[]; skipped: any[] } | null>(null);
+
+  const importSheet = async () => {
+    const pick = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true,
+      type: ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "text/csv", "text/comma-separated-values", "application/vnd.ms-excel"] });
+    const f = pick.canceled ? null : pick.assets?.[0];
+    if (!f) return;
+    setImporting(true);
+    try {
+      const res = await uploadForm(`${API_URL}/users/import`, { headers: authHeaders(), files: { file: { uri: f.uri, name: f.name, mimeType: f.mimeType ?? undefined } } });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(typeof body.detail === "string" ? body.detail : "Import failed");
+      setImported(body);
+      refresh();
+    } catch (e: any) {
+      toast(e.message, "error");
+    } finally {
+      setImporting(false);
+    }
+  };
 
   const copyLogin = async () => {
     if (!issued) return;
@@ -104,6 +127,10 @@ export default function Team() {
       if (kind === "reset") {
         const r = await api(`/users/${u.user_id}/reset-password`, { method: "POST" });
         setTimeout(() => setIssued({ name: u.name, email: u.email, password: r.temporary_password }), 450);
+      } else if (kind === "resend") {
+        const r = await api(`/users/${u.user_id}/resend-welcome`, { method: "POST" });
+        toast(r.emailed ? `Welcome email sent to ${u.email}` : "No real email address, so nothing was sent", r.emailed ? "success" : "info");
+        if (r.temporary_password) setTimeout(() => setIssued({ name: u.name, email: u.email, password: r.temporary_password }), 450);
       } else {
         await api(`/users/${u.user_id}`, { method: "DELETE" });
         toast(`${u.name} removed`, "info");
@@ -118,9 +145,14 @@ export default function Team() {
     <View style={styles.root} testID="team-screen">
       {isAdmin && (
         <Stack.Screen options={{ headerRight: () => (
-          <Pressable onPress={() => setAdding(true)} style={styles.headerBtn} accessibilityLabel="Add staff member" testID="team-add-button">
-            <Ionicons name="person-add-outline" size={22} color={colors.brandPrimary} />
-          </Pressable>
+          <View style={{ flexDirection: "row" }}>
+            <Pressable onPress={importSheet} disabled={importing} style={styles.headerBtn} accessibilityLabel="Import staff from a spreadsheet" testID="team-import-button">
+              {importing ? <ActivityIndicator color={colors.brandPrimary} /> : <Ionicons name="cloud-upload-outline" size={22} color={colors.brandPrimary} />}
+            </Pressable>
+            <Pressable onPress={() => setAdding(true)} style={styles.headerBtn} accessibilityLabel="Add staff member" testID="team-add-button">
+              <Ionicons name="person-add-outline" size={22} color={colors.brandPrimary} />
+            </Pressable>
+          </View>
         ) }} />
       )}
       {q.isLoading ? (
@@ -133,6 +165,11 @@ export default function Team() {
           keyExtractor={(u) => u.user_id}
           contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: insets.bottom + 24, flexGrow: 1 }}
           ListEmptyComponent={<EmptyState icon="people-outline" title="No one here yet" subtitle={isAdmin ? "Tap + to add your first staff member." : undefined} />}
+          ListHeaderComponent={isAdmin ? (
+            <Text style={styles.hint} testID="team-import-hint">
+              Adding lots of staff? Tap the upload icon and pick an Excel or CSV file with columns: Name, Email, and optionally User type, Job title, Start date, Birthday. Everyone is Support Worker unless the User type says otherwise.
+            </Text>
+          ) : null}
           renderItem={({ item }) => (
             <View style={styles.row} testID={`team-member-${item.user_id}`}>
               <Avatar name={item.name} picture={item.picture} size={48} />
@@ -159,6 +196,9 @@ export default function Team() {
                             <Text style={styles.smallBtnText}>Reset password</Text>
                           </Pressable>
                         )}
+                        <Pressable testID={`team-resend-${item.user_id}`} onPress={() => setConfirm({ kind: "resend", u: item })} style={styles.smallBtn}>
+                          <Text style={styles.smallBtnText}>Resend welcome</Text>
+                        </Pressable>
                         <Pressable testID={`team-remove-${item.user_id}`} onPress={() => setConfirm({ kind: "remove", u: item })} style={styles.smallBtn}>
                           <Text style={[styles.smallBtnText, { color: colors.error }]}>Remove</Text>
                         </Pressable>
@@ -221,9 +261,33 @@ export default function Team() {
       </Modal>
 
       <ConfirmSheet visible={!!confirm}
-        title={confirm?.kind === "reset" ? `Reset ${confirm?.u.name}'s password?` : `Remove ${confirm?.u.name}?`}
-        message={confirm?.kind === "reset" ? "They'll be signed out and get a new temporary password from you." : "They'll lose access to No Limitts straight away."}
-        confirmLabel={confirm?.kind === "reset" ? "Reset password" : "Remove"} onConfirm={doConfirm} onClose={() => setConfirm(null)} />
+        title={confirm?.kind === "reset" ? `Reset ${confirm?.u.name}'s password?` : confirm?.kind === "resend" ? `Resend ${confirm?.u.name}'s welcome email?` : `Remove ${confirm?.u.name}?`}
+        message={confirm?.kind === "reset" ? "They'll be signed out and get a new temporary password from you."
+          : confirm?.kind === "resend" ? (confirm?.u.user_type === "support_worker" ? "They'll get a fresh temporary password by email. Their old password stops working and they'll be signed out." : "They'll get the email again with how to sign in with Microsoft.")
+          : "They'll lose access to No Limitts straight away."}
+        confirmLabel={confirm?.kind === "reset" ? "Reset password" : confirm?.kind === "resend" ? "Send email" : "Remove"} onConfirm={doConfirm} onClose={() => setConfirm(null)} />
+
+      <Modal visible={!!imported} transparent animationType="fade" onRequestClose={() => setImported(null)}>
+        <View style={styles.center}>
+          <View style={[styles.dialog, { maxHeight: "80%" }]} testID="team-import-result">
+            <Text style={styles.sheetTitle}>Import finished</Text>
+            <Text style={styles.hint} testID="team-import-summary">
+              {imported?.added.length ?? 0} added{imported?.skipped.length ? ` · ${imported.skipped.length} skipped` : ""}.{" "}
+              {imported?.added.some((a) => a.emailed) ? "Welcome emails with sign-in steps are on their way. " : ""}
+              {imported?.added.some((a) => !a.emailed) ? "People marked ✉︎✗ have no real email address: use Resend welcome or Reset password to give them a login." : ""}
+            </Text>
+            <ScrollView style={{ maxHeight: 320 }} contentContainerStyle={{ gap: 6 }}>
+              {imported?.added.map((a) => (
+                <Text key={a.email} style={styles.importRow}>✓ {a.name} · {typeLabel(a.user_type)}{a.emailed ? "" : " · ✉︎✗"}</Text>
+              ))}
+              {imported?.skipped.map((s) => (
+                <Text key={`${s.row}`} style={[styles.importRow, { color: colors.errorText }]}>Row {s.row}: {s.name || s.email || "blank"}: {s.reason}</Text>
+              ))}
+            </ScrollView>
+            <Button label="Done" onPress={() => setImported(null)} testID="team-import-done" />
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -250,4 +314,5 @@ const useStyles = makeStyles((c) => ({
   cred: { backgroundColor: c.surfaceSecondary, borderRadius: 12, padding: 14, gap: 4 },
   credLabel: { fontSize: 12, fontWeight: "700", color: c.muted },
   credValue: { fontSize: 16, fontWeight: "700", color: c.onSurface, marginBottom: 6 },
+  importRow: { fontSize: 14, color: c.onSurface },
 }));

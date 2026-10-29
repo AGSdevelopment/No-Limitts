@@ -1,8 +1,12 @@
 """Staff directory and user types (Executive, Admin, Support Office, Support Worker)."""
+import csv
+import io
 import os
 import re
+from datetime import date, datetime, timedelta
 from html import escape
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from typing import Optional
 from core import P, USER_P, USER_TYPES, admin_user, current_user, db, new_id, now_iso, spawn, type_fields
@@ -119,6 +123,104 @@ async def reset_password(user_id: str, admin=Depends(admin_user)):
     if target.get("user_type") != "support_worker":
         raise HTTPException(400, "Only Support Workers have app passwords; office staff use Microsoft")
     return {"temporary_password": await issue_password(user_id)}
+
+
+@router.post("/users/{user_id}/resend-welcome")
+async def resend_welcome(user_id: str, admin=Depends(admin_user)):
+    """Re-send the welcome email. Support Workers get a fresh temporary password (old one stops working)."""
+    target = await db.users.find_one({"user_id": user_id}, USER_P)
+    if not target or target.get("hidden") and not admin.get("hidden"):
+        raise HTTPException(404, "User not found")
+    pw = await issue_password(user_id) if target.get("user_type") == "support_worker" else None
+    spawn(send_welcome(target, pw))
+    emailed = bool(target.get("email")) and not target["email"].endswith("@example.com")
+    return {"temporary_password": pw, "emailed": emailed}
+
+
+IMPORT_COLS = {"name": ("name", "full name", "staff name"), "email": ("email", "email address", "work email"),
+               "user_type": ("user type", "type", "role"), "job_title": ("job title", "title", "position"),
+               "start_date": ("start date", "started"), "birthday": ("birthday", "date of birth", "dob")}
+TYPE_WORDS = {"support worker": "support_worker", "support workers": "support_worker", "worker": "support_worker",
+              "support office": "support_office", "office": "support_office", "admin": "admin", "executive": "executive"}
+
+
+def parse_day(v, allow_no_year: bool = False) -> Optional[date]:
+    if isinstance(v, datetime):
+        return v.date()
+    if isinstance(v, date):
+        return v
+    if isinstance(v, (int, float)) and 1 < v < 80000:  # Excel serial date stored as a number
+        return date(1899, 12, 30) + timedelta(days=int(v))
+    s = str(v or "").strip()
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%d/%m/%y", "%d.%m.%Y") + (("%d/%m", "%d-%m", "%d.%m") if allow_no_year else ()):
+        try:
+            d = datetime.strptime(s, fmt).date()
+            return d.replace(year=2000) if fmt in ("%d/%m", "%d-%m", "%d.%m") else d
+        except ValueError:
+            pass
+    return None
+
+
+def read_rows(name: str, data: bytes) -> list:
+    if name.lower().endswith(".csv"):
+        text = data.decode("utf-8-sig", "ignore")
+        return [r for r in csv.reader(io.StringIO(text))]
+    import openpyxl
+    wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+    return [list(r) for r in wb.worksheets[0].iter_rows(values_only=True)]
+
+
+@router.post("/users/import")
+async def import_users(file: UploadFile = File(...), admin=Depends(admin_user)):
+    """Add many staff from an Excel/CSV sheet (Name, Email, optional User type, Job title, Start date, Birthday).
+    Everyone gets the welcome email; Support Workers' temporary passwords are only sent by email."""
+    data = await file.read()
+    if len(data) > 5 * 1024 * 1024:
+        raise HTTPException(413, "File too large (max 5 MB)")
+    try:
+        rows = await run_in_threadpool(read_rows, file.filename or "", data)
+    except Exception:
+        raise HTTPException(400, "Couldn't read that file. Upload an Excel (.xlsx) or CSV file")
+    rows = [r for r in rows if any(str(c or "").strip() for c in r)]
+    if len(rows) < 2:
+        raise HTTPException(400, "The sheet needs a header row and at least one staff member")
+    header = [str(c or "").strip().lower() for c in rows[0]]
+    col = {k: next((i for i, h in enumerate(header) if h in names), None) for k, names in IMPORT_COLS.items()}
+    if col["name"] is None or col["email"] is None:
+        raise HTTPException(400, "Couldn't find 'Name' and 'Email' columns in the first row")
+    if len(rows) > 501:
+        raise HTTPException(400, "Import up to 500 staff at a time")
+    get = lambda r, k: (r[col[k]] if col[k] is not None and col[k] < len(r) else None)  # noqa: E731
+    added, skipped, seen = [], [], set()
+    for n, r in enumerate(rows[1:], start=2):
+        name, email = str(get(r, "name") or "").strip(), str(get(r, "email") or "").strip().lower()
+        raw_type = str(get(r, "user_type") or "").strip().lower()
+        t = TYPE_WORDS.get(raw_type) if raw_type else "support_worker"
+        reason = None
+        if not name or not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+            reason = "Missing name or invalid email"
+        elif not t:
+            reason = f"Unknown user type '{get(r, 'user_type')}' (use Executive, Admin, Support Office or Support Worker)"
+        elif email in seen or await db.users.find_one({"email": email}):
+            reason = "Already in the app"
+        elif t == "executive" and admin.get("user_type") != "executive":
+            reason = "Only Executives can add Executives"
+        if reason:
+            skipped.append({"row": n, "name": name, "email": email, "reason": reason})
+            continue
+        seen.add(email)
+        start, bday = parse_day(get(r, "start_date")), parse_day(get(r, "birthday"), allow_no_year=True)
+        uid = new_id("user")
+        await db.users.insert_one({"user_id": uid, "email": email, "name": name[:120], "picture": None,
+                                   "job_title": str(get(r, "job_title") or "").strip()[:120], "created_at": now_iso(),
+                                   **({"start_date": start.isoformat()} if start else {}),
+                                   **({"birthday": bday.strftime("%m-%d")} if bday else {}), **type_fields(t)})
+        pw = await issue_password(uid) if t == "support_worker" else None
+        spawn(send_welcome(await db.users.find_one({"user_id": uid}, USER_P), pw))
+        if t == "support_worker":
+            spawn(send_starter_welcome(uid))
+        added.append({"name": name, "email": email, "user_type": t, "emailed": not email.endswith("@example.com")})
+    return {"added": added, "skipped": skipped}
 
 
 @router.delete("/users/{user_id}")

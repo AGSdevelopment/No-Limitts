@@ -158,15 +158,42 @@ async def send_week_ahead(target) -> int:
 
 
 async def celebration_reminder_loop():
-    """Daily: one week-ahead email per date, claimed in meta so it never repeats."""
+    """Hourly: one week-ahead email per date, and (from 8am Perth) today's celebrations posted to Teams.
+    Both are claimed in meta so they never repeat."""
     while True:
         try:
-            target = datetime.now(DIGEST_TZ).date() + timedelta(days=7)
+            today = datetime.now(DIGEST_TZ)
+            target = today.date() + timedelta(days=7)
             key = f"celebration_reminder_{target.isoformat()}"
             if not await db.meta.find_one({"key": key}):
                 await db.meta.insert_one({"key": key, "created_at": now_iso()})
                 n = await send_week_ahead(target)
                 logger.info(f"Celebration reminder for {target}: {n} celebration(s)")
+            tkey = f"celebration_teams_{today.date().isoformat()}"
+            if today.hour >= 8 and not await db.meta.find_one({"key": tkey}):
+                # claim only once everything posted, so a Teams outage retries next hour
+                if await post_celebrations_to_teams(today.date()):
+                    await db.meta.insert_one({"key": tkey, "created_at": now_iso()})
         except Exception as e:
             logger.error(f"Celebration reminder loop failed: {e}")
         await asyncio.sleep(3600)
+
+
+async def post_celebrations_to_teams(d) -> bool:
+    """Post each of the day's celebrations. True when done (or nothing to post / not linked)."""
+    from routes.teams import announce, posted_keys  # local import keeps module load order simple
+    items = await celebrations_on(d, include_hidden=False)
+    ok = True
+    for c in items:
+        if c["key"] in await posted_keys():
+            continue
+        first = c["name"].split(" ")[0]
+        text = (f"🎂 **Happy birthday, {c['name']}!**\n\nWishing {first} a wonderful day from all of us at No Limitts."
+                if c["type"] == "birthday" else
+                f"🎉 **{c['name']} celebrates {c['years']} year{'s' if c['years'] > 1 else ''} with No Limitts today!**\n\n"
+                f"Thank you, {first}, for everything you do.")
+        if await announce("celebrations", text + "\n\nLeave a message on their celebration wall in the No Limitts app."):
+            await db.meta.update_one({"key": "teams_posted_celebrations"}, {"$addToSet": {"keys": c["key"]}}, upsert=True)
+        else:
+            ok = False
+    return ok

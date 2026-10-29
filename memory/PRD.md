@@ -192,3 +192,7 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Welcome email on add staff (users.send_welcome): Microsoft steps for office, email+temp password for Support Workers
 - First-week checklist: Support Workers within 30 days of start_date/created_at (compliance.is_new_starter); dashboard.is_new_starter drives Home/Library
 - Teams announcements channel (integrations key teams_announcements): new company updates + events auto-posted (routes/teams.announce)
+- Bulk staff import: POST /api/users/import (xlsx/csv: Name, Email, opt User type/Job title/Start date/Birthday); welcome emails with temp passwords; Team header upload icon + result dialog
+- Checklist nudge: compliance.starter_reminder_loop (9-17 Perth) one-time email+notice 5+ days after start if unfinished (starter_reminder_sent_at)
+- Teams celebrations: celebrations loop posts today's birthdays/anniversaries from 8am Perth (toggle 'celebrations')
+- Resend welcome: POST /api/users/{id}/resend-welcome (support workers get fresh temp pw)

@@ -401,6 +401,50 @@ async def create_followup(ev: dict, admin: dict) -> Optional[str]:
     return gid
 
 
+async def starter_reminder_loop():
+    """Hourly (9am–5pm Perth): a one-time friendly nudge to Support Workers whose first-week checklist
+    is still unfinished 5+ days after they started."""
+    while True:
+        try:
+            now_p = datetime.now(DIGEST_TZ)
+            if 9 <= now_p.hour < 17:
+                cutoff = (now_p.date() - timedelta(days=5)).isoformat()
+                async for u in db.users.find({"user_type": "support_worker", "hidden": {"$ne": True},
+                                              "starter_completed_at": {"$exists": False},
+                                              "starter_reminder_sent_at": {"$exists": False}}, P):
+                    start = (u.get("start_date") or u.get("created_at") or "")[:10]
+                    if not is_new_starter(u) or not start or start > cutoff:
+                        continue
+                    await send_starter_nudge(u)
+        except Exception as e:
+            logger.error(f"Starter reminder loop failed: {e}")
+        await asyncio.sleep(3600)
+
+
+async def send_starter_nudge(u: dict) -> bool:
+    """Claim, then notify + email the remaining steps. Returns False if already sent or nothing left."""
+    items = await starter_checklist(u)
+    left = [i for i in items if not i["done"]]
+    if not left:
+        return False
+    claim = await db.users.update_one({"user_id": u["user_id"], "starter_reminder_sent_at": {"$exists": False}},
+                                      {"$set": {"starter_reminder_sent_at": now_iso()}})
+    if not claim.modified_count:
+        return False
+    await notify([u["user_id"]], "starter", "A few steps left on your checklist",
+                 f"{len(left)} of {len(items)} first-week steps still to go. You're nearly there!", "/starter-checklist")
+    if u.get("email") and not u["email"].endswith("@example.com"):
+        steps = "".join(f"<li>{escape(i['title'])}</li>" for i in left)
+        await send_email(to=u["email"], subject="A friendly nudge: your No Limitts first-week checklist", html=(
+            "<div style='font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px'>"
+            f"<h2 style='color:#673E8D'>You're doing great, {escape(u['name'].split(' ')[0])}!</h2>"
+            f"<p>Just a friendly reminder that a few steps of your first-week checklist are still open "
+            f"({len(items) - len(left)} of {len(items)} done):</p><ul>{steps}</ul>"
+            "<p>Open the No Limitts app and tap <b>Your first-week checklist</b> on the Home screen to finish up. "
+            "If anything's unclear, message your admin in the app. We're happy to help!</p></div>"))
+    return True
+
+
 # ---- In-app welcome + probation for a new Support Worker (the welcome email is sent from routes/users.py)
 async def send_starter_welcome(user_id: str):
     try:

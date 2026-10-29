@@ -129,8 +129,14 @@ async def set_birthday(user_id: str, body: BirthdayIn, admin=Depends(admin_user)
 
 
 async def default_probation(user_id: str):
-    """New starters get a start date of today and a 12-month probation unless one is already set."""
-    start = perth_today()
+    """New starters get a 12-month probation from their start date (today if none) unless one is already set."""
+    u = await db.users.find_one({"user_id": user_id, "probation_end": {"$in": [None, ""]}}, {"_id": 0, "start_date": 1})
+    if u is None:
+        return
+    try:
+        start = date.fromisoformat((u.get("start_date") or "")[:10])
+    except ValueError:
+        start = perth_today()
     await db.users.update_one({"user_id": user_id, "probation_end": {"$in": [None, ""]}}, {"$set": {
         "start_date": start.isoformat(), "probation_end": add_months(start, PROBATION_MONTHS).isoformat()}})
 
