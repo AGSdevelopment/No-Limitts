@@ -5,7 +5,7 @@ import { Text, TextInput } from "@/src/components/text";
 import { useQuery } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { api, openLink } from "@/src/api";
+import { API_URL, api, getApiToken, openLink } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { useToast } from "@/src/components/toast";
 import { Avatar, Button, EmptyState, ErrorState, Ionicons, Loading, formatDate } from "@/src/components/ui";
@@ -108,6 +108,9 @@ export default function Caseload() {
                     </View>
                     <Text style={styles.field} testID={`caseload-summary-text-${item.name}`}>{summaries[item.name]}</Text>
                     <Text style={styles.aiNote}>AI can make mistakes. Check the notes below before acting.</Text>
+                    <Button label="Export PDF for plan review" icon="document-text-outline" variant="secondary"
+                      onPress={() => openLink(`${API_URL}/caseload/summary/pdf?name=${encodeURIComponent(item.name)}&token=${encodeURIComponent(getApiToken() ?? "")}`)}
+                      testID={`caseload-summary-pdf-${item.name}`} />
                   </>
                 ) : (
                   <Button label={summarising === item.name ? "Summarising…" : "Summarise with AI"} icon="sparkles-outline" variant="secondary"

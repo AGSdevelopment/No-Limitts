@@ -1,12 +1,18 @@
 """Coordinator caseload: participants and recent case notes, read from the Jotform 'Coordinator Case Note Form'."""
 import json
 import os
+import re
 import time
+from datetime import date
+from html import escape
 from typing import Optional
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import Response
 from pydantic import BaseModel
-from core import current_user, logger
+from core import bearer, current_user, db, dmy, logger, now_iso, user_from_token
+from pdf_brand import FIRST_TOP, add_logo
 import ai_service
 
 router = APIRouter(prefix="/api")
@@ -160,4 +166,61 @@ async def caseload_summary(body: SummaryIn, user=Depends(current_user)):
     except Exception as e:
         logger.error(f"Caseload summary failed: {type(e).__name__}")
         raise HTTPException(502, "Couldn't summarise right now. Please try again.")
-    return {"summary": summary.replace("**", "").strip(), "note_count": len(blocks)}
+    summary = summary.replace("**", "").strip()
+    await db.caseload_summaries.update_one(
+        {"participant": participant_key(body.name)},
+        {"$set": {"participant": participant_key(body.name), "summary": summary, "note_count": len(blocks),
+                  "by": user.get("name") or "", "created_at": now_iso()}}, upsert=True)
+    return {"summary": summary, "note_count": len(blocks)}
+
+
+def build_summary_pdf(name: str, saved: dict, notes: list) -> bytes:
+    import io
+    import pymupdf
+    paras = "".join(f"<p style='font-size:10px;margin:0 0 6px 0'>{escape(line)}</p>"
+                    for line in saved["summary"].splitlines() if line.strip())
+    rows = "".join(f"<tr><td>{dmy(n['date'])}</td><td>{escape(n['coordinator'] or '-')}</td>"
+                   f"<td>{escape('; '.join(f['label'] + ': ' + f['value'] for f in n['fields'])[:400])}</td></tr>"
+                   for n in notes[:10])
+    html = (f"<h2 style='color:#673E8D;margin:0'>Participant summary: {escape(name)}</h2>"
+            f"<p style='font-size:9px;color:#555'>Prepared for plan review · Generated {dmy(date.today().isoformat())}"
+            f"{' by ' + escape(saved['by']) if saved.get('by') else ''} · based on {saved['note_count']} case note"
+            f"{'s' if saved['note_count'] != 1 else ''}</p>"
+            f"<h4 style='color:#673E8D'>AI summary</h4>{paras}"
+            f"<p style='font-size:8px;color:#777'>Written by AI from case notes. Please check against the notes before relying on it.</p>"
+            f"<h4 style='color:#673E8D'>Recent case notes</h4>"
+            f"<table style='width:100%;border-collapse:collapse;font-size:8.5px' border='1' cellpadding='3'>"
+            f"<tr style='background:#EFE8F5'><th>Date</th><th>Coordinator</th><th>Note</th></tr>"
+            f"{rows or '<tr><td colspan=3>None</td></tr>'}</table>"
+            f"<p style='font-size:8px;color:#777'>Confidential: contains participant information. No Limitts Pty Ltd.</p>")
+    buf = io.BytesIO()
+    writer = pymupdf.DocumentWriter(buf)
+    story = pymupdf.Story(html=html)
+    page, more = pymupdf.paper_rect("a4"), True
+    first = True
+    while more:
+        dev = writer.begin_page(page)
+        more, _ = story.place(page + (36, FIRST_TOP if first else 36, -36, -36))
+        story.draw(dev)
+        writer.end_page()
+        first = False
+    writer.close()
+    return add_logo(buf.getvalue())
+
+
+@router.get("/caseload/summary/pdf")
+async def caseload_summary_pdf(name: str, request: Request, token: Optional[str] = None):
+    user = await user_from_token(bearer(request) or token)
+    if not user:
+        raise HTTPException(401, "Please sign in again")
+    check_access(user)
+    key = participant_key(name)
+    saved = await db.caseload_summaries.find_one({"participant": key}, {"_id": 0})
+    if not saved:
+        raise HTTPException(404, "Create an AI summary for this participant first")
+    notes = sorted((r for r in await load_rows() if participant_key(r["participant"]) == key),
+                   key=lambda n: (n["date"], n["created_at"] or ""), reverse=True)
+    pdf = await run_in_threadpool(build_summary_pdf, key, saved, notes)
+    fname = re.sub(r"[^A-Za-z0-9]+", "_", key).strip("_")
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'inline; filename="Participant_Summary_{fname}.pdf"'})
