@@ -202,3 +202,5 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Edit staff details: PATCH /api/users/{id} {name,email,job_title}; DetailsCard on staff profile
 - Jotform links all removed (server.clear_jotforms_v1); Forms screen always shows every category header with an empty placeholder
 - Channel #Allied Health renamed #No Limitts (startup update in server.seed)
+- New user type support_coordinator ('Service & Support Coordinator', Microsoft sign-in, staff_group support_coordinator)
+- 24 No Limitts Jotforms seeded (server.NO_LIMITTS_FORMS, meta nolimitts_forms_v1): Operations->support_office, Day-to-Day/HR->all, Participant Management & Onboarding->support_coordinator. New categories Operations + Participant Management & Onboarding

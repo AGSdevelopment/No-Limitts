@@ -68,7 +68,8 @@ async def compliance_export(request: Request, token: Optional[str] = None):
                     headers={"Content-Disposition": f'attachment; filename="No Limitts_Compliance_{date.today().isoformat()}.xlsx"'})
 
 
-STAFF_GROUP_LABELS = {"support_office": "Support Office", "support_worker": "Support Worker"}
+STAFF_GROUP_LABELS = {"support_office": "Support Office", "support_coordinator": "Service & Support Coordinator",
+                      "support_worker": "Support Worker"}
 
 
 STARTER_DAYS = 30

@@ -23,8 +23,8 @@ class FormPatch(BaseModel):
     category: Optional[str] = None
 
 
-FORM_CATEGORIES = ("Day-to-Day", "New Starter", "HR", "Compliance", "Referral Triage", "Therapy Triage",
-                   "Support Office")
+FORM_CATEGORIES = ("Operations", "Day-to-Day", "HR", "Participant Management & Onboarding", "New Starter", "Compliance",
+                   "Referral Triage", "Therapy Triage", "Support Office")
 
 
 def clean_category(value: str) -> str:
@@ -33,7 +33,7 @@ def clean_category(value: str) -> str:
     return value
 
 
-STAFF_GROUPS = ("support_office", "support_worker")
+STAFF_GROUPS = ("support_office", "support_coordinator", "support_worker")
 
 
 def clean_audiences(values: List[str]) -> List[str]:

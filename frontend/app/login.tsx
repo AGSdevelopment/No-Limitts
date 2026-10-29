@@ -30,7 +30,7 @@ export default function Login() {
         <Text style={styles.title}>Everything your team needs, in one place.</Text>
         {error && <Text style={styles.error} testID="login-error">{error}</Text>}
 
-        <Text style={styles.group}>Executives, Admins & Support Office</Text>
+        <Text style={styles.group}>Executives, Admins, Support Office & Coordinators</Text>
         <Button label="Sign in with Microsoft" icon="logo-microsoft" loading={signingIn && !password} onPress={signIn} testID="login-microsoft-button" />
 
         <View style={styles.divider}>

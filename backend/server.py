@@ -81,6 +81,45 @@ async def migrate_forms_v3():
     await db.meta.insert_one({"key": "forms_v3", "created_at": now_iso()})
 
 
+NO_LIMITTS_FORMS = [  # (category, audiences, title, url); empty audiences = all user types
+    ("Operations", ["support_office"], "Equipment Checkout", "https://nolimitts.jotform.com/262568518621968"),
+    ("Operations", ["support_office"], "Submit a Support Ticket", "https://nolimitts.jotform.com/262568232121956"),
+    ("Day-to-Day", [], "Event Attendance Register – Halloween", "https://nolimitts.jotform.com/form/halloween-event-attendance-register"),
+    ("Day-to-Day", [], "Incident Report", "https://nolimitts.jotform.com/262771812661056"),
+    ("Day-to-Day", [], "Daily Client Forms – Active Night Log", "https://nolimitts.jotform.com/262641051646050"),
+    ("Day-to-Day", [], "No Limitts Shift Handover", "https://nolimitts.jotform.com/262641250044043"),
+    ("Day-to-Day", [], "Contractor DSW Expression of Interest Form", "https://nolimitts.jotform.com/form/expression-of-interest-form"),
+    ("Day-to-Day", [], "Conflict Of Interest Form", "https://nolimitts.jotform.com/262778212923058"),
+    ("Day-to-Day", [], "Incident Report Form - 51 Stafford Way", "https://nolimitts.jotform.com/262661878219065"),
+    ("Day-to-Day", [], "Implementation of Restrictive Practices Checklist", "https://nolimitts.jotform.com/262641720389057"),
+    ("Day-to-Day", [], "Participant Money Event", "https://nolimitts.jotform.com/262641740900048"),
+    ("Day-to-Day", [], "Personal Domestic Activities", "https://nolimitts.jotform.com/262641883172057"),
+    ("Day-to-Day", [], "Appointment Follow Up Case Note", "https://nolimitts.jotform.com/262642055038050"),
+    ("HR", [], "Vehicle Checklist", "https://nolimitts.jotform.com/262852316614053"),
+    ("HR", [], "VIVO Checks", "https://nolimitts.jotform.com/262852065506054"),
+    ("HR", [], "Leave Request & Absence Notification", "https://nolimitts.jotform.com/262771962802059"),
+    ("HR", [], "Training / Shadowing Record", "https://nolimitts.jotform.com/262641955099065"),
+    *[("Participant Management & Onboarding", ["support_coordinator"], t, u) for t, u in (
+        ("Coordinator Case Note Form", "https://nolimitts.jotform.com/262772090420048"),
+        ("No Limitts Client Onboarding Checklist", "https://nolimitts.jotform.com/262769397433068"),
+        ("SIL Service Agreement", "https://nolimitts.jotform.com/262851214285053"),
+        ("Emergency Plan", "https://nolimitts.jotform.com/262741008246049"),
+        ("Risk Assessment", "https://nolimitts.jotform.com/262732092621049"),
+        ("No Limitts Participant Consent Form", "https://nolimitts.jotform.com/262731018804049"),
+        ("No Limitts Service Agreement", "https://nolimitts.jotform.com/262728205556057"))],
+]
+
+
+async def seed_no_limitts_forms_v1():
+    if await db.meta.find_one({"key": "nolimitts_forms_v1"}):
+        return
+    for cat, aud, title, url in NO_LIMITTS_FORMS:
+        if not await db.forms.find_one({"url": url}):
+            await db.forms.insert_one({"form_id": new_id("form"), "title": title, "url": url, "description": "",
+                                       "audiences": aud, "category": cat, "created_by": "No Limitts", "created_at": now_iso()})
+    await db.meta.insert_one({"key": "nolimitts_forms_v1", "created_at": now_iso()})
+
+
 async def clear_jotforms_v1():
     """One-time: remove every old Jotform link so No Limitts forms can be added. Category headers stay in the app."""
     if await db.meta.find_one({"key": "forms_cleared_v1"}):
@@ -209,6 +248,7 @@ async def startup():
     await restore_staff()
     await migrate_no_limitts()
     await clear_jotforms_v1()
+    await seed_no_limitts_forms_v1()
     await db.conversations.update_many({"type": "channel", "name": {"$regex": "^allied[- ]health$", "$options": "i"}},
                                        {"$set": {"name": "No Limitts"}})
     await migrate_place_kinds()
