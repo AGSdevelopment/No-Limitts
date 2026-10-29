@@ -87,6 +87,19 @@ export default function ParticipantProfile() {
         </View>
       </View>
 
+      {!!d.intro_status?.length && (
+        <View style={styles.card} testID="participant-intro-status">
+          <Text style={styles.label}>New worker intro</Text>
+          {d.intro_status.map((s: any, i: number) => (
+            <View key={i} style={styles.row}>
+              <Ionicons name={s.read ? "checkmark-circle" : "time-outline"} size={18} color={s.read ? colors.successText : colors.muted} />
+              <Text style={[styles.body, { flex: 1 }]}>{s.name}</Text>
+              <Text style={styles.meta}>{s.read ? "Read" : "Not read yet"}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+
       {d.can_edit && !editing && (
         <Button label={empty ? "Add profile details" : "Edit profile"} icon="create-outline" variant="secondary" onPress={() => setEditing(true)} testID="participant-edit" />
       )}

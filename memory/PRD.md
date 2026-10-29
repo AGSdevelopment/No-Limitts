@@ -234,3 +234,4 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Participant profiles: GET /api/participants/{id} (managers/HR/assigned workers), PUT /api/participants/{id}/profile (managers) — about, goals, support_needs, communication, health_alerts, contacts[]; screen app/participant/[id].tsx
 - Home quick action "Ask AI" replaced by "Caseload" for admin/coordinator/HR/support workers (others keep Ask AI)
 - New Worker Intro: assigning (manual or import) notifies newly assigned workers (type "participant", link /participant/{id}); participants.intro_seen_ids; /api/caseload returns `intros` for workers; IntroSheet "Meet <name>" on caseload; POST /api/participants/{id}/intro-seen (also called when worker opens profile); unassigning resets seen.
+- Intro tracking: caseload `assigned[].intro_read` and profile `intro_status` (managers only) show which assigned workers have read the intro

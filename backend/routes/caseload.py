@@ -269,7 +269,8 @@ async def caseload(user=Depends(current_user), refresh: Optional[bool] = False):
         p = by_key.get(k) or {}
         out.append({"name": p.get("name") or shown.get(k) or k, "participant_id": p.get("participant_id"), "count": len(v),
                     "last_date": max((n["date"] for n in v), default=""),
-                    "assigned": [{"user_id": i, "name": names[i]} for i in p.get("assigned_ids", []) if i in names],
+                    "assigned": [{"user_id": i, "name": names[i], "intro_read": i in p.get("intro_seen_ids", [])}
+                                 for i in p.get("assigned_ids", []) if i in names],
                     "handover": max((n for n in v if "handover" in (n.get("source") or "").lower()),
                                     key=lambda n: (n["date"], n["created_at"] or ""), default=None),
                     "notes": sorted(v, key=lambda n: (n["date"], n["created_at"] or ""), reverse=True)[:10]})
@@ -752,6 +753,8 @@ async def get_participant(participant_id: str, user=Depends(current_user)):
     prof = p.get("profile") or {}
     return {"participant_id": p["participant_id"], "name": p["name"], "can_edit": can_manage(user),
             "assigned": [names[i] for i in p.get("assigned_ids", []) if i in names],
+            "intro_status": [{"name": names[i], "read": i in p.get("intro_seen_ids", [])}
+                             for i in p.get("assigned_ids", []) if i in names] if can_manage(user) else [],
             "profile": {**{k: prof.get(k, "") for k in PROFILE_FIELDS}, "contacts": prof.get("contacts", []),
                         "updated_by": prof.get("updated_by", ""), "updated_at": prof.get("updated_at", "")}}
 

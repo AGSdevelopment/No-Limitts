@@ -220,7 +220,19 @@ export default function Caseload() {
                 )}
                 {q.data.can_manage && item.participant_id && (
                   <>
-                    {!!item.assigned.length && <Text style={styles.meta}>Assigned: {item.assigned.map((a: any) => a.name).join(", ")}</Text>}
+                    {!!item.assigned.length && (
+                      <View style={styles.introList} testID={`caseload-intro-status-${item.name}`}>
+                        <Text style={styles.meta}>Assigned Support Workers · intro read?</Text>
+                        {item.assigned.map((a: any) => (
+                          <View key={a.user_id} style={styles.aiHead}>
+                            <Ionicons name={a.intro_read ? "checkmark-circle" : "time-outline"} size={16}
+                              color={a.intro_read ? colors.successText : colors.muted} />
+                            <Text style={styles.field}>{a.name}</Text>
+                            <Text style={styles.meta}>{a.intro_read ? "Read intro" : "Hasn't read intro yet"}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    )}
                     <View style={styles.manageRow}>
                       <Button label="Assign Support Workers" icon="people-outline" variant="secondary" onPress={() => setAssigning(item)} style={{ flex: 1 }} testID={`caseload-assign-${item.name}`} />
                       <Pressable onPress={() => setRemoving(item)} style={styles.trash} accessibilityLabel={`Remove ${item.name}`} testID={`caseload-remove-${item.name}`}>
@@ -302,6 +314,7 @@ const useStyles = makeStyles((c) => ({
   fieldLabel: { fontWeight: "700", color: c.onSurfaceSecondary },
   manageRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   trash: { width: 48, height: 48, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: c.surfaceSecondary },
+  introList: { gap: 4, backgroundColor: c.surfaceSecondary, borderRadius: 12, padding: 10 },
   templateLink: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 36, alignSelf: "flex-start" },
   templateText: { fontSize: 13, fontWeight: "600", color: c.brandPrimary },
   handover: { backgroundColor: c.warningSoft, borderRadius: 12, padding: 12, gap: 4, borderLeftWidth: 4, borderLeftColor: c.brandPrimary },
