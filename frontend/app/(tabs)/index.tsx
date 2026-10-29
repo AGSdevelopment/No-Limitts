@@ -93,7 +93,7 @@ export default function Home() {
             </Pressable>
           ))}
 
-          {user?.role === "admin" && (
+          {!!user?.executive && (
             <Pressable testID="home-plans-overview" onPress={() => router.push("/plans-overview")} style={({ pressed }) => [styles.starter, pressed && { opacity: 0.85 }]} accessibilityLabel="Open the team plans overview">
               <Ionicons name="people" size={24} color={colors.onBrandPrimary} />
               <View style={{ flex: 1, gap: 2 }}>

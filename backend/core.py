@@ -102,6 +102,20 @@ async def admin_user(user=Depends(current_user)):
     return user
 
 
+# Executives see the Therapist dashboard, Participant plans & safety and the Team plans overview
+EXECUTIVE_EMAILS = {"nikki@aspireandgrow.com.au", "andrew@aspireandgrow.com.au", "pronathi@aspireandgrow.com.au"}
+
+
+def is_executive(user: Optional[dict]) -> bool:
+    return bool(user and user.get("executive"))
+
+
+async def executive_user(user=Depends(current_user)):
+    if not is_executive(user):
+        raise HTTPException(status_code=403, detail="Executives only")
+    return user
+
+
 HIDDEN_TEST_USERS = ["user_testadmin01", "user_testemp001"]
 
 

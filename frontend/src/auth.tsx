@@ -18,6 +18,7 @@ export type User = {
   name: string;
   picture?: string | null;
   role: "admin" | "employee";
+  executive?: boolean;
   job_title?: string;
 };
 

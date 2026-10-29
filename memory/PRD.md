@@ -158,6 +158,8 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Team plans overview (/plans-overview, admin Home card; GET /api/agts-dashboard/team-overview): per-therapist overdue reviews (rev<today, plan not ending ≤30d, not booked), due ≤30d, ending ≤30d, booked, forms; pages with test:true excluded. Admins can open any agts-nk page directly (dashboards.allowed home=False) but Home list shows only shared pages
 - Team plans overview PDF: GET /api/agts-dashboard/team-overview/pdf?token= (admins; pymupdf Story, multi-page A4); "PDF for team meeting" button on /plans-overview
 - Monthly team plans report email: first Monday 8am+ Perth (meta agts_team_report_YYYY-MM) to all real admins (excl. @example.com); body = totals + per-therapist table + 14-day HMAC-signed PDF link (exp+sig, key WEBHOOK_ENCRYPTION_KEY); "Email it to me" button → POST /api/agts-dashboard/team-overview/email-me
+- Executive user type (users.executive): seeded once for nikki@, andrew@, pronathi@ (+ hidden test admin) and auto-set on login for EXECUTIVE_EMAILS (core.py). Only Executives see Therapist dashboard + Participant plans & safety (dashboards.executive_only), Team plans overview (+PDF, email-me), monthly report and dashboard alerts. Therapists keep their own private "My participant plans" pages. Executives can toggle "Make/Remove Executive" on Team screen (PATCH /api/users/{id}/executive)
+
 
 
 

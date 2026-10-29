@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 import httpx
 import os
-from core import P, bearer, current_user, db, new_id, now, now_iso
+from core import EXECUTIVE_EMAILS, P, bearer, current_user, db, new_id, now, now_iso
 
 router = APIRouter(prefix="/api")
 
@@ -28,6 +28,8 @@ async def auth_session(body: SessionIn):
         upd = {"name": data.get("name") or existing["name"], "picture": data.get("picture")}
         if email.lower() in admin_emails:
             upd["role"] = "admin"
+        if email in EXECUTIVE_EMAILS and "executive" not in existing:  # first sign-in only; later changes made on Team stick
+            upd["executive"] = True
         await db.users.update_one({"email": email}, {"$set": upd})
         user_id = existing["user_id"]
     else:
@@ -36,6 +38,7 @@ async def auth_session(body: SessionIn):
         await db.users.insert_one({"user_id": user_id, "email": email, "name": data.get("name") or email,
                                    "picture": data.get("picture"),
                                    "role": "admin" if (is_first or email.lower() in admin_emails) else "employee",
+                                   "executive": email in EXECUTIVE_EMAILS,
                                    "job_title": "", "created_at": now_iso()})
     token = data["session_token"]
     await db.user_sessions.insert_one({"session_token": token, "user_id": user_id,

@@ -64,6 +64,19 @@ export default function Team() {
     }
   };
 
+  const toggleExec = async (u: any) => {
+    setBusy(u.user_id);
+    try {
+      await api(`/users/${u.user_id}/executive`, { method: "PATCH", body: { executive: !u.executive } });
+      qc.invalidateQueries({ queryKey: ["users"] });
+      toast(u.executive ? `${u.name} is no longer an Executive` : `${u.name} is now an Executive`);
+    } catch (e: any) {
+      toast(e.message, "error");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   return (
     <View style={styles.root} testID="team-screen">
       {q.isLoading ? (
@@ -84,6 +97,7 @@ export default function Team() {
                 <Text style={styles.email} numberOfLines={1}>{item.email}</Text>
                 <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
                   <Pill label={item.role === "admin" ? "Admin" : "Employee"} tone={item.role === "admin" ? "brand" : "muted"} />
+                  {!!item.executive && <Pill label="Executive" tone="brand" />}
                   {!!item.staff_group && <Pill label={groupLabel(item.staff_group)} />}
                 </View>
                 {isAdmin && (
@@ -104,6 +118,11 @@ export default function Team() {
                     {item.user_id !== user?.user_id && (
                       <Pressable testID={`team-role-toggle-${item.user_id}`} disabled={busy === item.user_id} onPress={() => toggleRole(item)} style={styles.smallBtn}>
                         <Text style={styles.smallBtnText}>{item.role === "admin" ? "Make employee" : "Make admin"}</Text>
+                      </Pressable>
+                    )}
+                    {!!user?.executive && item.user_id !== user?.user_id && (
+                      <Pressable testID={`team-exec-toggle-${item.user_id}`} disabled={busy === item.user_id} onPress={() => toggleExec(item)} style={styles.smallBtn}>
+                        <Text style={styles.smallBtnText}>{item.executive ? "Remove Executive" : "Make Executive"}</Text>
                       </Pressable>
                     )}
                   </View>

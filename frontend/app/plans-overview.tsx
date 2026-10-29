@@ -23,7 +23,7 @@ export default function PlansOverview() {
   const insets = useSafeAreaInsets();
   const styles = useStyles();
   const { colors } = useTheme();
-  const isAdmin = user?.role === "admin";
+  const isAdmin = !!user?.executive; // Executives only
   const q = useQuery<any>({ queryKey: ["plans-overview"], queryFn: () => api("/agts-dashboard/team-overview"), enabled: isAdmin });
   const toast = useToast();
   const [sending, setSending] = useState(false);
@@ -39,7 +39,7 @@ export default function PlansOverview() {
     }
   };
 
-  if (!isAdmin) return <EmptyState icon="lock-closed-outline" title="Admins only" />;
+  if (!isAdmin) return <EmptyState icon="lock-closed-outline" title="Executives only" />;
   if (q.isLoading) return <Loading />;
   if (q.isError) return <ErrorState message="Couldn't load the plans overview." onRetry={() => q.refetch()} />;
   const pages: Page[] = q.data?.pages ?? [];
@@ -78,7 +78,7 @@ export default function PlansOverview() {
         {sending ? <ActivityIndicator size="small" color={colors.onBrandSecondary} /> : <Ionicons name="mail-outline" size={18} color={colors.onBrandSecondary} />}
         <Text style={styles.openText}>Email it to me</Text>
       </Pressable>
-      <Text style={styles.sub}>Admins also get this report by email on the first Monday of each month.</Text>
+      <Text style={styles.sub}>Executives also get this report by email on the first Monday of each month.</Text>
       {pages.length === 0 ? (
         <EmptyState icon="document-text-outline" title="No plan data yet" subtitle="Upload the plans export on Nikki's plans page first." />
       ) : (

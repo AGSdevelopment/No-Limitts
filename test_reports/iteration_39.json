@@ -1,0 +1,38 @@
+{
+  "summary": "Executive user type verified end-to-end. Backend: new tests/test_iter39_executive.py 49/49 pass; regression iter36-39 112/112 pass. auth/me executive flag correct (exec admin01 true, admin02 false, employee false). /api/dashboards hides therapist-dashboard & participant-plans for non-exec admin/employee; detail 404 for them; exec 200 incl. direct plans-saraya (not in Home list). agts-dashboard data/engine/app (default + view=nk&page=participant-plans, bearer and ?token=) 403 for non-exec, 200 for exec; team-overview, /pdf?token=, POST email-me 403 for non-exec; exec gets overview + real PDF. Employee keeps plans-test (200), gets 403 on plans-saraya; admin2 403 on plans-saraya. PATCH /users/{id}/executive: 403 non-exec admin & employee, 400 self-remove, 404 unknown, 422 empty body; admin02 toggled true (immediately gains access) then back to false (verified in DB). Unit: send_team_report queries {executive:true, hidden:{$ne:true}} and skips @example.com; _admin_ids = non-hidden executives (fake emails/DB only). Frontend 390x844: exec Home shows participant plans, therapist dashboard and Team plans overview cards; overview loads, Open buttons navigate to participant-plans and plans-saraya; Team shows 3 Executive pills and Make/Remove Executive buttons (none on self, 44px tall); button wiring verified with a MOCKED PATCH via page.route (no real user changed). Non-exec admin: Home has none of the 3 cards, /plans-overview 'Executives only', /dashboard/therapist-dashboard|participant-plans|plans-saraya show 'No access'; no exec toggles. Employee: only home-dashboard-plans-test, page loads; /plans-overview 'Executives only'. No Save/Upload/Email endpoints called.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/auth/session (routes/auth.py:31)", "issue": "On every login, users whose email is in EXECUTIVE_EMAILS get executive=True again. If an Executive removes Executive from nikki/andrew/pronathi in the Team screen, it comes back the next time they sign in, so the Remove Executive button doesn't stick for those 3 people. Either only seed once or make it clear in the UI."},
+      {"endpoint": "routes/agts_dashboard.py docstrings/comments", "issue": "Comments still say 'admins' (team_overview section header, send_team_report docstring 'Monthly report to every admin'). Cosmetic."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "plans-overview.tsx:81", "issues": ["Copy says 'Admins also get this report by email on the first Monday of each month' but recipients are now Executives."]},
+      {"screen": "dashboard/[id].tsx:26", "issues": ["Non-exec message says 'This dashboard isn't available for your role.' It could say 'Executives only' to match the plans overview (minor)."]},
+      {"screen": "team.tsx", "issues": ["Make/Remove Executive grants access to sensitive participant data in one tap with no confirmation. Consider a confirm dialog.", "Admin rows now wrap to 4 stacked pill buttons (Change group/Profile/Make admin/Make Executive), so each card is ~280px tall at 390px width. Could be more compact."]},
+      {"screen": "dashboard/plans-saraya (exec view)", "issues": ["Header title reads 'My participant plans' when an Executive opens Saraya's page from the overview. It should name the therapist (pre-existing)."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter39_executive.py", "/app/test_reports/pytest/pytest_iter39.xml"],
+  "action_items": [
+    "Update plans-overview.tsx:81 copy 'Admins also get...' -> 'Executives also get...'.",
+    "Decide whether login should re-force executive=True for EXECUTIVE_EMAILS (auth.py:31). Right now removing Executive from those 3 doesn't last past their next login.",
+    "Optional: add a confirm dialog before Make/Remove Executive; optional 'Executives only' wording on dashboard no-access screen."
+  ],
+  "critical_code_review_comments": [
+    "Gating is consistent: executive_only dashboards -> is_executive; require_admin_token (default view) -> executive; require_view nk resolves the page doc and uses allowed() so participant-plans is executive-only while per-therapist pages stay with their owners and executives can open them directly (home=False).",
+    "test_iter39 is structured as a single TestExecutive class (mixins) so xdist loadscope keeps the admin02 toggle test on one worker. A first run with separate classes produced a race (admin02 briefly executive -> 200 instead of 403)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter39_executive.py"],
+  "success_rate": {"backend": "100% (49/49 new, 112/112 incl. iter36-38 regression)", "frontend": "100% of requested flows"},
+  "seed_data_creation": "None. user_testadmin02 toggled true->false via API and left false (verified in DB).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run pytest normally (pytest.ini sets -n 2 --dist loadscope); keep ADMIN2-state-dependent tests in the same class as the toggle test. user_testadmin02 is hidden so it does not appear in the Team list; UI toggle was verified with page.route mocking. Never call /agts-dashboard/save|upload (live Wix), never toggle nikki/andrew/pronathi, never press Email buttons.",
+  "rca_of_issue": ""
+}

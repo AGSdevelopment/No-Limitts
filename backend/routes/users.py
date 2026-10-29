@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
-from core import P, admin_user, current_user, db, spawn
+from core import P, admin_user, current_user, db, executive_user, spawn
 from routes.forms import STAFF_GROUPS
 
 router = APIRouter(prefix="/api")
@@ -40,6 +40,22 @@ async def set_role(user_id: str, body: RoleIn, admin=Depends(admin_user)):
     if user_id == admin["user_id"] and body.role != "admin":
         raise HTTPException(400, "You cannot remove your own admin role")
     res = await db.users.update_one({"user_id": user_id}, {"$set": {"role": body.role}})
+    if not res.matched_count:
+        raise HTTPException(404, "User not found")
+    return await db.users.find_one({"user_id": user_id}, P)
+
+
+
+class ExecutiveIn(BaseModel):
+    executive: bool
+
+
+@router.patch("/users/{user_id}/executive")
+async def set_executive(user_id: str, body: ExecutiveIn, exe=Depends(executive_user)):
+    """Executive user type (Therapist dashboard, Participant plans & safety, Team plans overview). Only Executives can change it."""
+    if user_id == exe["user_id"] and not body.executive:
+        raise HTTPException(400, "You cannot remove your own Executive access")
+    res = await db.users.update_one({"user_id": user_id}, {"$set": {"executive": body.executive}})
     if not res.matched_count:
         raise HTTPException(404, "User not found")
     return await db.users.find_one({"user_id": user_id}, P)

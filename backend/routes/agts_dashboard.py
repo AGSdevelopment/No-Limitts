@@ -14,7 +14,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
-from core import P, admin_user, bearer, db, logger, now_iso, spawn, user_from_token
+from core import P, bearer, db, executive_user, is_executive, logger, now_iso, spawn, user_from_token
 
 router = APIRouter(prefix="/api")
 COLLECTION = "TherapistDashboard"
@@ -29,11 +29,12 @@ def wix_headers() -> Optional[dict]:
 
 
 async def require_admin_token(request: Request, token: Optional[str]) -> dict:
+    """The full Therapist dashboard: Executives only."""
     user = await user_from_token(bearer(request) or token)
     if not user:
         raise HTTPException(401, "Not authenticated")
-    if user.get("role") != "admin":
-        raise HTTPException(403, "Admins only")
+    if not is_executive(user):
+        raise HTTPException(403, "Executives only")
     return user
 
 
@@ -493,7 +494,7 @@ async def calendar_sync_now(request: Request, page: str = "participant-plans"):
 
 # ---- Team plans overview (admins): every therapist's overdue reviews and form gaps on one page
 @router.get("/agts-dashboard/team-overview")
-async def team_overview(admin=Depends(admin_user)):
+async def team_overview(admin=Depends(executive_user)):
     return await overview_data()
 
 
@@ -510,8 +511,8 @@ async def team_overview_pdf(request: Request, token: Optional[str] = None, exp: 
             raise HTTPException(403, "This link has expired. Open StaffHub → Team plans overview for the latest PDF.")
     else:
         admin = await user_from_token(bearer(request) or token)
-        if not admin or admin.get("role") != "admin":
-            raise HTTPException(403, "Admins only")
+        if not admin or not is_executive(admin):
+            raise HTTPException(403, "Executives only")
     d = await overview_data()
     pdf = await run_in_threadpool(build_overview_pdf, d)
     stamp = (d.get("today") or "").replace(" ", "_")
@@ -559,7 +560,7 @@ async def send_team_report(only: Optional[dict] = None) -> dict:
     """Monthly report to every admin (test accounts excluded), or just `only` (the 'Email it to me' button)."""
     from email_service import send_email
     d = await overview_data()
-    admins = [only] if only else [u for u in await db.users.find({"role": "admin", "hidden": {"$ne": True}}, {"_id": 0, "name": 1, "email": 1}).to_list(50)
+    admins = [only] if only else [u for u in await db.users.find({"executive": True, "hidden": {"$ne": True}}, {"_id": 0, "name": 1, "email": 1}).to_list(50)
                                   if u.get("email") and not u["email"].endswith("@example.com")]
     sent = 0
     for u in admins:
@@ -569,7 +570,7 @@ async def send_team_report(only: Optional[dict] = None) -> dict:
 
 
 @router.post("/agts-dashboard/team-overview/email-me")
-async def team_report_email_me(admin=Depends(admin_user)):
+async def team_report_email_me(admin=Depends(executive_user)):
     return await send_team_report(admin)
 
 
@@ -758,8 +759,8 @@ async def engine(request: Request, token: Optional[str] = None, view: str = "", 
 
 
 # ---- Background: Friday upload reminder + below-hours-target alerts
-async def _admin_ids() -> list:
-    return [u["user_id"] for u in await db.users.find({"role": "admin", "hidden": {"$ne": True}}, {"_id": 0, "user_id": 1}).to_list(100)]
+async def _admin_ids() -> list:  # dashboard alerts go to Executives (the only people who can open the dashboard)
+    return [u["user_id"] for u in await db.users.find({"executive": True, "hidden": {"$ne": True}}, {"_id": 0, "user_id": 1}).to_list(100)]
 
 
 def _serial_to_date(s: int):
