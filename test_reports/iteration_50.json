@@ -1,0 +1,44 @@
+{
+  "summary": "Tested the caseload forms picker, handover acknowledgement, participant profiles, route order and the Home 'Caseload' quick action. Backend: 18/18 passing after one fix. Frontend: all requested flows pass after one fix. Two bugs found and fixed: (1) CRITICAL frontend: caseload.tsx called router.push for the 'Participant profile' button but never imported router, so tapping it threw a ReferenceError. Added the import from expo-router. (2) HIGH backend: GET /api/caseload changed the cached Jotform row object in place when it added handover read_by_me/acks/waiting. A coordinator's acks/waiting lists then showed up in Support Workers' responses for up to 5 minutes, and concurrent users could get the wrong read_by_me. It now copies the row before adding these fields. No deprecated Expo packages or SafeAreaView issues found in the reviewed files.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "GET /api/caseload", "issue": "FIXED by T1: the handover dict was the shared _cache row and was changed for each request, so coordinator-only acks/waiting leaked to Support Workers and read_by_me could race between users. Fix: h = p['handover'] = dict(h) before adding the fields (routes/caseload.py ~line 284).", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "POST /api/caseload/handover/ack", "issue": "Doesn't check that submission_id is a real handover for that participant. Non-workers can ack any string for any participant name, even one that doesn't exist."},
+      {"endpoint": "DELETE /api/participants/{id}", "issue": "Removes caseload_summaries and caseload_shares but not handover_acks for that participant, so orphaned ack records are left behind."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "caseload.tsx Participant profile button", "issue": "FIXED by T1: router was used but not imported, so tapping the button crashed with a ReferenceError.", "testID": "caseload-profile-<name>", "priority": "CRITICAL"},
+      {"component": "participant/[id].tsx", "issue": "Opening an unknown or forbidden participant id stays on the spinner for several seconds. React Query retries 404/403 before showing ErrorState. Set retry: false for 4xx errors.", "testID": "participant-profile-screen", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Caseload (coordinator/admin)", "issues": ["The header 'Write a case note' button (caseload-new-note) still opens only the Coordinator Case Note form directly, while the per-participant button opens the full Day-to-Day picker. This may confuse users."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter50_caseload_forms_handover_ack_profiles.py", "/app/test_reports/pytest/pytest_iter50.xml"],
+  "action_items": [
+    "Review T1's fix in routes/caseload.py (copy the handover row before adding per-user fields) and keep it.",
+    "Review T1's added `import { router } from \"expo-router\"` in app/caseload.tsx.",
+    "Optional: check in /caseload/handover/ack that submission_id belongs to a handover for that participant.",
+    "Optional: delete handover_acks when a participant is removed.",
+    "Optional: set react-query retry:false on 4xx for /participants/{id} so the error shows straight away.",
+    "routes/caseload.py is about 743 lines (over 700). Split participants/profile/export into their own module."
+  ],
+  "critical_code_review_comments": [
+    "Route order is fine: /participants/export and /participants/import-template are declared before /participants/{participant_id} and return xlsx (verified).",
+    "caseload_forms: the full Day-to-Day list comes from forms_query(user), and prefilled forms come first because of the sort key (kind, title).",
+    "The iter49 test test_worker_forms_day_only_prefilled expected every form to be prefilled. Updated it to check only prefilled ones, since non-prefillable forms are now listed by design."
+  ],
+  "updated_files": ["/app/frontend/app/caseload.tsx", "/app/backend/routes/caseload.py", "/app/backend/tests/test_iter49_participants_assign_caseload_email.py", "/app/backend/tests/test_iter50_caseload_forms_handover_ack_profiles.py"],
+  "success_rate": {"backend": "100% (18/18 iter50 after fix; iter49 20/20 after updating the outdated assertion)", "frontend": "100% of requested flows after the router import fix"},
+  "seed_data_creation": "Temporary TEST_ participants and TEST_sub_* handover acks were created and then deleted (0 left).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run pytest with -n 0 (xdist is enabled by default and the module fixture breaks across workers). The handover test runs in-process (ASGITransport plus fake routes.caseload._cache rows) because Jotform has no real submissions. The handover ack UI (caseload-handover-ack-*) wasn't tested in the browser because no live handover exists; it was code reviewed and the backend was checked in-process.",
+  "rca_of_issue": "Handover leak: fetch_rows caches row dicts and the caseload endpoint puts the same dicts into p['handover'], then sets h['acks'], h['waiting'] and h['read_by_me'] on them. Reproduced in-process: an admin GET then a worker GET made the worker response include acks/waiting. Fixed by copying the row before changing it."
+}

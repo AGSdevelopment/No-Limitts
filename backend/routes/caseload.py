@@ -223,8 +223,15 @@ async def caseload_forms(participant: str, user=Depends(current_user)):
             forms = await case_forms(c, await team_header(c, jot_base()))
         except httpx.HTTPError:
             raise HTTPException(502, "Couldn't load the case note forms right now")
-    return [{"title": f["title"], "url": prefill(f, display_name(participant), user), "kind": f["kind"]}
-            for f in forms if not (worker and f["kind"] != "day")]
+    from routes.forms import forms_query
+    out = [{"title": f["title"], "url": prefill(f, display_name(participant), user), "kind": f["kind"], "prefilled": True}
+           for f in forms if not (worker and f["kind"] != "day")]
+    linked = {f["url"] for f in forms}
+    # Every other Day-to-Day form the user can see (no participant field to pre-fill)
+    async for f in db.forms.find({"$and": [{"category": "Day-to-Day"}, forms_query(user)]}, {"_id": 0, "title": 1, "url": 1}):
+        if f.get("url") and f["url"] not in linked:
+            out.append({"title": f["title"], "url": f["url"], "kind": "day", "prefilled": False})
+    return sorted(out, key=lambda f: (f["kind"] != "coordinator", f["title"].lower()))
 
 
 @router.get("/caseload")
@@ -266,12 +273,69 @@ async def caseload(user=Depends(current_user), refresh: Optional[bool] = False):
                     "handover": max((n for n in v if "handover" in (n.get("source") or "").lower()),
                                     key=lambda n: (n["date"], n["created_at"] or ""), default=None),
                     "notes": sorted(v, key=lambda n: (n["date"], n["created_at"] or ""), reverse=True)[:10]})
+    hids = [p["handover"]["id"] for p in out if p["handover"]]
+    acks: dict = {}
+    if hids:
+        async for a in db.handover_acks.find({"submission_id": {"$in": hids}}, {"_id": 0}).sort("at", 1):
+            acks.setdefault(a["submission_id"], []).append(a)
+    for p in out:
+        h = p["handover"]
+        if h:
+            h = p["handover"] = dict(h)  # copy: the row is shared via the 5-minute cache, don't leak per-user fields
+            got = acks.get(h["id"], [])
+            h["read_by_me"] = any(a["user_id"] == user["user_id"] for a in got)
+            if not worker:
+                done = {a["user_id"] for a in got}
+                h["acks"] = [{"name": a["name"], "at": a["at"]} for a in got]
+                h["waiting"] = [a["name"] for a in p["assigned"] if a["user_id"] not in done]
     out.sort(key=lambda p: (p["last_date"], p["name"]), reverse=True)
     return {"configured": configured(), "can_manage": can_manage(user), "worker": worker, "participants": out}
 
 
 class ParticipantIn(BaseModel):
     name: str
+
+
+class AckIn(BaseModel):
+    submission_id: str
+    participant: str
+
+
+@router.post("/caseload/handover/ack")
+async def ack_handover(body: AckIn, user=Depends(current_user)):
+    """'I've read it' on a shift handover, so coordinators can see who's caught up."""
+    key = participant_key(body.participant)
+    if is_worker(user):
+        if not await db.participants.find_one({"key": key, "assigned_ids": user["user_id"]}):
+            raise HTTPException(403, "You're not assigned to this participant")
+    else:
+        check_access(user)
+    await db.handover_acks.update_one(
+        {"submission_id": body.submission_id, "user_id": user["user_id"]},
+        {"$setOnInsert": {"submission_id": body.submission_id, "user_id": user["user_id"], "participant": key,
+                          "name": user.get("name") or "", "at": now_iso()}}, upsert=True)
+    return {"ok": True}
+
+
+class Contact(BaseModel):
+    name: str
+    relationship: Optional[str] = ""
+    phone: Optional[str] = ""
+    email: Optional[str] = ""
+
+
+class ProfileIn(BaseModel):
+    about: Optional[str] = ""
+    goals: Optional[str] = ""
+    support_needs: Optional[str] = ""
+    communication: Optional[str] = ""
+    health_alerts: Optional[str] = ""
+    contacts: List[Contact] = []
+
+
+PROFILE_FIELDS = ("about", "goals", "support_needs", "communication", "health_alerts")
+
+
 
 
 class AssignIn(BaseModel):
@@ -485,6 +549,7 @@ async def remove_participant(participant_id: str, user=Depends(manager)):
     key = p.get("key") or participant_key(p["name"])
     await db.caseload_summaries.delete_many({"participant": key})
     await db.caseload_shares.delete_many({"participant": key})
+    await db.handover_acks.delete_many({"participant": key})
     return {"ok": True}
 
 
@@ -648,3 +713,32 @@ async def shared_summary_pdf(token: str):
     fname = re.sub(r"[^A-Za-z0-9]+", "_", shown).strip("_")
     return Response(content=pdf, media_type="application/pdf",
                     headers={"Content-Disposition": f'inline; filename="Participant_Summary_{fname}.pdf"'})
+
+
+@router.get("/participants/{participant_id}")
+async def get_participant(participant_id: str, user=Depends(current_user)):
+    p = await db.participants.find_one({"participant_id": participant_id}, {"_id": 0})
+    if not p:
+        raise HTTPException(404, "Participant not found")
+    if is_worker(user):
+        if user["user_id"] not in p.get("assigned_ids", []):
+            raise HTTPException(403, "You're not assigned to this participant")
+    else:
+        check_access(user)
+    names = {u["user_id"]: u["name"] async for u in db.users.find({"user_id": {"$in": p.get("assigned_ids", [])}}, {"_id": 0, "user_id": 1, "name": 1})}
+    prof = p.get("profile") or {}
+    return {"participant_id": p["participant_id"], "name": p["name"], "can_edit": can_manage(user),
+            "assigned": [names[i] for i in p.get("assigned_ids", []) if i in names],
+            "profile": {**{k: prof.get(k, "") for k in PROFILE_FIELDS}, "contacts": prof.get("contacts", []),
+                        "updated_by": prof.get("updated_by", ""), "updated_at": prof.get("updated_at", "")}}
+
+
+@router.put("/participants/{participant_id}/profile")
+async def save_profile(participant_id: str, body: ProfileIn, user=Depends(manager)):
+    data = {k: (getattr(body, k) or "").strip()[:4000] for k in PROFILE_FIELDS}
+    data["contacts"] = [{k: (v or "").strip()[:200] for k, v in c.model_dump().items()} for c in body.contacts[:20] if c.name.strip()]
+    data.update(updated_by=user.get("name") or "", updated_at=now_iso())
+    res = await db.participants.update_one({"participant_id": participant_id}, {"$set": {"profile": data}})
+    if not res.matched_count:
+        raise HTTPException(404, "Participant not found")
+    return data

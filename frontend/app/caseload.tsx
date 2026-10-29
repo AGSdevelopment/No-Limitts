@@ -3,6 +3,7 @@ import { useState } from "react";
 import { FlatList, Pressable, RefreshControl, View } from "react-native";
 import { Text, TextInput } from "@/src/components/text";
 import { useQuery } from "@tanstack/react-query";
+import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { API_URL, api, authHeaders, getApiToken, openLink } from "@/src/api";
@@ -36,6 +37,19 @@ export default function Caseload() {
   const [writing, setWriting] = useState<string | null>(null);
   const [removing, setRemoving] = useState<any>(null);
   const [removeBusy, setRemoveBusy] = useState(false);
+  const [acking, setAcking] = useState<string | null>(null);
+
+  const ack = async (item: any) => {
+    setAcking(item.handover.id);
+    try {
+      await api("/caseload/handover/ack", { method: "POST", body: { submission_id: item.handover.id, participant: item.name } });
+      await q.refetch();
+    } catch (e: any) {
+      toast(e.message, "error");
+    } finally {
+      setAcking(null);
+    }
+  };
   const [importing, setImporting] = useState(false);
   const [imported, setImported] = useState<{ added: any[]; updated: any[]; skipped: any[] } | null>(null);
 
@@ -181,9 +195,28 @@ export default function Caseload() {
                     {item.handover.fields.filter((f: any) => !/name|email/i.test(f.label)).slice(0, 10).map((f: any, i: number) => (
                       <Text key={i} style={styles.field}><Text style={styles.fieldLabel}>{f.label}: </Text>{f.value}</Text>
                     ))}
+                    {item.handover.read_by_me ? (
+                      <View style={styles.aiHead} testID={`caseload-handover-read-${item.name}`}>
+                        <Ionicons name="checkmark-circle" size={18} color={colors.successText} />
+                        <Text style={styles.meta}>You&apos;ve read this handover</Text>
+                      </View>
+                    ) : (
+                      <Button label="I've read it" icon="checkmark-done-outline" loading={acking === item.handover.id}
+                        onPress={() => ack(item)} testID={`caseload-handover-ack-${item.name}`} />
+                    )}
+                    {!worker && item.handover.acks && (
+                      <Text style={styles.meta} testID={`caseload-handover-status-${item.name}`}>
+                        {item.handover.acks.length ? `Read by ${item.handover.acks.map((a: any) => a.name).join(", ")}` : "Nobody has marked it read yet"}
+                        {item.handover.waiting?.length ? ` · Waiting on ${item.handover.waiting.join(", ")}` : ""}
+                      </Text>
+                    )}
                   </View>
                 )}
                 <Button label="Write a case note" icon="create-outline" onPress={() => setWriting(item.name)} testID={`caseload-write-${item.name}`} />
+                {item.participant_id && (
+                  <Button label="Participant profile" icon="person-circle-outline" variant="secondary"
+                    onPress={() => router.push(`/participant/${item.participant_id}`)} testID={`caseload-profile-${item.name}`} />
+                )}
                 {q.data.can_manage && item.participant_id && (
                   <>
                     {!!item.assigned.length && <Text style={styles.meta}>Assigned: {item.assigned.map((a: any) => a.name).join(", ")}</Text>}

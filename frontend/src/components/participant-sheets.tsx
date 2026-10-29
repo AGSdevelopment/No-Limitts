@@ -157,7 +157,7 @@ export function CaseFormsSheet({ participant, onClose }: { participant: string |
     enabled: !!participant,
   });
   return (
-    <Sheet visible={!!participant} onClose={onClose} title="Write a case note" sub={`Choose a form. ${participant ?? ""}'s name and your details are filled in for you.`} testID="case-forms-sheet">
+    <Sheet visible={!!participant} onClose={onClose} title="Write a case note" sub={`Choose any Day-to-Day form. Where it says "Details filled in", ${participant ?? ""}'s name and yours are added for you.`} testID="case-forms-sheet">
       {q.isLoading ? <Loading /> : q.isError ? (
         <ErrorState message={(q.error as any)?.message ?? "Couldn't load forms"} onRetry={q.refetch} />
       ) : (
@@ -168,7 +168,10 @@ export function CaseFormsSheet({ participant, onClose }: { participant: string |
           renderItem={({ item }) => (
             <Pressable onPress={() => { onClose(); openLink(item.url); }} style={styles.row} testID={`case-form-${item.title}`}>
               <Ionicons name={item.kind === "coordinator" ? "briefcase-outline" : "document-text-outline"} size={22} color={colors.brandPrimary} />
-              <Text style={[styles.name, { flex: 1 }]}>{item.title}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.name}>{item.title}</Text>
+                {item.prefilled && <Text style={styles.sub}>Details filled in</Text>}
+              </View>
               <Ionicons name="open-outline" size={18} color={colors.muted} />
             </Pressable>
           )}

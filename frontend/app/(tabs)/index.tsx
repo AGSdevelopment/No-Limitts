@@ -42,7 +42,9 @@ export default function Home() {
 
   const actions: { icon: IconName; label: string; to: any; id: string }[] = [
     { icon: "cloud-upload-outline", label: "Upload", to: "/upload-certificate", id: "upload" },
-    { icon: "sparkles-outline", label: "Ask AI", to: "/assistant", id: "assistant" },
+    user?.role === "admin" || ["support_coordinator", "hr", "support_worker"].includes(user?.user_type ?? "")
+      ? { icon: "folder-open-outline", label: "Caseload", to: "/caseload", id: "caseload" }
+      : { icon: "sparkles-outline", label: "Ask AI", to: "/assistant", id: "assistant" },
     { icon: "checkbox-outline", label: "Tasks", to: "/tasks", id: "tasks" },
     { icon: "clipboard-outline", label: "Forms", to: "/forms", id: "forms" },
     { icon: "calendar-outline", label: "Events", to: "/events", id: "events" },

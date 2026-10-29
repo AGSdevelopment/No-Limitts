@@ -229,3 +229,7 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Shift handover: /api/caseload participants include `handover` (latest "Shift Handover" form note); shown pinned at top of expanded participant card.
 - Forms: Vehicle Checklist and VIVO Checks moved to "New Starter" (DB + seed + startup migration)
 - Handover alerts: handover_alert_loop (10 min) checks Shift Handover form submissions; first run baselines (meta handover_seen_{form_id}); new ones → in-app notification (type "handover", link /caseload) to assigned Support Workers except the author (by email). Assignment export: GET /api/participants/export?token= → xlsx "By participant" + "By Support Worker" (managers only).
+- Write a case note sheet lists ALL Day-to-Day forms the user can see (prefilled ones marked "Details filled in")
+- Handover acknowledgement: POST /api/caseload/handover/ack {submission_id, participant} (db.handover_acks); caseload handover has read_by_me, and for coordinators acks + waiting (assigned workers not yet read)
+- Participant profiles: GET /api/participants/{id} (managers/HR/assigned workers), PUT /api/participants/{id}/profile (managers) — about, goals, support_needs, communication, health_alerts, contacts[]; screen app/participant/[id].tsx
+- Home quick action "Ask AI" replaced by "Caseload" for admin/coordinator/HR/support workers (others keep Ask AI)

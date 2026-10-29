@@ -102,7 +102,8 @@ class TestCaseload:
         print("worker forms:", [(f["title"], f["url"]) for f in forms])
         assert len(forms) > 0
         assert all(f["kind"] == "day" for f in forms)
-        assert all("Zed" in f["url"] for f in forms), "participant not prefilled"
+        # iter50: non-prefillable Day-to-Day forms are now listed too (prefilled=False)
+        assert all("Zed" in f["url"] for f in forms if f["prefilled"]), "participant not prefilled"
 
     def test_admin_forms_include_coordinator(self):
         r = requests.get(f"{BASE_URL}/api/caseload/forms", params={"participant": NAME}, headers=ADMIN, timeout=T)
