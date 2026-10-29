@@ -41,9 +41,9 @@ class TestAccess:
         assert r.status_code == 200, r.text[:200]
 
     @pytest.mark.parametrize("ep", ["engine", "app", "data"])
-    def test_admin_403_on_plans_test(self, ep):
+    def test_admin_allowed_on_plans_test(self, ep):  # admins can open any therapist's plans page (from the team overview)
         r = get(ep, view="nk", page="plans-test", token=ADMIN)
-        assert r.status_code == 403
+        assert r.status_code == 200
 
     @pytest.mark.parametrize("ep", ["engine", "app"])
     def test_employee_403_participant_plans(self, ep):

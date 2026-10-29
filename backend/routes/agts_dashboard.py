@@ -14,7 +14,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
-from core import P, bearer, db, logger, now_iso, spawn, user_from_token
+from core import P, admin_user, bearer, db, logger, now_iso, spawn, user_from_token
 
 router = APIRouter(prefix="/api")
 COLLECTION = "TherapistDashboard"
@@ -249,7 +249,8 @@ async def booked_map(clients: Optional[list] = None) -> dict:
     """Plan reviews marked as booked: {name|plan end: {by, at}}; limited to the given clients when passed."""
     keys = None if clients is None else {_bkey(c.get("name", ""), c["end"]) for c in clients if isinstance(c.get("end"), (int, float))}
     docs = await db.plan_reviews_booked.find({}, P).to_list(5000)
-    return {d["key"]: {"by": d.get("booked_by_name", ""), "at": d.get("booked_at", "")} for d in docs if keys is None or d["key"] in keys}
+    return {d["key"]: {"by": d.get("booked_by_name", ""), "at": d.get("booked_at", ""), "date": d.get("review_date")}
+            for d in docs if keys is None or d["key"] in keys}
 
 
 def form_status(c: dict, forms: dict, cfg: dict, today: int) -> dict:
@@ -294,8 +295,9 @@ async def plans_context():
             if c.get("archived") or tag not in (c.get("tags") or "").lower() or not isinstance(end, (int, float)):
                 continue
             end = int(end)
+            bk = booked.get(_bkey(c["name"], end))
             rows.append({"name": c["name"], "end": end, "rev": _addmonths(end, -int(cfg["months"])),
-                         "booked": _bkey(c["name"], end) in booked, "forms": form_status(c, forms, cfg, today)})
+                         "booked": bool(bk), "booked_date": (bk or {}).get("date"), "forms": form_status(c, forms, cfg, today)})
         out.append((pg, rows))
     return nk, cfg, today, out
 
@@ -318,10 +320,12 @@ def plans_email(first: str, rows: list, today: int) -> Optional[tuple]:
     overdue = sorted([r for r in live if r["rev"] < today and not r["booked"] and r["end"] > month_end], key=lambda r: r["rev"])
     due = sorted([r for r in live if today <= r["rev"] <= month_end and not r["booked"] and r["end"] > month_end], key=lambda r: r["rev"])
     ending = sorted([r for r in live if r["end"] <= month_end], key=lambda r: r["end"])
+    booked = sorted([r for r in live if r["booked"] and r.get("booked_date") is not None and today <= r["booked_date"] <= month_end],
+                    key=lambda r: r["booked_date"])
     word = {"missing": "missing", "incomplete": "not completed", "old": "out of date"}
     forms = [(r, [f"{FORM_LABEL[t]} {word[s]}" for t, (s, _) in r["forms"].items() if s != "ok"]) for r in live]
     forms = sorted([x for x in forms if x[1]], key=lambda x: x[0]["name"])
-    if not (overdue or due or ending or forms):
+    if not (overdue or due or ending or forms or booked):
         return None
 
     def sec(title, items, colour):
@@ -337,6 +341,7 @@ def plans_email(first: str, rows: list, today: int) -> Optional[tuple]:
             + sec("Plan reviews overdue", [f"{b(r['name'])} – review was due {_fmt(r['rev'])}, plan ends {_fmt(r['end'])}" for r in overdue], "#b42318")
             + sec("Plan reviews due this month", [f"{b(r['name'])} – review due {_fmt(r['rev'])}" for r in due], "#8f5f00")
             + sec("Plans ending this month", [f"{b(r['name'])} – plan ends {_fmt(r['end'])}" for r in ending], "#b42318")
+            + sec("Reviews booked this month", [f"{b(r['name'])} – review booked for {_fmt(r['booked_date'])}" for r in booked], "#1e7b3a")
             + sec("Forms to action", [f"{b(r['name'])} – {escape(', '.join(x))}" for r, x in forms], "#205790")
             + '<p style="font-size:13px;color:#6b7280;margin-top:22px">Open StaffHub → Home → My participant plans to see details '
               'or tick a review as booked. Booked reviews drop off this email.</p></div>')
@@ -377,6 +382,7 @@ class BookIn(BaseModel):
     name: str
     end: int
     booked: bool = True
+    date: Optional[int] = None  # booked review date (Excel serial day), optional
 
 
 @router.post("/agts-dashboard/review-booked")
@@ -390,9 +396,11 @@ async def review_booked(body: BookIn, request: Request, token: Optional[str] = N
     if not any(c.get("name") == body.name and c.get("end") == body.end for c in nk.get("clients") or []):
         raise HTTPException(404, "Participant not found on this page")
     key = _bkey(body.name, body.end)
+    if body.date is not None and not (body.end - 800 <= body.date <= body.end + 400):
+        raise HTTPException(400, "That review date doesn't look right")
     if body.booked:
         await db.plan_reviews_booked.update_one({"key": key}, {"$set": {
-            "key": key, "name": body.name, "end": body.end, "booked_by": user["user_id"],
+            "key": key, "name": body.name, "end": body.end, "review_date": body.date, "booked_by": user["user_id"],
             "booked_by_name": user.get("name", ""), "booked_at": now_iso()}}, upsert=True)
     else:
         await db.plan_reviews_booked.delete_one({"key": key})
@@ -447,6 +455,9 @@ async def _sync_plan_calendar(extra: Optional[tuple] = None) -> dict:
                     want[f"end|{_bkey(r['name'], r['end'])}"] = (f"Plan ends: {r['name']}", r["end"])
                 if today <= r["rev"] <= today + 400 and not r["booked"] and r["rev"] < r["end"]:
                     want[f"rev|{_bkey(r['name'], r['end'])}|{r['rev']}"] = (f"Plan review due: {r['name']}", r["rev"])
+                bd = r.get("booked_date")
+                if r["booked"] and bd is not None and today <= bd <= today + 400:
+                    want[f"bk|{_bkey(r['name'], r['end'])}|{bd}"] = (f"Plan review booked: {r['name']}", bd)
         have = {d["ekey"]: d for d in await db.plan_cal_events.find({"user_id": uid}, P).to_list(5000)}
         try:
             for ek, (title, s) in want.items():
@@ -478,6 +489,38 @@ async def calendar_sync_now(request: Request, page: str = "participant-plans"):
     if not await db.integrations.find_one({"key": cal_key(user["user_id"])}):
         raise HTTPException(409, "Connect your Google Calendar first")
     return await sync_plan_calendar((user["user_id"], page))
+
+
+# ---- Team plans overview (admins): every therapist's overdue reviews and form gaps on one page
+@router.get("/agts-dashboard/team-overview")
+async def team_overview(admin=Depends(admin_user)):
+    ctx = await plans_context()
+    if not ctx:
+        return {"pages": [], "totals": {}, "today": _fmt(_today_serial()), "review_months": 3}
+    _, cfg, today, pages = ctx
+    word = {"missing": "missing", "incomplete": "not completed", "old": "out of date"}
+    out = []
+    for pg, rows in pages:
+        if pg.get("test"):
+            continue
+        owners = await db.users.find({"user_id": {"$in": pg.get("users") or []}}, {"_id": 0, "name": 1}).to_list(20)
+        live = [r for r in rows if r["end"] >= today]
+        item = lambda r, **k: {"name": r["name"], "end": _fmt(r["end"]), "days_to_end": r["end"] - today, **k}
+        out.append({
+            "dashboard_id": pg["dashboard_id"], "name": pg.get("name", ""),
+            "owners": [u.get("name", "") for u in owners], "participants": len(live),
+            "overdue": [item(r, review=_fmt(r["rev"]), days_overdue=today - r["rev"])
+                        for r in sorted(live, key=lambda r: r["rev"]) if r["rev"] < today and r["end"] - today > 30 and not r["booked"]],
+            "due_30": [item(r, review=_fmt(r["rev"])) for r in sorted(live, key=lambda r: r["rev"])
+                       if today <= r["rev"] <= today + 30 and r["end"] - today > 30 and not r["booked"]],
+            "ending_30": [item(r) for r in sorted(live, key=lambda r: r["end"]) if r["end"] <= today + 30],
+            "booked": [item(r, review=_fmt(r["booked_date"]) if r.get("booked_date") is not None else "") for r in live if r["booked"]],
+            "forms": [{"name": r["name"], "issues": [f"{FORM_LABEL[t]} {word[s]}" for t, (s, _) in r["forms"].items() if s != "ok"]}
+                      for r in sorted(live, key=lambda r: r["name"]) if any(s != "ok" for s, _ in r["forms"].values())],
+        })
+    out.sort(key=lambda p: (-(len(p["overdue"]) + len(p["forms"])), p["name"]))
+    totals = {k: sum(len(p[k]) for p in out) for k in ("overdue", "due_30", "ending_30", "booked", "forms")}
+    return {"pages": out, "totals": totals, "today": _fmt(today), "review_months": cfg["months"]}
 
 
 MOBILE_CSS = """<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style id="sh-mobile">

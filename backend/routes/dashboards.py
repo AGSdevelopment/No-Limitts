@@ -27,7 +27,11 @@ async def ensure_dashboards():
                                            {"$set": {"roles": d["roles"], "users": [u["user_id"] for u in users]}})
 
 
-def allowed(d: dict, user: dict) -> bool:
+def allowed(d: dict, user: dict, home: bool = False) -> bool:
+    """home=True is the Home-screen list: only pages shared with the user. Admins can also open any therapist's
+    plans page directly (e.g. from the Team plans overview) without it cluttering their Home."""
+    if not home and d.get("embed") == "agts-nk" and user.get("role") == "admin":
+        return True
     return (user.get("role") in d.get("roles", []) or (user.get("staff_group") or "") in d.get("groups", [])
             or user.get("user_id") in d.get("users", []))
 
@@ -39,7 +43,7 @@ def out(d: dict) -> dict:
 @router.get("/dashboards")
 async def list_dashboards(user=Depends(current_user)):
     docs = await db.dashboards.find({}, P).sort("name", 1).to_list(50)
-    return [out(d) for d in docs if allowed(d, user)]
+    return [out(d) for d in docs if allowed(d, user, home=True)]
 
 
 @router.get("/dashboards/{dashboard_id}")

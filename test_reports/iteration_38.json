@@ -1,0 +1,39 @@
+{
+  "summary": "Iter38: Review Booking Date + Team Plans Overview. Backend: 30/30 pytest pass (new tests/test_iter38_review_date_overview.py with 9 tests + the updated iter37 suite). Covered: review-booked with date stored and returned as {by,at,date}, date change, re-booking without a date clears it, 400 outside end-800..end+400 (edges allowed), 422 for a non-int date, unbook. Email gets a 'Reviews booked this month' section (unit tests, month-end boundary). Calendar gets a bk| 'Plan review booked' event that is added, moved, and removed when the date changes, goes into the past, or the review is unbooked (fake Google Calendar). team-overview returns 401 with no token and 403 for the employee, has the right shape, leaves out plans-test, and drops booked reviews from overdue (live booking, then undone). Frontend at 390x844: admin Home card leads to /plans-overview with 4 tiles and 2 therapist cards, expand/collapse works, and the employee doesn't see the card ('Admins only' on deep link). In the plans iframe, the date input, Mark booked, the 'Review booked 20 Nov' pill, 'Booked for 20 Nov 2026 by Erin Employee', the green dot and 'review booked' chip in the Nov calendar, Save date (moved to 25 Nov) and Undo all work, and the booking persists after reload. One integration bug: 'Open plans page' on Saraya's card shows 'No access' to admins. All bookings were undone (plan_reviews_booked empty, plan_cal_events 0).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/agts-dashboard/team-overview", "issue": "Overdue uses rev <= today, but the page and email use rev < today, so a review due today counts as overdue only here. Overdue also includes plans ending within 30 days (e.g. Christine Mccleary, 4 days left), which also appear in ending_30. The email avoids this double count (end > month_end), so the 'Reviews overdue' tile (15) is higher than the email/page totals."},
+      {"endpoint": "GET /api/agts-dashboard/team-overview", "issue": "When there's no plan data, it returns {pages:[], totals:{}} with no 'today' or 'review_months'. The UI then shows 'As of undefined.'"},
+      {"endpoint": "POST /api/agts-dashboard/review-booked", "issue": "The date range check runs even when booked:false, so an unbook carrying a bad date gets a 400. Bookings are keyed globally by name|end, so booking on the test page (plans-test) also changes the live Nikki and Saraya pages: during testing, team-overview totals moved from overdue 15 to 13 and booked 0 to 2, and it would have triggered calendar sync for real owners. Expected for shared participants, but QA on plans-test touches real data."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Team plans overview -> Open plans page", "issue": "Admins get 'No access - This dashboard isn't available for your role' for plans-saraya. Its dashboard doc has roles:[] and users:[Saraya], so GET /api/dashboards/plans-saraya returns 404 and /agts-dashboard/data?page=plans-saraya returns 403 for the admin. It only works for participant-plans, which has roles:['admin']. Either let admins view all agts-nk pages (in allowed()/require_view for admin role) or hide the button when the admin has no access.", "affected_testIDs": ["plans-overview-open-plans-saraya"]}
+    ],
+    "design_issues": [
+      {"screen": "therapist-dashboard.html participant card", "issues": ["When the review status is 'Later' (rank 4, not due yet), booking a date keeps the grey 'Later' pill: the 'Review booked <date>' override only applies when st[2] is 1-3. Only the 'Booked for ...' line shows the booking."]},
+      {"screen": "plans-overview", "issues": ["Opening /plans-overview by deep link or reload shows no back arrow (no history). Minor."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter38_review_date_overview.py", "/app/backend/tests/test_iter37_plans_features.py", "/app/test_reports/pytest/pytest_iter38.xml"],
+  "action_items": [
+    "Fix the admin 'Open plans page' no-access for non-admin-role plans pages (plans-saraya): give admins access to agts-nk pages, or hide/disable the button.",
+    "Optional: line up team-overview overdue with the email (rev < today, and leave out plans ending within the window, or flag them) so the tiles don't double count.",
+    "Optional: return 'today' and 'review_months' even when there's no plan data; check the date range only when booked is true; show the 'Review booked' pill for 'Later' rows too."
+  ],
+  "critical_code_review_comments": [
+    "agts_dashboard.py is 743 lines, over the 700-line guideline; consider splitting the plans email/calendar/overview into a module.",
+    "The 'Save date' button with an empty input sends date:null, which silently drops the date but keeps the booking. Acceptable, but worth a hint in the UI."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter37_plans_features.py (booked keys now {at,by,date})", "/app/backend/tests/test_iter38_review_date_overview.py (new)"],
+  "success_rate": {"backend": "100% (30/30)", "frontend": "~92% (all requested flows pass; admin Open plans page for Saraya fails)"},
+  "seed_data_creation": "None. Temporary bookings were made for Tanya Smith (UI) and plans-test participants (API) and all were undone; plan_reviews_booked is empty.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Plans engine is a nested iframe (app -> /api/agts-dashboard/engine). Get the frame whose url contains '/engine'. Select a participant via .nkPick chips (alerts or calendar list). Calendar month nav is .nkCalNav[data-d=1]. Booking keys are global name|end and are shared with live pages. Never call /save, the Email summary button, or Settings.",
+  "rca_of_issue": "Open plans page no-access: routes/dashboards.allowed() only checks the roles/groups/users of each dashboard doc. plans-saraya has roles:[], so the admin role isn't allowed, while team_overview lists it for admins."
+}

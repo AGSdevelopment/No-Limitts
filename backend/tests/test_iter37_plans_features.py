@@ -280,7 +280,7 @@ class TestReviewBookedLive:
     def test_auth(self, live_client):
         body = {"name": live_client["name"], "end": int(live_client["end"]), "booked": False}
         assert post("review-booked", json=body).status_code == 401
-        assert post("review-booked", ADMIN, json=body).status_code == 403
+        assert post("review-booked", ADMIN, json=body).status_code == 200  # admins may open every plans page
         assert post("review-booked", EMP, page="participant-plans", json=body).status_code == 403
 
     def test_not_on_page_404(self, live_client):
@@ -295,7 +295,7 @@ class TestReviewBookedLive:
             r = post("review-booked", EMP, json={"name": name, "end": end, "booked": True})
             assert r.status_code == 200, r.text
             b = r.json()["booked"]
-            assert key in b and set(b[key]) == {"by", "at"} and b[key]["at"]
+            assert key in b and set(b[key]) == {"by", "at", "date"} and b[key]["at"]  # iter38: booked review date added
             d = requests.get(f"{BASE}/api/agts-dashboard/data", params={"view": "nk", "page": "plans-test", "token": EMP}, timeout=60).json()
             nkb = json.loads(d["preview"]["data"])["nikki"]["booked"]
             assert key in nkb
@@ -316,10 +316,9 @@ class TestCalendarLive:
         r = post("calendar-sync", EMP)
         assert r.status_code == 409 and "Connect your Google Calendar first" in r.text
         assert post("calendar-sync").status_code == 401
-        assert post("calendar-sync", ADMIN).status_code == 403
+        assert post("calendar-sync", ADMIN).status_code == 409
 
     def test_email_guards(self):
         # guards only - these never send. The real send is exercised manually once (sends to emp.test@example.com)
         assert post("plans-email/test").status_code == 401
-        assert post("plans-email/test", ADMIN).status_code == 403
         assert post("plans-email/test", EMP, page="participant-plans").status_code == 403

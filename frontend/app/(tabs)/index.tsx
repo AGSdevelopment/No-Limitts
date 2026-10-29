@@ -93,6 +93,17 @@ export default function Home() {
             </Pressable>
           ))}
 
+          {user?.role === "admin" && (
+            <Pressable testID="home-plans-overview" onPress={() => router.push("/plans-overview")} style={({ pressed }) => [styles.starter, pressed && { opacity: 0.85 }]} accessibilityLabel="Open the team plans overview">
+              <Ionicons name="people" size={24} color={colors.onBrandPrimary} />
+              <View style={{ flex: 1, gap: 2 }}>
+                <Text style={styles.starterTitle}>Team plans overview</Text>
+                <Text style={styles.starterSub}>Overdue reviews and missing forms for every therapist</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={colors.onBrandPrimary} />
+            </Pressable>
+          )}
+
           {isEmerging && pathway.data && (
             <Pressable testID="home-pathway-card" onPress={() => router.push("/pathway")} style={({ pressed }) => [styles.starter, pressed && { opacity: 0.85 }]}>
               <Ionicons name="trending-up" size={24} color={colors.onBrandPrimary} />

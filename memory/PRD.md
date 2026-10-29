@@ -154,6 +154,9 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Review booked tick (db.plan_reviews_booked key "name|end"): POST /api/agts-dashboard/review-booked; booked reviews drop from overdue chips/tiles/alerts/email/calendar; shared across all pages for that participant
 - Monday 8am Perth plans email per page owner (send_plans_emails); test: POST /api/agts-dashboard/plans-email/test?page=
 - Google Calendar sync (any user can connect; db.plan_cal_events): all-day "Plan ends"/"Plan review due" events, hourly + POST /api/agts-dashboard/calendar-sync; native bar on plans pages (plan-calendar-bar.tsx)
+- Booked review date (review_date on plan_reviews_booked): date input on participant card, green dot on plan calendar, "Reviews booked this month" in email, "Plan review booked" Google Calendar event
+- Team plans overview (/plans-overview, admin Home card; GET /api/agts-dashboard/team-overview): per-therapist overdue reviews (rev<today, plan not ending ≤30d, not booked), due ≤30d, ending ≤30d, booked, forms; pages with test:true excluded. Admins can open any agts-nk page directly (dashboards.allowed home=False) but Home list shows only shared pages
+
 
 
 
