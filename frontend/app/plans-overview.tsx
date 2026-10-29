@@ -4,7 +4,7 @@ import { useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { api } from "@/src/api";
+import { API_URL, api, getApiToken, openLink } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { EmptyState, ErrorState, Ionicons, Loading } from "@/src/components/ui";
 import { makeStyles, useTheme } from "@/src/theme";
@@ -45,6 +45,15 @@ export default function PlansOverview() {
         <Tile label="Plans ending ≤30 days" value={t.ending_30 ?? 0} tone="bad" />
       </View>
       <Text style={styles.sub}>As of {q.data?.today}. Booked reviews don&apos;t count as overdue. Tap a therapist to see the names.</Text>
+      <Pressable
+        onPress={() => openLink(`${API_URL}/agts-dashboard/team-overview/pdf?token=${encodeURIComponent(getApiToken() ?? "")}`)}
+        style={({ pressed }) => [styles.pdf, pressed && { opacity: 0.85 }]}
+        accessibilityLabel="Download the overview as a PDF"
+        testID="plans-overview-pdf"
+      >
+        <Ionicons name="document-text-outline" size={18} color={colors.onBrandPrimary} />
+        <Text style={styles.pdfText}>PDF for team meeting</Text>
+      </Pressable>
       {pages.length === 0 ? (
         <EmptyState icon="document-text-outline" title="No plan data yet" subtitle="Upload the plans export on Nikki's plans page first." />
       ) : (
@@ -151,4 +160,6 @@ const useStyles = makeStyles((c) => ({
   rowInfo: { fontSize: 13, color: c.onSurfaceSecondary },
   open: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, minHeight: 44, borderRadius: 12, backgroundColor: c.brandSecondary },
   openText: { color: c.onBrandSecondary, fontWeight: "600", fontSize: 14 },
+  pdf: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, minHeight: 48, borderRadius: 14, backgroundColor: c.brandPrimary },
+  pdfText: { color: c.onBrandPrimary, fontWeight: "700", fontSize: 15 },
 }));
