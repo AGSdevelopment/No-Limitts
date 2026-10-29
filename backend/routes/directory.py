@@ -119,10 +119,10 @@ class ShareChannelIn(BaseModel):
 
 
 async def ensure_share_channel():
-    """Shares go to #Allied Health unless an admin picked another channel."""
+    """Shares go to #No Limitts (formerly #Allied Health) unless an admin picked another channel."""
     if await db.settings.find_one({"key": SHARE_KEY}):
         return
-    conv = await db.conversations.find_one({"type": "channel", "name": {"$regex": "^allied[- ]health$", "$options": "i"}}, P)
+    conv = await db.conversations.find_one({"type": "channel", "name": {"$regex": "^(allied[- ]health|no limitts)$", "$options": "i"}}, P)
     if conv:
         await db.settings.insert_one({"key": SHARE_KEY, "conversation_id": conv["conversation_id"]})
 

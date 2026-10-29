@@ -81,6 +81,16 @@ async def migrate_forms_v3():
     await db.meta.insert_one({"key": "forms_v3", "created_at": now_iso()})
 
 
+async def clear_jotforms_v1():
+    """One-time: remove every old Jotform link so No Limitts forms can be added. Category headers stay in the app."""
+    if await db.meta.find_one({"key": "forms_cleared_v1"}):
+        return
+    n = (await db.forms.delete_many({})).deleted_count
+    await db.checklist_progress.delete_many({"item_key": {"$regex": "^form:"}})
+    await db.meta.insert_one({"key": "forms_cleared_v1", "created_at": now_iso()})
+    logger.info(f"Removed {n} old Jotform links")
+
+
 async def seed_staff_v2():
     """One-time import of the team directory (contacts.csv): adds missing staff, sets full names and groups."""
     if await db.meta.find_one({"key": "company_staff_v2"}):
@@ -198,6 +208,9 @@ async def startup():
     await migrate_forms_v3()
     await restore_staff()
     await migrate_no_limitts()
+    await clear_jotforms_v1()
+    await db.conversations.update_many({"type": "channel", "name": {"$regex": "^allied[- ]health$", "$options": "i"}},
+                                       {"$set": {"name": "No Limitts"}})
     await migrate_place_kinds()
     await ensure_share_channel()
     # internal test accounts stay usable but are hidden from staff everywhere

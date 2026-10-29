@@ -32,10 +32,11 @@ export default function Forms() {
   const [error, setError] = useState<string | null>(null);
   const [del, setDel] = useState<any>(null);
   const q = useQuery<any[]>({ queryKey: ["forms"], queryFn: () => api("/forms") });
-  const sections = FORM_CATEGORIES.map((c) => ({
-    title: c,
-    data: (q.data ?? []).filter((f) => (f.category || "Day-to-Day") === c),
-  })).filter((s) => s.data.length > 0);
+  // Every category header always shows (empty ones say so) so admins can see where forms go.
+  const sections = FORM_CATEGORIES.map((c) => {
+    const data = (q.data ?? []).filter((f) => (f.category || "Day-to-Day") === c);
+    return { title: c, data: data.length ? data : [{ form_id: `empty-${c}`, empty: true, category: c }] };
+  });
 
   const open = (f: any) => {
     const sep = f.url.includes("?") ? "&" : "?";
@@ -129,12 +130,16 @@ export default function Forms() {
             <EmptyState
               icon="clipboard-outline"
               title="No forms yet"
-              subtitle={isAdmin ? "Add your Jotform forms, like incident reports or leave requests." : "Your company's forms will show up here."}
+              subtitle={isAdmin ? "Add your No Limitts forms, like incident reports or leave requests." : "Your company's forms will show up here."}
               actionLabel={isAdmin ? "Add form" : undefined}
               onAction={startAdd}
             />
           }
-          renderItem={({ item }) => (
+          renderItem={({ item }) => item.empty ? (
+            <Text style={styles.emptySection} testID={`forms-empty-${item.category}`}>
+              {isAdmin ? "No forms yet. Tap + to add one here." : "No forms here yet."}
+            </Text>
+          ) : (
             <Pressable testID={`form-${item.form_id}`} onPress={() => open(item)} style={({ pressed }) => [styles.row, pressed && { opacity: 0.8 }]}>
               <IconBox name="clipboard-outline" />
               <View style={{ flex: 1, gap: 2 }}>
@@ -218,6 +223,7 @@ const useStyles = makeStyles((c) => ({
   error: { fontSize: 14, color: c.errorText, marginBottom: 12 },
   fieldLabel: { fontSize: 13, fontWeight: "600", color: c.onSurfaceSecondary, marginBottom: 8 },
   sectionHeader: { fontSize: 13, fontWeight: "700", color: c.muted, textTransform: "uppercase", letterSpacing: 0.5, marginTop: 16, marginBottom: 8, marginLeft: 4 },
+  emptySection: { fontSize: 14, color: c.muted, backgroundColor: c.surface, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: c.border, borderStyle: "dashed" },
   groupList: { marginBottom: 16 },
   chipWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 },
   groupRow: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 48, borderBottomWidth: 0.5, borderBottomColor: c.divider },

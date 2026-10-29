@@ -200,3 +200,5 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Cert month nudge: compliance.send_cert_month_nudge, one-time 30+ days after start for support workers missing required certs (cert_month_nudge_at)
 - Teams weekly wrap: teams.weekly_wrap_loop Fridays 3pm Perth (toggle weekly_wrap)
 - Edit staff details: PATCH /api/users/{id} {name,email,job_title}; DetailsCard on staff profile
+- Jotform links all removed (server.clear_jotforms_v1); Forms screen always shows every category header with an empty placeholder
+- Channel #Allied Health renamed #No Limitts (startup update in server.seed)
