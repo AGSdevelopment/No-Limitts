@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { API_URL, api, getApiToken, openLink } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { EmptyState, ErrorState, Ionicons, Loading } from "@/src/components/ui";
+import { useToast } from "@/src/components/toast";
 import { makeStyles, useTheme } from "@/src/theme";
 
 type Item = { name: string; end: string; days_to_end: number; review?: string; days_overdue?: number };
@@ -24,6 +25,19 @@ export default function PlansOverview() {
   const { colors } = useTheme();
   const isAdmin = user?.role === "admin";
   const q = useQuery<any>({ queryKey: ["plans-overview"], queryFn: () => api("/agts-dashboard/team-overview"), enabled: isAdmin });
+  const toast = useToast();
+  const [sending, setSending] = useState(false);
+  const emailMe = async () => {
+    setSending(true);
+    try {
+      const r = await api("/agts-dashboard/team-overview/email-me", { method: "POST" });
+      toast(r.sent ? `Report emailed to ${r.to[0]}` : "The email couldn't be sent. Try again shortly.", r.sent ? "success" : "error");
+    } catch (e: any) {
+      toast(e.message, "error");
+    } finally {
+      setSending(false);
+    }
+  };
 
   if (!isAdmin) return <EmptyState icon="lock-closed-outline" title="Admins only" />;
   if (q.isLoading) return <Loading />;
@@ -54,6 +68,17 @@ export default function PlansOverview() {
         <Ionicons name="document-text-outline" size={18} color={colors.onBrandPrimary} />
         <Text style={styles.pdfText}>PDF for team meeting</Text>
       </Pressable>
+      <Pressable
+        onPress={emailMe}
+        disabled={sending}
+        style={({ pressed }) => [styles.emailBtn, pressed && { opacity: 0.85 }]}
+        accessibilityLabel="Email this report to me"
+        testID="plans-overview-email-me"
+      >
+        {sending ? <ActivityIndicator size="small" color={colors.onBrandSecondary} /> : <Ionicons name="mail-outline" size={18} color={colors.onBrandSecondary} />}
+        <Text style={styles.openText}>Email it to me</Text>
+      </Pressable>
+      <Text style={styles.sub}>Admins also get this report by email on the first Monday of each month.</Text>
       {pages.length === 0 ? (
         <EmptyState icon="document-text-outline" title="No plan data yet" subtitle="Upload the plans export on Nikki's plans page first." />
       ) : (
@@ -162,4 +187,5 @@ const useStyles = makeStyles((c) => ({
   openText: { color: c.onBrandSecondary, fontWeight: "600", fontSize: 14 },
   pdf: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, minHeight: 48, borderRadius: 14, backgroundColor: c.brandPrimary },
   pdfText: { color: c.onBrandPrimary, fontWeight: "700", fontSize: 15 },
+  emailBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, minHeight: 48, borderRadius: 14, backgroundColor: c.brandSecondary },
 }));

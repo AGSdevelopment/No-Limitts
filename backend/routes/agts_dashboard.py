@@ -498,18 +498,79 @@ async def team_overview(admin=Depends(admin_user)):
 
 
 @router.get("/agts-dashboard/team-overview/pdf")
-async def team_overview_pdf(request: Request, token: Optional[str] = None):
-    """Printable team plans overview for team meetings (admins). Token in the query so it opens in a browser tab."""
+async def team_overview_pdf(request: Request, token: Optional[str] = None, exp: int = 0, sig: str = ""):
+    """Printable team plans overview for team meetings (admins). Token in the query so it opens in a browser tab;
+    the monthly email uses a signed link (exp + sig) that only opens this PDF and expires after 14 days."""
     from fastapi.concurrency import run_in_threadpool
     from fastapi.responses import Response
-    admin = await user_from_token(bearer(request) or token)
-    if not admin or admin.get("role") != "admin":
-        raise HTTPException(403, "Admins only")
+    import hmac
+    import time
+    if sig:
+        if exp < time.time() or not hmac.compare_digest(sig, _pdf_sig(exp)):
+            raise HTTPException(403, "This link has expired. Open StaffHub → Team plans overview for the latest PDF.")
+    else:
+        admin = await user_from_token(bearer(request) or token)
+        if not admin or admin.get("role") != "admin":
+            raise HTTPException(403, "Admins only")
     d = await overview_data()
     pdf = await run_in_threadpool(build_overview_pdf, d)
     stamp = (d.get("today") or "").replace(" ", "_")
     return Response(content=pdf, media_type="application/pdf",
                     headers={"Content-Disposition": f'inline; filename="Team_Plans_Overview_{stamp}.pdf"'})
+
+
+def _pdf_sig(exp: int) -> str:
+    import hashlib
+    import hmac
+    key = (os.environ.get("WEBHOOK_ENCRYPTION_KEY") or "") + "|team-overview-pdf"
+    return hmac.new(key.encode(), str(int(exp)).encode(), hashlib.sha256).hexdigest()[:32]
+
+
+def team_report_email(first: str, d: dict) -> tuple:
+    """(subject, html) monthly team plans report: totals, one row per therapist and a 14-day signed PDF link."""
+    import time
+    from html import escape as e
+    exp = int(time.time()) + 14 * 86400
+    base = (os.environ.get("PUBLIC_BACKEND_URL") or "").rstrip("/")
+    link = f"{base}/api/agts-dashboard/team-overview/pdf?exp={exp}&sig={_pdf_sig(exp)}" if base.startswith("https://") else ""
+    t = d.get("totals") or {}
+    td = "padding:6px 8px;border-bottom:1px solid #e5e7eb;font-size:13px"
+    rows = "".join(f"<tr><td style='{td}'>{e(', '.join(p['owners']) or p['name'])}</td><td style='{td};text-align:center'>{len(p['overdue'])}</td>"
+                   f"<td style='{td};text-align:center'>{len(p['forms'])}</td><td style='{td};text-align:center'>{len(p['due_30'])}</td>"
+                   f"<td style='{td};text-align:center'>{len(p['ending_30'])}</td></tr>" for p in d["pages"])
+    th = "padding:6px 8px;background:#E3F1FE;font-size:12px;text-align:left;color:#205790"
+    btn = (f'<p style="margin:20px 0"><a href="{link}" style="background:#205790;color:#ffffff;padding:12px 18px;border-radius:10px;'
+           f'text-decoration:none;font-weight:bold;font-size:14px">Download the team plans PDF</a></p>'
+           f'<p style="font-size:12px;color:#6b7280">The link opens the latest figures and expires in 14 days.</p>') if link else ""
+    html = (f'<table role="presentation" width="100%"><tr><td style="padding:20px;font-family:Arial,Helvetica,sans-serif;color:#1f2937">'
+            f'<h2 style="color:#205790;margin:0 0 6px">Monthly team plans report – {e(d.get("today") or "")}</h2>'
+            f'<p style="font-size:14px">Hi {e(first)}, here is this month\'s participant plans snapshot for the team meeting.</p>'
+            f'<p style="font-size:14px"><b>{t.get("overdue", 0)}</b> reviews overdue · <b>{t.get("forms", 0)}</b> participants with forms to action · '
+            f'<b>{t.get("due_30", 0)}</b> reviews due in 30 days · <b>{t.get("ending_30", 0)}</b> plans ending in 30 days · '
+            f'<b>{t.get("booked", 0)}</b> reviews booked</p>'
+            f'<table role="presentation" width="100%" style="border-collapse:collapse"><tr><th style="{th}">Therapist</th><th style="{th}">Overdue</th>'
+            f'<th style="{th}">Forms</th><th style="{th}">Due ≤30d</th><th style="{th}">Ending ≤30d</th></tr>{rows}</table>'
+            f'{btn}<p style="font-size:12px;color:#6b7280">Sent by StaffHub (Aspire &amp; Grow) on the first Monday of each month. '
+            f'Names and dates are in the PDF and in StaffHub → Team plans overview.</p></td></tr></table>')
+    return f"Team plans report: {t.get('overdue', 0)} overdue reviews, {t.get('forms', 0)} forms to action", html
+
+
+async def send_team_report(only: Optional[dict] = None) -> dict:
+    """Monthly report to every admin (test accounts excluded), or just `only` (the 'Email it to me' button)."""
+    from email_service import send_email
+    d = await overview_data()
+    admins = [only] if only else [u for u in await db.users.find({"role": "admin", "hidden": {"$ne": True}}, {"_id": 0, "name": 1, "email": 1}).to_list(50)
+                                  if u.get("email") and not u["email"].endswith("@example.com")]
+    sent = 0
+    for u in admins:
+        subject, html = team_report_email((u.get("name") or "there").split(" ")[0], d)
+        sent += bool(await send_email(to=u["email"], subject=subject, html=html))
+    return {"sent": sent, "to": [u["email"] for u in admins]}
+
+
+@router.post("/agts-dashboard/team-overview/email-me")
+async def team_report_email_me(admin=Depends(admin_user)):
+    return await send_team_report(admin)
 
 
 def build_overview_pdf(d: dict) -> bytes:
@@ -770,6 +831,12 @@ async def dashboard_loop():
                     if not await db.meta.find_one({"key": ekey}):
                         await db.meta.insert_one({"key": ekey, "created_at": now_iso()})
                         logger.info(f"Plans emails: {await send_plans_emails()}")
+                    # first Monday of the month: team plans report to admins
+                    if local.day <= 7:
+                        rkey = f"agts_team_report_{local.strftime('%Y-%m')}"
+                        if not await db.meta.find_one({"key": rkey}):
+                            await db.meta.insert_one({"key": rkey, "created_at": now_iso()})
+                            logger.info(f"Team plans report: {await send_team_report()}")
                 await sync_plan_calendar()
                 # Below hours target alerts, once per therapist per dashboard week
                 bill, sett = await read_part(client, "billing"), await read_part(client, "settings")
