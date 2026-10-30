@@ -269,7 +269,8 @@ async def caseload(user=Depends(current_user), refresh: Optional[bool] = False):
         p = by_key.get(k) or {}
         out.append({"name": p.get("name") or shown.get(k) or k, "participant_id": p.get("participant_id"), "count": len(v),
                     "last_date": max((n["date"] for n in v), default=""),
-                    "assigned": [{"user_id": i, "name": names[i], "intro_read": i in p.get("intro_seen_ids", [])}
+                    "assigned": [{"user_id": i, "name": names[i], "intro_read": i in p.get("intro_seen_ids", []),
+                                  "nudged_at": (p.get("nudged_at") or {}).get(i, "")}
                                  for i in p.get("assigned_ids", []) if i in names],
                     "handover": max((n for n in v if "handover" in (n.get("source") or "").lower()),
                                     key=lambda n: (n["date"], n["created_at"] or ""), default=None),
@@ -385,6 +386,29 @@ async def welcome_workers(user_ids: list, p: dict):
         await notify(user_ids, "participant", f"New participant: {p['name']}",
                      f"You've been assigned to support {p['name']}. Read their profile before your first shift.",
                      f"/participant/{p['participant_id']}")
+
+
+class NudgeIn(BaseModel):
+    user_id: str
+
+
+@router.post("/participants/{participant_id}/nudge")
+async def nudge_intro(participant_id: str, body: NudgeIn, user=Depends(manager)):
+    """Remind an assigned Support Worker to read the participant intro (once a day per worker)."""
+    p = await db.participants.find_one({"participant_id": participant_id}, {"_id": 0})
+    if not p or body.user_id not in p.get("assigned_ids", []):
+        raise HTTPException(404, "That Support Worker isn't assigned to this participant")
+    if body.user_id in p.get("intro_seen_ids", []):
+        raise HTTPException(400, "They've already read the intro")
+    last = (p.get("nudged_at") or {}).get(body.user_id, "")
+    if last and datetime.fromisoformat(last) > datetime.now(timezone.utc) - timedelta(hours=24):
+        raise HTTPException(429, "Already reminded in the last 24 hours")
+    await notify([body.user_id], "participant", f"Reminder: meet {p['name']}",
+                 f"{user.get('name') or 'Your coordinator'} asked you to read {p['name']}'s profile before your next shift.",
+                 f"/participant/{participant_id}")
+    at = now_iso()
+    await db.participants.update_one({"participant_id": participant_id}, {"$set": {f"nudged_at.{body.user_id}": at}})
+    return {"nudged_at": at}
 
 
 @router.post("/participants/{participant_id}/intro-seen")
@@ -753,7 +777,8 @@ async def get_participant(participant_id: str, user=Depends(current_user)):
     prof = p.get("profile") or {}
     return {"participant_id": p["participant_id"], "name": p["name"], "can_edit": can_manage(user),
             "assigned": [names[i] for i in p.get("assigned_ids", []) if i in names],
-            "intro_status": [{"name": names[i], "read": i in p.get("intro_seen_ids", [])}
+            "intro_status": [{"user_id": i, "name": names[i], "read": i in p.get("intro_seen_ids", []),
+                              "nudged_at": (p.get("nudged_at") or {}).get(i, "")}
                              for i in p.get("assigned_ids", []) if i in names] if can_manage(user) else [],
             "profile": {**{k: prof.get(k, "") for k in PROFILE_FIELDS}, "contacts": prof.get("contacts", []),
                         "updated_by": prof.get("updated_by", ""), "updated_at": prof.get("updated_at", "")}}

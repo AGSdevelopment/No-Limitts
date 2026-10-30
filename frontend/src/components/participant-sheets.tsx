@@ -91,6 +91,33 @@ export function IntroSheet({ participantId, onDone, onOpenProfile }: { participa
   );
 }
 
+export function NudgeButton({ participantId, worker, onDone }: { participantId: string; worker: { user_id: string; name: string; nudged_at?: string }; onDone: () => void }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const recent = !!worker.nudged_at && Date.now() - new Date(worker.nudged_at).getTime() < 24 * 3600 * 1000;
+  if (recent) return <Text style={styles.sub} testID={`nudge-done-${worker.user_id}`}>Reminded</Text>;
+  const send = async () => {
+    setBusy(true);
+    try {
+      await api(`/participants/${participantId}/nudge`, { method: "POST", body: { user_id: worker.user_id } });
+      toast(`Reminder sent to ${worker.name}`, "success");
+      onDone();
+    } catch (e: any) {
+      toast(e.message, "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Pressable onPress={send} disabled={busy} style={styles.nudge} accessibilityRole="button" accessibilityLabel={`Remind ${worker.name}`} testID={`nudge-${worker.user_id}`}>
+      <Ionicons name="notifications-outline" size={14} color={colors.brandPrimary} />
+      <Text style={styles.nudgeText}>{busy ? "Sending…" : "Remind"}</Text>
+    </Pressable>
+  );
+}
+
 export function ImportResultSheet({ result, onClose }: { result: { added: any[]; updated: any[]; skipped: any[] } | null; onClose: () => void }) {
   const styles = useStyles();
   const unknown = [...(result?.added ?? []), ...(result?.updated ?? [])].filter((r) => r.unknown?.length);
@@ -241,5 +268,7 @@ const useStyles = makeStyles((c) => ({
   row: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 52, paddingVertical: 4 },
   name: { fontSize: 15, fontWeight: "600", color: c.onSurface },
   introHead: { flexDirection: "row", alignItems: "center", gap: 6 },
+  nudge: { flexDirection: "row", alignItems: "center", gap: 4, minHeight: 36, paddingHorizontal: 12, borderRadius: 18, backgroundColor: c.brandTertiary },
+  nudgeText: { fontSize: 13, fontWeight: "700", color: c.brandPrimary },
   introBody: { fontSize: 14, color: c.onSurface, lineHeight: 20 },
 }));

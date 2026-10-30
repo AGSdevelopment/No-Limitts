@@ -9,7 +9,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { API_URL, api, authHeaders, getApiToken, openLink } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { StaffEmailSheet } from "@/src/components/staff-email-sheet";
-import { AddParticipantSheet, AssignSheet, CaseFormsSheet, ConfirmSheet, ImportResultSheet, IntroSheet } from "@/src/components/participant-sheets";
+import { AddParticipantSheet, AssignSheet, CaseFormsSheet, ConfirmSheet, ImportResultSheet, IntroSheet, NudgeButton } from "@/src/components/participant-sheets";
 import * as DocumentPicker from "expo-document-picker";
 import { uploadForm } from "@/src/utils/upload";
 import { useToast } from "@/src/components/toast";
@@ -227,8 +227,13 @@ export default function Caseload() {
                           <View key={a.user_id} style={styles.aiHead}>
                             <Ionicons name={a.intro_read ? "checkmark-circle" : "time-outline"} size={16}
                               color={a.intro_read ? colors.successText : colors.muted} />
-                            <Text style={styles.field}>{a.name}</Text>
-                            <Text style={styles.meta}>{a.intro_read ? "Read intro" : "Hasn't read intro yet"}</Text>
+                            <Text style={[styles.field, { flex: 1 }]}>{a.name}</Text>
+                            {a.intro_read ? <Text style={styles.meta}>Read intro</Text> : (
+                              <>
+                                <Text style={styles.meta}>Not read</Text>
+                                <NudgeButton participantId={item.participant_id} worker={a} onDone={q.refetch} />
+                              </>
+                            )}
                           </View>
                         ))}
                       </View>

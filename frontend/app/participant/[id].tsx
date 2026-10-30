@@ -8,6 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api } from "@/src/api";
+import { NudgeButton } from "@/src/components/participant-sheets";
 import { Text } from "@/src/components/text";
 import { useToast } from "@/src/components/toast";
 import { Avatar, Button, ErrorState, Field, Ionicons, Loading, formatDate } from "@/src/components/ui";
@@ -94,7 +95,12 @@ export default function ParticipantProfile() {
             <View key={i} style={styles.row}>
               <Ionicons name={s.read ? "checkmark-circle" : "time-outline"} size={18} color={s.read ? colors.successText : colors.muted} />
               <Text style={[styles.body, { flex: 1 }]}>{s.name}</Text>
-              <Text style={styles.meta}>{s.read ? "Read" : "Not read yet"}</Text>
+              {s.read ? <Text style={styles.meta}>Read</Text> : (
+                <>
+                  <Text style={styles.meta}>Not read yet</Text>
+                  <NudgeButton participantId={d.participant_id} worker={s} onDone={q.refetch} />
+                </>
+              )}
             </View>
           ))}
         </View>
