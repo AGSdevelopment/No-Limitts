@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { View } from "react-native";
+import { Pressable, View } from "react-native";
+import { useRouter } from "expo-router";
 import { Text } from "@/src/components/text";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
@@ -15,6 +16,7 @@ export default function Login() {
   const { signIn, signInWithPassword, signingIn, error } = useAuth();
   const insets = useSafeAreaInsets();
   const styles = useStyles();
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
@@ -47,6 +49,9 @@ export default function Login() {
             onPress={() => signInWithPassword(email, password)} testID="login-password-button" />
         </View>
         <Text style={styles.foot}>No login yet? Ask your admin to set you up.</Text>
+        <Pressable onPress={() => router.push("/privacy")} style={styles.privacy} hitSlop={8} testID="login-privacy-link" accessibilityRole="link">
+          <Text style={styles.privacyText}>Privacy policy</Text>
+        </Pressable>
       </Animated.View>
     </KeyboardAwareScrollView>
   );
@@ -66,4 +71,6 @@ const useStyles = makeStyles((c) => ({
   or: { fontSize: 13, fontWeight: "700", color: c.muted },
   error: { color: c.errorText, marginBottom: 12, fontSize: 14 },
   foot: { textAlign: "center", color: c.muted, fontSize: 13, marginTop: 16 },
+  privacy: { alignSelf: "center", minHeight: 44, justifyContent: "center", paddingHorizontal: 12 },
+  privacyText: { color: c.brandPrimary, fontSize: 13, fontWeight: "600", textDecorationLine: "underline" },
 }));

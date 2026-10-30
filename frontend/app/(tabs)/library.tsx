@@ -96,7 +96,8 @@ export default function Library() {
             <Group rows={admin} />
           </>
         )}
-        <Button label="Sign out" variant="secondary" icon="log-out-outline" onPress={signOut} style={{ marginTop: 24 }} testID="library-sign-out-button" />
+        <Button label="Privacy policy" variant="ghost" icon="shield-checkmark-outline" onPress={() => router.push("/privacy")} style={{ marginTop: 24 }} testID="library-privacy-link" />
+        <Button label="Sign out" variant="secondary" icon="log-out-outline" onPress={signOut} style={{ marginTop: 8 }} testID="library-sign-out-button" />
       </ScrollView>
     </View>
   );

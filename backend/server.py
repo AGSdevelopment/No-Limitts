@@ -7,7 +7,7 @@ from core import HIDDEN_TEST_USERS, P, ROOT_DIR, SEED_USERS, client, db, logger,
 from storage import init_storage
 from routes import (auth, users, notifications, certificates, chat, updates, policies, compliance, events, tasks,
                     dashboard, drive, teams, calendar, forms, socials, cpd, ai, digest, profile, places, pathway, directory, referral_map,
-                    celebrations, caseload)
+                    celebrations, caseload, privacy)
 from routes.celebrations import celebration_reminder_loop
 from routes.caseload import handover_alert_loop
 from routes.compliance import starter_reminder_loop
@@ -35,7 +35,7 @@ async def health():
 
 for module in (auth, users, notifications, certificates, chat, updates, policies, compliance, events, tasks,
                dashboard, drive, teams, calendar, forms, socials, cpd, ai, digest, profile, places, pathway, directory, referral_map,
-               celebrations, caseload):
+               celebrations, caseload, privacy):
     app.include_router(module.router)
 
 

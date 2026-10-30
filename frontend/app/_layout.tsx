@@ -80,6 +80,7 @@ function RootStack() {
       <Stack.Protected guard={!user}>
         <Stack.Screen name="login" />
       </Stack.Protected>
+      <Stack.Screen name="privacy" options={{ ...header, title: "Privacy policy" }} />
     </Stack>
   );
 }
