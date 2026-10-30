@@ -1,6 +1,6 @@
 // No Limitts app privacy policy. Open to everyone (linked from Login and Library); admins can edit the wording.
 import { useState } from "react";
-import { View } from "react-native";
+import { Linking, Pressable, View } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useQuery } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -9,11 +9,12 @@ import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { Text } from "@/src/components/text";
 import { useToast } from "@/src/components/toast";
-import { Button, ErrorState, Field, Loading, formatDate } from "@/src/components/ui";
-import { makeStyles } from "@/src/theme";
+import { Button, ErrorState, Field, Ionicons, Loading, formatDate } from "@/src/components/ui";
+import { makeStyles, useTheme } from "@/src/theme";
 
 export default function Privacy() {
   const styles = useStyles();
+  const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const toast = useToast();
@@ -62,6 +63,16 @@ export default function Privacy() {
           {!!q.data!.updated_at && <Text style={styles.meta}>Last updated {formatDate(q.data!.updated_at)}</Text>}
         </View>
       )}
+      {draft === null && (
+        <Pressable onPress={() => Linking.openURL(`mailto:${q.data!.contact}?subject=Privacy%20question`)} style={styles.contact}
+          accessibilityRole="link" testID="privacy-contact">
+          <Ionicons name="mail-outline" size={20} color={colors.brandPrimary} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.contactTitle}>Privacy questions or requests</Text>
+            <Text style={styles.contactEmail}>{q.data!.contact}</Text>
+          </View>
+        </Pressable>
+      )}
       {user?.role === "admin" && draft === null && (
         <Button label="Edit privacy policy" icon="create-outline" variant="secondary" onPress={() => setDraft(q.data!.text)} testID="privacy-edit" />
       )}
@@ -76,4 +87,7 @@ const useStyles = makeStyles((c) => ({
   body: { fontSize: 14, color: c.onSurface, lineHeight: 21 },
   meta: { fontSize: 13, color: c.muted },
   editor: { minHeight: 360, textAlignVertical: "top" },
+  contact: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: c.surface, borderRadius: 16, padding: 16, minHeight: 56 },
+  contactTitle: { fontSize: 15, fontWeight: "700", color: c.onSurface },
+  contactEmail: { fontSize: 14, color: c.brandPrimary, fontWeight: "600" },
 }));

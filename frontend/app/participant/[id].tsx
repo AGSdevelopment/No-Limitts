@@ -35,6 +35,8 @@ export default function ParticipantProfile() {
   const [form, setForm] = useState<Record<string, string>>({});
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [saving, setSaving] = useState(false);
+  const [drafting, setDrafting] = useState(false);
+  const [draftNote, setDraftNote] = useState("");
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
@@ -60,6 +62,7 @@ export default function ParticipantProfile() {
       await api(`/participants/${id}/profile`, { method: "PUT", body: { ...form, contacts } });
       await q.refetch();
       setEditing(false);
+      setDraftNote("");
       toast("Profile saved", "success");
     } catch (e: any) {
       toast(e.message, "error");
@@ -68,6 +71,21 @@ export default function ParticipantProfile() {
     }
   };
   const setContact = (i: number, k: keyof Contact, v: string) => setContacts((cs) => cs.map((c, j) => (j === i ? { ...c, [k]: v } : c)));
+  const draftWithAI = async () => {
+    setDrafting(true);
+    try {
+      const r = await api<any>(`/participants/${id}/profile/draft`, { method: "POST" });
+      setEditing(true);
+      // Fill only empty sections so nothing the coordinator already wrote is overwritten
+      setForm((f) => Object.fromEntries(SECTIONS.map((s) => [s.key, f[s.key]?.trim() ? f[s.key] : r[s.key] ?? ""])));
+      setContacts((cs) => [...cs, ...r.contacts.filter((c: Contact) => !cs.some((x) => x.name.toLowerCase() === c.name.toLowerCase()))]);
+      setDraftNote(`AI draft from ${r.note_count} case note${r.note_count === 1 ? "" : "s"}. Empty sections were filled in. Check everything before saving.`);
+    } catch (e: any) {
+      toast(e.message, "error");
+    } finally {
+      setDrafting(false);
+    }
+  };
 
   return (
     <KeyboardAwareScrollView
@@ -107,7 +125,17 @@ export default function ParticipantProfile() {
       )}
 
       {d.can_edit && !editing && (
-        <Button label={empty ? "Add profile details" : "Edit profile"} icon="create-outline" variant="secondary" onPress={() => setEditing(true)} testID="participant-edit" />
+        <>
+          <Button label={empty ? "Add profile details" : "Edit profile"} icon="create-outline" variant="secondary" onPress={() => setEditing(true)} testID="participant-edit" />
+          <Button label={drafting ? "Reading case notes…" : "Draft from case notes with AI"} icon="sparkles-outline" variant="ghost"
+            loading={drafting} onPress={draftWithAI} testID="participant-ai-draft" />
+        </>
+      )}
+      {editing && draftNote && (
+        <View style={styles.aiBanner} testID="participant-ai-banner">
+          <Ionicons name="sparkles" size={16} color={colors.brandPrimary} />
+          <Text style={[styles.meta, { flex: 1 }]}>{draftNote}</Text>
+        </View>
       )}
 
       {editing ? (
@@ -134,7 +162,7 @@ export default function ParticipantProfile() {
           ))}
           <Button label="Add a contact" icon="add" variant="ghost" onPress={() => setContacts((cs) => [...cs, { name: "", relationship: "", phone: "", email: "" }])} testID="participant-contact-add" />
           <Button label="Save profile" icon="checkmark" loading={saving} onPress={save} testID="participant-save" />
-          <Button label="Cancel" variant="ghost" onPress={() => setEditing(false)} testID="participant-cancel" />
+          <Button label="Cancel" variant="ghost" onPress={() => { setEditing(false); setDraftNote(""); }} testID="participant-cancel" />
         </>
       ) : empty ? (
         <View style={styles.card}>
@@ -190,6 +218,7 @@ const useStyles = makeStyles((c) => ({
   body: { fontSize: 14, color: c.onSurface, lineHeight: 20 },
   section: { fontSize: 16, fontWeight: "700", color: c.onSurface, marginTop: 4 },
   multi: { minHeight: 88, textAlignVertical: "top" },
+  aiBanner: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: c.brandTertiary, borderRadius: 12, padding: 12 },
   iconBtn: { width: 44, height: 36, alignItems: "flex-end", justifyContent: "center" },
   chip: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 40, paddingHorizontal: 12, borderRadius: 20, backgroundColor: c.brandTertiary },
   chipText: { fontSize: 14, fontWeight: "600", color: c.brandPrimary },

@@ -793,3 +793,49 @@ async def save_profile(participant_id: str, body: ProfileIn, user=Depends(manage
     if not res.matched_count:
         raise HTTPException(404, "Participant not found")
     return data
+
+
+PROFILE_SYSTEM = (
+    "You help NDIS Service & Support Coordinators at No Limitts write a participant profile for new Support Workers, "
+    "using only facts in the case notes provided. Reply with JSON only, no markdown, in this shape: "
+    '{"about": "", "goals": "", "support_needs": "", "communication": "", "health_alerts": "", '
+    '"contacts": [{"name": "", "relationship": "", "phone": "", "email": ""}]}. '
+    "about: interests, likes/dislikes, what a good day looks like. goals: NDIS goals they're working towards. "
+    "support_needs: routines and how to support them. communication: how they communicate and what helps. "
+    "health_alerts: allergies, conditions, risks, behaviours of concern. contacts: family, carers or professionals named "
+    "with their role. Use short plain Australian English sentences, one point per line starting with '- ' when listing. "
+    "Leave a field as an empty string if the notes don't mention it. Never invent details, phone numbers or emails."
+)
+
+
+@router.post("/participants/{participant_id}/profile/draft")
+async def draft_profile(participant_id: str, user=Depends(manager)):
+    """AI first draft of a participant profile from their case notes. Not saved: the coordinator reviews and saves."""
+    p = await db.participants.find_one({"participant_id": participant_id}, {"_id": 0})
+    if not p:
+        raise HTTPException(404, "Participant not found")
+    if not configured():
+        raise HTTPException(400, "Jotform isn't connected yet")
+    notes = sorted((r for r in await load_rows() if participant_key(r["participant"]) == p["key"]),
+                   key=lambda n: (n["date"], n["created_at"] or ""), reverse=True)
+    if not notes:
+        raise HTTPException(404, f"No case notes found for {p['name']} yet")
+    blocks, total = [], 0
+    for n in notes[:30]:
+        block = f"[{n['date']}] {n['source']}\n" + "\n".join(f"{f['label']}: {f['value']}" for f in n["fields"])
+        total += len(block)
+        if total > 45000:
+            break
+        blocks.append(block)
+    try:
+        raw = await ai_service.answer(PROFILE_SYSTEM, f"Case notes for {p['name']} (newest first):\n\n" + "\n\n".join(blocks))
+        m = re.search(r"\{.*\}", raw, re.S)
+        data = json.loads(m.group(0)) if m else {}
+    except Exception as e:
+        logger.error(f"Profile draft failed: {type(e).__name__}")
+        raise HTTPException(502, "Couldn't write a draft right now. Please try again.")
+    out = {k: str(data.get(k) or "").replace("**", "").strip()[:4000] for k in PROFILE_FIELDS}
+    out["contacts"] = [{k: str(c.get(k) or "").strip()[:200] for k in ("name", "relationship", "phone", "email")}
+                       for c in (data.get("contacts") or [])[:20] if isinstance(c, dict) and str(c.get("name") or "").strip()]
+    out["note_count"] = len(blocks)
+    return out

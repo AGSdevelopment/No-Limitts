@@ -1,4 +1,4 @@
-import { Pressable, ScrollView, View } from "react-native";
+import { Linking, Pressable, ScrollView, View } from "react-native";
 import { Text } from "@/src/components/text";
 import { useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
@@ -97,6 +97,10 @@ export default function Library() {
           </>
         )}
         <Button label="Privacy policy" variant="ghost" icon="shield-checkmark-outline" onPress={() => router.push("/privacy")} style={{ marginTop: 24 }} testID="library-privacy-link" />
+        <Pressable onPress={() => Linking.openURL("mailto:compliance@nolimitts.com.au?subject=Privacy%20question")} style={styles.privacyContact}
+          accessibilityRole="link" testID="library-privacy-contact">
+          <Text style={styles.privacyContactText}>Privacy questions? compliance@nolimitts.com.au</Text>
+        </Pressable>
         <Button label="Sign out" variant="secondary" icon="log-out-outline" onPress={signOut} style={{ marginTop: 8 }} testID="library-sign-out-button" />
       </ScrollView>
     </View>
@@ -109,6 +113,8 @@ const useStyles = makeStyles((c) => ({
   name: { fontSize: 18, fontWeight: "700", color: c.onSurface },
   email: { fontSize: 13, color: c.muted },
   groupTitle: { fontSize: 13, fontWeight: "600", color: c.muted, textTransform: "uppercase", marginTop: 24, marginBottom: 8, marginLeft: 4 },
+  privacyContact: { alignSelf: "center", minHeight: 44, justifyContent: "center", paddingHorizontal: 12 },
+  privacyContactText: { fontSize: 13, color: c.brandPrimary, fontWeight: "600", textAlign: "center" },
   group: { backgroundColor: c.surface, borderRadius: 16, overflow: "hidden" },
   row: { flexDirection: "row", alignItems: "center", paddingLeft: 16, gap: 12, minHeight: 56 },
   rowBody: { flex: 1, flexDirection: "row", alignItems: "center", gap: 8, paddingRight: 16, minHeight: 56 },

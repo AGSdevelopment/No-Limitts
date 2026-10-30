@@ -8,6 +8,8 @@ from core import admin_user, db, now_iso
 
 router = APIRouter(prefix="/api")
 
+PRIVACY_CONTACT = "compliance@nolimitts.com.au"
+
 DEFAULT_POLICY = """## About this policy
 This policy explains how the No Limitts staff app ("the app") collects, uses, stores and protects personal information. The app is for No Limitts employees and contractors only. We handle personal information in line with the Privacy Act 1988 (Cth), the Australian Privacy Principles and our obligations as a registered NDIS provider.
 
@@ -33,10 +35,10 @@ We do not sell personal information. We share it only with service providers tha
 Information is stored on secure cloud servers and sent over encrypted connections. Sign-in is protected by Microsoft accounts or individual passwords. Private links to participant documents expire after 7 days. We keep information only for as long as we need it for work, legal or NDIS record-keeping purposes.
 
 ## Your choices and rights
-You can view and update your own profile in the app at any time. You can ask to access or correct the personal information we hold about you, or ask questions about this policy, by contacting your manager or the No Limitts admin team. If you are not satisfied with our response, you can contact the Office of the Australian Information Commissioner (oaic.gov.au).
+You can view and update your own profile in the app at any time. You can ask to access or correct the personal information we hold about you, or ask questions about this policy, by emailing our compliance team at compliance@nolimitts.com.au. If you are not satisfied with our response, you can contact the Office of the Australian Information Commissioner (oaic.gov.au).
 
 ## Participants
-Participant information is collected and managed under No Limitts' participant privacy and consent processes. Participants and their representatives can contact their Service Coordinator to access or correct their information.
+Participant information is collected and managed under No Limitts' participant privacy and consent processes. Participants and their representatives can contact their Service Coordinator, or email compliance@nolimitts.com.au, to access or correct their information.
 
 ## Changes to this policy
 We may update this policy from time to time. The latest version is always available in the app and at this page."""
@@ -44,7 +46,8 @@ We may update this policy from time to time. The latest version is always availa
 
 async def current() -> dict:
     doc = await db.meta.find_one({"key": "privacy_policy"}, {"_id": 0})
-    return {"text": (doc or {}).get("text") or DEFAULT_POLICY, "updated_at": (doc or {}).get("updated_at", "")}
+    return {"text": (doc or {}).get("text") or DEFAULT_POLICY, "updated_at": (doc or {}).get("updated_at", ""),
+            "contact": PRIVACY_CONTACT}
 
 
 @router.get("/privacy")
@@ -72,7 +75,8 @@ async def privacy_page():
         "<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
         "<title>No Limitts app privacy policy</title><style>body{font-family:Arial,sans-serif;max-width:760px;margin:0 auto;padding:24px;"
         "color:#11181C;line-height:1.55}h1{color:#673E8D}h2{color:#673E8D;font-size:18px;margin-top:28px}li{margin-left:20px}</style></head>"
-        f"<body><h1>No Limitts app privacy policy</h1>{body}</body></html>")
+        f"<body><h1>No Limitts app privacy policy</h1>{body}<h2>Contact</h2><p>Privacy questions or requests: "
+        f"<a href='mailto:{PRIVACY_CONTACT}'>{PRIVACY_CONTACT}</a></p></body></html>")
 
 
 class PolicyIn(BaseModel):
