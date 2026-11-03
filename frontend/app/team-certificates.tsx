@@ -7,7 +7,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { Text } from "@/src/components/text";
-import { Avatar, EmptyState, ErrorState, Loading, formatDate } from "@/src/components/ui";
+import { useToast } from "@/src/components/toast";
+import { Avatar, EmptyState, ErrorState, Ionicons, Loading, formatDate } from "@/src/components/ui";
 import { makeStyles, useTheme } from "@/src/theme";
 
 const FILTERS = [
@@ -24,6 +25,20 @@ export default function TeamCertificates() {
   const allowed = user?.role === "admin" || ["hr", "support_coordinator"].includes(user?.user_type ?? "");
   const q = useQuery<any>({ queryKey: ["team-certificates"], queryFn: () => api("/certificates/team"), enabled: allowed });
   const [filter, setFilter] = useState<(typeof FILTERS)[number]["key"]>("all");
+  const [nudging, setNudging] = useState<string | null>(null);
+  const toast = useToast();
+  const nudge = async (c: any) => {
+    setNudging(c.cert_id);
+    try {
+      await api(`/certificates/${c.cert_id}/nudge`, { method: "POST" });
+      toast(`Reminder sent to ${c.owner_name}`, "success");
+      await q.refetch();
+    } catch (e: any) {
+      toast(e.message, "error");
+    } finally {
+      setNudging(null);
+    }
+  };
 
   if (!allowed) return <EmptyState icon="lock-closed-outline" title="Not available" subtitle="For Service Coordinators, HR and Admins." />;
   if (q.isLoading) return <Loading />;
@@ -65,6 +80,17 @@ export default function TeamCertificates() {
               <Text style={styles.name}>{item.owner_name}</Text>
               <Text style={styles.body} numberOfLines={2}>{item.title}</Text>
               <Text style={styles.meta}>{expired ? "Expired" : "Expires"} {formatDate(item.expiry_date)}</Text>
+              {(item.nudged_at ?? "").slice(0, 10) === new Date().toISOString().slice(0, 10) ? (
+                <Text style={styles.nudged} testID={`team-cert-nudged-${item.cert_id}`}>
+                  Reminder sent today{item.nudged_by_name ? ` by ${item.nudged_by_name}` : ""}
+                </Text>
+              ) : (
+                <Pressable onPress={() => nudge(item)} disabled={nudging === item.cert_id} style={styles.nudge}
+                  accessibilityRole="button" testID={`team-cert-nudge-${item.cert_id}`}>
+                  <Ionicons name="notifications-outline" size={16} color={colors.brandPrimary} />
+                  <Text style={styles.nudgeText}>{nudging === item.cert_id ? "Sending…" : "Nudge to renew"}</Text>
+                </Pressable>
+              )}
             </View>
             <View style={[styles.count, expired ? styles.countError : styles.countWarn]}>
               <Text style={[styles.countNum, { color: expired ? colors.errorText : colors.warningText }]}>
@@ -93,6 +119,9 @@ const useStyles = makeStyles((c) => ({
   countNum: { fontSize: 22, fontWeight: "800" },
   countLabel: { fontSize: 11, fontWeight: "600" },
   chips: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
+  nudge: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 44, alignSelf: "flex-start" },
+  nudgeText: { fontSize: 14, fontWeight: "700", color: c.brandPrimary },
+  nudged: { fontSize: 13, fontWeight: "600", color: c.successText, marginTop: 6 },
   chip: { minHeight: 44, paddingHorizontal: 14, borderRadius: 22, justifyContent: "center", backgroundColor: c.surface },
   chipOn: { backgroundColor: c.brandPrimary },
   chipText: { fontSize: 13, fontWeight: "600", color: c.onSurface },

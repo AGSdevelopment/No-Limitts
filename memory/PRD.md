@@ -255,3 +255,5 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Handover photos (routes/caseload_extras.py): POST/GET/DELETE /api/caseload/handover/photos; validated against the participant's real Jotform handover; shown in caseload handover card (src/components/handover-photos.tsx). Collection handover_photos.
 - Participant birthdays: profile.date_of_birth; caseload badge within 7 days; 8am Perth alert to assigned workers.
 - Monthly case note completion PDF: emailed (30-day private link) to each support_coordinator on the 1st; GET /api/caseload/monthly-report/pdf, POST /api/caseload/monthly-report/email. Only participants added in the app are counted.
+- Renewal nudge: POST /api/certificates/{cert_id}/nudge (coordinators/HR/admins, once a day per cert) -> in-app + email to worker; "Nudge to renew" on /team-certificates.
+- Monthly report "all participants" mode now includes Jotform-only participants (marked *, counted from their first Jotform note).

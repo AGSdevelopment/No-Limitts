@@ -164,10 +164,20 @@ async def monthly_report(user: dict, month: str) -> dict:
     days = month_days(month)
     rows = await load_rows() if configured() else []
     have: dict = {}
+    first: dict = {}
     for r in rows:
+        k = participant_key(r["participant"])
         if r["kind"] == "day":
-            have.setdefault(participant_key(r["participant"]), []).append(note_day(r))
+            have.setdefault(k, []).append(note_day(r))
+        d = note_day(r)
+        if k and (k not in first or d < first[k][0]):
+            first[k] = (d, r["participant"])
     people = await coordinator_participants(user)
+    own = bool(await db.participants.count_documents({"assigned_ids": user["user_id"]}))
+    if not own:  # everyone: include participants who only appear in Jotform case notes
+        known = {p["key"] for p in people}
+        people += sorted(({"key": k, "name": n, "created_at": d, "assigned_ids": [], "jotform_only": True}
+                          for k, (d, n) in first.items() if k not in known), key=lambda p: p["name"].lower())
     ids = {i for p in people for i in p.get("assigned_ids", [])}
     names = {u["user_id"]: u["name"] async for u in db.users.find({"user_id": {"$in": list(ids)}, "user_type": "support_worker"},
                                                                   {"_id": 0, "user_id": 1, "name": 1})}
@@ -178,13 +188,13 @@ async def monthly_report(user: dict, month: str) -> dict:
         window = [d for d in days if d >= since]
         noted = [d for d in have.get(p["key"], []) if d in window]
         done = len(set(noted))
-        out.append({"name": p["name"], "days": len(window), "done": done, "notes": len(noted),
+        out.append({"name": p["name"], "days": len(window), "done": done, "notes": len(noted), "jotform_only": p.get("jotform_only", False),
                     "pct": round(done * 100 / len(window)) if window else None,
                     "workers": [names[i] for i in p.get("assigned_ids", []) if i in names]})
     tracked = [x for x in out if x["days"]]
     total_days = sum(x["days"] for x in tracked)
     overall = round(sum(x["done"] for x in tracked) * 100 / total_days) if total_days else None
-    return {"month": month, "participants": out, "overall": overall, "own": bool(await db.participants.count_documents({"assigned_ids": user["user_id"]}))}
+    return {"month": month, "participants": out, "overall": overall, "own": own}
 
 
 def month_label(month: str) -> str:
@@ -199,7 +209,7 @@ def build_report_pdf(rep: dict, for_name: str) -> bytes:
     def colour(pct):
         return "#1E7D3A" if pct is not None and pct >= 90 else "#B26A00" if pct is not None and pct >= 70 else "#B42318"
     rows = "".join(
-        f"<tr><td>{escape(p['name'])}</td><td>{escape(', '.join(p['workers']) or '-')}</td>"
+        f"<tr><td>{escape(p['name'])}{' *' if p.get('jotform_only') else ''}</td><td>{escape(', '.join(p['workers']) or '-')}</td>"
         f"<td style='text-align:center'>{p['done']} / {p['days']}</td><td style='text-align:center'>{p['notes']}</td>"
         f"<td style='text-align:center;color:{colour(p['pct'])};font-weight:bold'>{'-' if p['pct'] is None else str(p['pct']) + '%'}</td></tr>"
         for p in sorted(rep["participants"], key=lambda x: (x["pct"] if x["pct"] is not None else 101, x["name"])))
@@ -212,7 +222,8 @@ def build_report_pdf(rep: dict, for_name: str) -> bytes:
             f"<tr style='background:#EFE8F5'><th>Participant</th><th>Support Workers</th><th>Days with a note</th>"
             f"<th>Notes</th><th>Completion</th></tr>{rows or '<tr><td colspan=5>No participants</td></tr>'}</table>"
             f"<p style='font-size:8px;color:#777'>Counts Day-to-Day Support Worker case notes from Jotform. Days before a participant "
-            f"was added aren't counted. Confidential: contains participant information. No Limitts Pty Ltd.</p>")
+            f"was added (or, for * participants not yet set up in the app, before their first Jotform case note) aren't counted. "
+            f"Confidential: contains participant information. No Limitts Pty Ltd.</p>")
     buf = io.BytesIO()
     writer = pymupdf.DocumentWriter(buf)
     story = pymupdf.Story(html=html)

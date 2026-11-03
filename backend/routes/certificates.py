@@ -150,6 +150,37 @@ async def team_certificates(user=Depends(current_user)):
     return {"warning_days": EXPIRY_WARNING_DAYS, "certificates": await team_cert_alerts()}
 
 
+@router.post("/certificates/{cert_id}/nudge")
+async def nudge_renewal(cert_id: str, user=Depends(current_user)):
+    """Coordinators, HR and Admins remind a worker to renew an expiring or expired certificate (once a day per certificate)."""
+    if not sees_team_certs(user):
+        raise HTTPException(403, "For Service Coordinators, HR and Admins")
+    cert = await db.certificates.find_one({"cert_id": cert_id, "is_deleted": False}, P)
+    if not cert:
+        raise HTTPException(404, "Certificate not found")
+    st = cert_status(cert["expiry_date"])
+    if st["status"] == "valid":
+        raise HTTPException(400, "This certificate isn't due for renewal yet")
+    if (cert.get("nudged_at") or "")[:10] == now_iso()[:10]:
+        raise HTTPException(400, f"{cert.get('nudged_by_name') or 'Someone'} already sent a reminder today")
+    owner = await db.users.find_one({"user_id": cert["owner_id"]}, P)
+    if not owner:
+        raise HTTPException(404, "This staff member is no longer active")
+    when = "has expired" if st["status"] == "expired" else f"expires in {st['days_left']} day{'s' if st['days_left'] != 1 else ''}"
+    sender = user.get("name") or "Your coordinator"
+    await notify([owner["user_id"]], "certificate", f"Please renew: {cert['title']}",
+                 f"{sender} asked you to renew {cert['title']}. It {when} ({dmy(cert['expiry_date'])}). Upload the new one in Certificates.",
+                 "/(tabs)/certificates")
+    if owner.get("email"):
+        html = expiry_email_html((owner.get("name") or "there").split(" ")[0], cert["title"], dmy(cert["expiry_date"]),
+                                 st["status"], st["days_left"]).replace(
+            "<p>Please renew", f"<p>{escape(sender)} has asked you to renew it.</p><p>Please renew", 1)
+        spawn(send_email(to=owner["email"], subject=f"Please renew your {cert['title']}", html=html))
+    at = now_iso()
+    await db.certificates.update_one({"cert_id": cert_id}, {"$set": {"nudged_at": at, "nudged_by_name": sender}})
+    return {"nudged_at": at, "nudged_by_name": sender}
+
+
 @router.post("/certificates")
 async def upload_certificate(title: str = Form(...), expiry_date: str = Form(...), issuer: str = Form(""),
                              issue_date: str = Form(""), cpd_hours: str = Form(""), file: UploadFile = File(...),
