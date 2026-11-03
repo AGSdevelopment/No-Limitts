@@ -225,9 +225,31 @@ export function AssignSheet({ participant, onClose, onDone }: { participant: any
   );
 }
 
-export function CaseFormsSheet({ participant, onClose }: { participant: string | null; onClose: () => void }) {
+export function CaseFormsSheet({ participant, worker, onClose }: { participant: string | null; worker?: boolean; onClose: () => void }) {
   const styles = useStyles();
   const { colors } = useTheme();
+  const toast = useToast();
+  const [opening, setOpening] = useState<string | null>(null);
+  const pq = useQuery<any>({ queryKey: ["caseload-pending"], queryFn: () => api("/caseload/pending"), enabled: !!participant && !!worker });
+  const pending = worker ? pq.data?.pending : null;
+  const start = async (item: any) => {
+    if (!worker) {
+      onClose();
+      openLink(item.url);
+      return;
+    }
+    setOpening(item.url);
+    try {
+      const r = await api<any>("/caseload/forms/open", { method: "POST", body: { participant, form_id: item.form_id ?? "", url: item.url } });
+      onClose();
+      openLink(r.url);
+    } catch (e: any) {
+      toast(e.message, "error");
+      pq.refetch();
+    } finally {
+      setOpening(null);
+    }
+  };
   const q = useQuery<any[]>({
     queryKey: ["caseload-forms", participant],
     queryFn: () => api(`/caseload/forms?participant=${encodeURIComponent(participant ?? "")}`),
@@ -235,21 +257,30 @@ export function CaseFormsSheet({ participant, onClose }: { participant: string |
   });
   return (
     <Sheet visible={!!participant} onClose={onClose} title="Write a case note" sub={`Choose any Day-to-Day form. Where it says "Details filled in", ${participant ?? ""}'s name and yours are added for you.`} testID="case-forms-sheet">
+      {worker && pq.isLoading && <Loading />}
+      {!!pending && (
+        <View style={styles.pendingBox} testID="case-forms-pending">
+          <Text style={styles.name}>Finish your last case note first</Text>
+          <Text style={styles.sub}>Your {pending.form_title} for {pending.participant_name} hasn&apos;t been submitted yet. Submit it before starting another.</Text>
+          <Button label={`Continue ${pending.form_title}`} icon="create-outline" onPress={() => { onClose(); openLink(pending.url); }} testID="case-forms-continue" />
+          <Button label="I've submitted it, check again" variant="ghost" loading={pq.isFetching} onPress={() => pq.refetch()} testID="case-forms-recheck" />
+        </View>
+      )}
       {q.isLoading ? <Loading /> : q.isError ? (
         <ErrorState message={(q.error as any)?.message ?? "Couldn't load forms"} onRetry={q.refetch} />
       ) : (
         <FlatList
           data={q.data}
           keyExtractor={(f) => f.url}
-          style={{ maxHeight: 380 }}
+          style={{ maxHeight: 380, opacity: pending ? 0.4 : 1 }}
           renderItem={({ item }) => (
-            <Pressable onPress={() => { onClose(); openLink(item.url); }} style={styles.row} testID={`case-form-${item.title}`}>
+            <Pressable onPress={() => start(item)} disabled={!!pending || !!opening} style={styles.row} testID={`case-form-${item.title}`}>
               <Ionicons name={item.kind === "coordinator" ? "briefcase-outline" : "document-text-outline"} size={22} color={colors.brandPrimary} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.name}>{item.title}</Text>
                 {item.prefilled && <Text style={styles.sub}>Details filled in</Text>}
               </View>
-              <Ionicons name="open-outline" size={18} color={colors.muted} />
+              <Ionicons name={opening === item.url ? "hourglass-outline" : "open-outline"} size={18} color={colors.muted} />
             </Pressable>
           )}
         />
@@ -270,5 +301,6 @@ const useStyles = makeStyles((c) => ({
   introHead: { flexDirection: "row", alignItems: "center", gap: 6 },
   nudge: { flexDirection: "row", alignItems: "center", gap: 4, minHeight: 36, paddingHorizontal: 12, borderRadius: 18, backgroundColor: c.brandTertiary },
   nudgeText: { fontSize: 13, fontWeight: "700", color: c.brandPrimary },
+  pendingBox: { backgroundColor: c.warningSoft, borderRadius: 12, padding: 12, gap: 6 },
   introBody: { fontSize: 14, color: c.onSurface, lineHeight: 20 },
 }));

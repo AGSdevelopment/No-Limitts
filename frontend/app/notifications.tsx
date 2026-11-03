@@ -12,6 +12,8 @@ const ICONS: Record<string, IconName> = {
   certificate: "ribbon",
   handover: "swap-horizontal",
   participant: "person-add",
+  casenote: "create",
+  health: "medkit",
   message: "chatbubble",
   update: "megaphone",
   policy: "shield-checkmark",

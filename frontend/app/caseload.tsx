@@ -39,6 +39,16 @@ export default function Caseload() {
   const [removeBusy, setRemoveBusy] = useState(false);
   const [acking, setAcking] = useState<string | null>(null);
   const [introDone, setIntroDone] = useState<string[]>([]);
+  const [unassignedOnly, setUnassignedOnly] = useState(false);
+  const clearPending = async (startId: string) => {
+    try {
+      await api(`/caseload/pending/${startId}`, { method: "DELETE" });
+      toast("Released. They can start a new case note.", "success");
+      q.refetch();
+    } catch (e: any) {
+      toast(e.message, "error");
+    }
+  };
 
   const ack = async (item: any) => {
     setAcking(item.handover.id);
@@ -115,7 +125,9 @@ export default function Caseload() {
   if (q.isLoading) return <Loading />;
   if (q.isError) return <ErrorState message={(q.error as any)?.message ?? "Couldn't load your caseload"} onRetry={q.refetch} />;
   const worker = !!q.data.worker;
-  const people = (q.data.participants ?? []).filter((p: any) => p.name.toLowerCase().includes(search.trim().toLowerCase()));
+  const people = (q.data.participants ?? []).filter((p: any) => p.name.toLowerCase().includes(search.trim().toLowerCase())
+    && (!unassignedOnly || (p.participant_id && !p.assigned.length)));
+  const unassignedCount = (q.data.participants ?? []).filter((p: any) => p.participant_id && !p.assigned.length).length;
 
   return (
     <>
@@ -157,6 +169,16 @@ export default function Caseload() {
           {worker && <Text style={styles.meta}>Participants you&apos;re assigned to. Tap one to write a case note or read their Support Worker notes.</Text>}
           <TextInput value={search} onChangeText={setSearch} placeholder="Search participants" placeholderTextColor={colors.muted}
             style={styles.search} testID="caseload-search" />
+          {q.data.can_manage && (
+            <View style={styles.chips}>
+              {[{ on: false, label: "All participants" }, { on: true, label: `No Support Worker (${unassignedCount})` }].map((c) => (
+                <Pressable key={c.label} onPress={() => setUnassignedOnly(c.on)} accessibilityRole="button" accessibilityState={{ selected: unassignedOnly === c.on }}
+                  style={[styles.chip, unassignedOnly === c.on && styles.chipOn]} testID={c.on ? "caseload-filter-unassigned" : "caseload-filter-all"}>
+                  <Text style={[styles.chipText, unassignedOnly === c.on && styles.chipTextOn]}>{c.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
         </View>
       }
       ListEmptyComponent={
@@ -246,6 +268,15 @@ export default function Caseload() {
                     </View>
                   </>
                 )}
+                {q.data.can_manage && !!item.pending?.length && item.pending.map((pn: any) => (
+                  <View key={pn.start_id} style={styles.pendingRow} testID={`caseload-pending-${item.name}`}>
+                    <Ionicons name="hourglass-outline" size={16} color={colors.muted} />
+                    <Text style={[styles.meta, { flex: 1 }]}>{pn.name} started {/^[aeiou]/i.test(pn.form) ? "an" : "a"} {pn.form} {formatDate(pn.started_at)} and hasn&apos;t submitted it</Text>
+                    <Pressable onPress={() => clearPending(pn.start_id)} style={styles.clearBtn} accessibilityRole="button" testID={`caseload-pending-clear-${pn.start_id}`}>
+                      <Text style={styles.templateText}>Release</Text>
+                    </Pressable>
+                  </View>
+                ))}
                 {q.data.can_manage && !item.participant_id && (
                   <Text style={styles.meta}>Only in case notes. Add {item.name} as a participant to assign Support Workers.</Text>
                 )}
@@ -292,7 +323,7 @@ export default function Caseload() {
     <StaffEmailSheet participant={emailing} onClose={() => setEmailing(null)} />
     <AddParticipantSheet visible={adding} onClose={() => setAdding(false)} onDone={q.refetch} />
     <AssignSheet participant={assigning} onClose={() => setAssigning(null)} onDone={q.refetch} />
-    <CaseFormsSheet participant={writing} onClose={() => setWriting(null)} />
+    <CaseFormsSheet participant={writing} worker={worker} onClose={() => setWriting(null)} />
     <ConfirmSheet visible={!!removing} title={`Remove ${removing?.name ?? ""}?`}
       sub="They'll be taken off the participant list and Support Workers will lose access. Case notes in Jotform aren't deleted."
       confirmLabel="Remove participant" busy={removeBusy} onConfirm={remove} onClose={() => setRemoving(null)} />
@@ -320,6 +351,13 @@ const useStyles = makeStyles((c) => ({
   manageRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   trash: { width: 48, height: 48, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: c.surfaceSecondary },
   introList: { gap: 4, backgroundColor: c.surfaceSecondary, borderRadius: 12, padding: 10 },
+  chips: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
+  chip: { minHeight: 44, paddingHorizontal: 14, borderRadius: 22, justifyContent: "center", backgroundColor: c.surface },
+  chipOn: { backgroundColor: c.brandPrimary },
+  chipText: { fontSize: 13, fontWeight: "600", color: c.onSurface },
+  chipTextOn: { color: c.onBrandPrimary },
+  pendingRow: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: c.warningSoft, borderRadius: 10, padding: 8 },
+  clearBtn: { minHeight: 44, paddingHorizontal: 10, justifyContent: "center" },
   templateLink: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 36, alignSelf: "flex-start" },
   templateText: { fontSize: 13, fontWeight: "600", color: c.brandPrimary },
   handover: { backgroundColor: c.warningSoft, borderRadius: 12, padding: 12, gap: 4, borderLeftWidth: 4, borderLeftColor: c.brandPrimary },

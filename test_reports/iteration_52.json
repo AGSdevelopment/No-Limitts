@@ -1,0 +1,47 @@
+{
+  "summary": "Tested Case Note lock/reminders, 'No Support Worker' filter and health-alert notifications. Backend: 14/14 pytest pass (open trackable form -> pending doc + prefilled URL; 2nd open of any form incl. form_id '' -> 409 'Finish your ... first'; unassigned -> 403; admin open untracked; GET /caseload/pending worker/admin; admin /caseload pending list; DELETE release 403 worker / 200 admin / 404 second; can open again after release; health_alerts change notifies once per change and not on identical save/unassigned participant; case_note_reminders() run directly creates 'No case note yet today: <name>' for assigned participants only and one 'Finish your case note: <name>'). Frontend (390x844): admin chips All / No Support Worker (n) filter correctly (Jotform-only participants excluded), combine with search; pending row + Release works with toast; worker sheet shows case-forms-pending box, Continue opens prefilled Jotform, form list opacity 0.4 & aria-disabled, tapping disabled form makes no API call; after release worker opens a form (POST open 200) and reopening the sheet shows the new pending; health notification shows in worker Notifications and deep-links to /participant/{id}. One real bug found: removing a participant leaves the worker's pending case note orphaned and permanently locks them with no UI to release it. No deprecated Expo packages detected.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "DELETE /api/participants/{id} + /api/caseload/forms/open", "issue": "VERIFIED: if a participant is removed while a Support Worker has a pending case note for them, db.case_note_starts stays 'pending'. GET /caseload/pending still returns it, every open returns 409, and the admin caseload no longer lists that participant (unless they have Jotform notes), so no Release button exists. The worker is locked out of all case notes until someone edits the DB.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "POST /api/caseload/forms/open", "issue": "participant_name and the Jotform prefill use display_name(body.participant), not the stored participant's name. Sending 'test_lock  person' stores/prefills 'Test_Lock Person' instead of 'TEST_Lock Person'. The UI sends the exact name, so impact is low. Use the name from the participant record."},
+      {"endpoint": "POST /api/caseload/forms/open", "issue": "Race condition: two opens at the same moment can both pass resolve_pending and create 2 pending docs. There's no atomic check or unique partial index on (user_id, status='pending')."},
+      {"endpoint": "case_note_reminder_loop", "issue": "The meta key casenote_reminders_<date> is inserted BEFORE case_note_reminders() runs. If Jotform/load_rows fails (502), that day's reminders are skipped and never retried."},
+      {"endpoint": "case_note_reminders", "issue": "Today's-note detection uses find(fields,'date...') sliced to YYYY-MM-DD. A Day-to-Day form with a DD/MM/YYYY text date, or a label like 'Date of birth' matched first, would never count as noted and would cause false 'No case note yet today' reminders. Reminders also fire every day for every assigned participant (there's no roster), which may be noisy."},
+      {"endpoint": "resolve_pending", "issue": "Only checks the 50 most recent submissions. On a busy form with more than 50 newer submissions, the worker's submission is missed and they stay locked. It also makes Jotform API calls on every /caseload/pending and every open (watch the daily API limits)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Caseload pending row", "issue": "Grammar: 'Emp Test started a Appointment Follow Up Case Note' should use 'an' before a vowel, or be reworded to 'started the ...'", "testID": "caseload-pending-<name>", "priority": "low"}
+    ],
+    "integration_issues": [
+      {"flow": "Worker opens a case note on mobile web", "issue": "openLink(window.open) runs after an awaited POST /caseload/forms/open. Mobile Safari/Chrome popup blockers may block it because it's no longer inside the user gesture. Worked in Playwright. Native uses WebBrowser and is fine.", "affected_testIDs": ["case-form-<title>"]}
+    ],
+    "design_issues": [
+      {"screen": "Caseload", "issues": ["Filter chips are 36px tall (caseload-filter-all/unassigned) and the Release button is 67x36. Both are below the 44pt minimum touch target."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter52_casenote_lock_reminders_health_alerts.py", "/app/backend/tests/seed_iter52_ui.py", "/app/test_reports/pytest/pytest_iter52.xml"],
+  "action_items": [
+    "HIGH: In remove_participant, also update case_note_starts {participant:key, status:'pending'} to 'cleared'. In resolve_pending, auto-clear pending docs whose participant no longer exists or no longer has the worker assigned. Consider the same on unassign in assign_participant.",
+    "Use the stored participant name (p['name']) for participant_name and the prefill in open_case_note.",
+    "Insert the casenote_reminders meta key only after case_note_reminders() succeeds, or delete it on failure.",
+    "Optional: make the pending-insert atomic (unique partial index on user_id where status='pending').",
+    "Optional: raise the chips and Release button to minHeight 44; fix the 'a Appointment' grammar.",
+    "Optional (web): open a blank window synchronously on tap, then set its location after the POST, so popup blockers don't block it."
+  ],
+  "critical_code_review_comments": [
+    "routes/caseload.py is 981 lines (over the 700-line guideline). Consider splitting the participants/profile, case-note lock/reminders and summary/PDF parts into modules.",
+    "Old NameError/tzinfo tracebacks in backend.err.log are from earlier hot-reloads; the backend is currently healthy."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter52_casenote_lock_reminders_health_alerts.py", "/app/backend/tests/seed_iter52_ui.py"],
+  "success_rate": {"backend": "100% (14/14), plus 1 extra verified bug (orphaned pending lock)", "frontend": "100% of requested flows"},
+  "seed_data_creation": "TEST_UI Lock/Nobody/Second participants plus a pending start via seed_iter52_ui.py. All removed with `python seed_iter52_ui.py clean`. Pytest fixtures clean up their TEST_ participants, case_note_starts and notifications. DB checked afterwards: 0 participants, 0 case_note_starts.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run pytest with -n 0 (pytest.ini enables xdist, and the module fixture creates participants). A trackable form for the worker is 'Appointment Follow Up Case Note' (form_id 262642055038050, live Jotform). The participants collection was empty before testing. Completion detection (a real Jotform submission) was not tested.",
+  "rca_of_issue": "Orphaned lock: the pending state lives in db.case_note_starts keyed by participant key. remove_participant cleans up summaries, shares and acks but not case_note_starts, and resolve_pending only validates that the form still exists. Repro: create participant -> assign emp -> emp opens a trackable form -> admin DELETE participant -> emp GET /caseload/pending still returns it and every open returns 409; admin /caseload doesn't list the participant, so there's no Release. Fix: clear pending on delete/unassign and validate in resolve_pending."
+}

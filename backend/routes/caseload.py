@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from pydantic import BaseModel
-from core import bearer, current_user, db, dmy, logger, notify, now_iso, user_from_token
+from core import DIGEST_TZ, bearer, current_user, db, dmy, logger, notify, now_iso, user_from_token
 from email_service import send_email
 from pdf_brand import FIRST_TOP, add_logo
 import ai_service
@@ -224,14 +224,143 @@ async def caseload_forms(participant: str, user=Depends(current_user)):
         except httpx.HTTPError:
             raise HTTPException(502, "Couldn't load the case note forms right now")
     from routes.forms import forms_query
-    out = [{"title": f["title"], "url": prefill(f, display_name(participant), user), "kind": f["kind"], "prefilled": True}
-           for f in forms if not (worker and f["kind"] != "day")]
+    out = [{"title": f["title"], "url": prefill(f, display_name(participant), user), "kind": f["kind"], "prefilled": True,
+            "form_id": f["form_id"]} for f in forms if not (worker and f["kind"] != "day")]
     linked = {f["url"] for f in forms}
     # Every other Day-to-Day form the user can see (no participant field to pre-fill)
     async for f in db.forms.find({"$and": [{"category": "Day-to-Day"}, forms_query(user)]}, {"_id": 0, "title": 1, "url": 1}):
         if f.get("url") and f["url"] not in linked:
-            out.append({"title": f["title"], "url": f["url"], "kind": "day", "prefilled": False})
+            out.append({"title": f["title"], "url": f["url"], "kind": "day", "prefilled": False, "form_id": ""})
     return sorted(out, key=lambda f: (f["kind"] != "coordinator", f["title"].lower()))
+
+
+# ---- One case note at a time: a Support Worker must submit the note they started before opening another ----
+
+async def recent_subs(c: httpx.AsyncClient, team: dict, form_id: str, n: int = 50) -> list:
+    r = await c.get(f"{jot_base()}/form/{form_id}/submissions", headers=team,
+                    params={"limit": n, "orderby": "created_at", "filter": json.dumps({"status:ne": "DELETED"})})
+    return (r.json().get("content") or []) if r.status_code == 200 else []
+
+
+async def resolve_pending(user: dict):
+    """The worker's unfinished case note, if any. It counts as finished once a new submission appears on that form
+    with their name or email and the same participant."""
+    pend = await db.case_note_starts.find({"user_id": user["user_id"], "status": "pending"}, {"_id": 0}).sort("started_at", 1).to_list(20)
+    if not pend:
+        return None
+    async with httpx.AsyncClient(timeout=20, headers={"APIKEY": os.environ["JOTFORM_API_KEY"].strip()}) as c:
+        team = await team_header(c, jot_base())
+        forms = {f["form_id"]: f for f in await case_forms(c, team)}
+        for p in pend:
+            form = forms.get(p["form_id"])
+            still = await db.participants.find_one({"key": p["participant"], "assigned_ids": user["user_id"]}, {"_id": 1})
+            if not form or not still:  # form gone, participant removed or worker unassigned: don't keep them locked
+                await db.case_note_starts.update_one({"start_id": p["start_id"]}, {"$set": {"status": "cleared"}})
+                continue
+            done = False
+            for s in await recent_subs(c, team, p["form_id"]):
+                if s.get("id") in p.get("baseline", []):
+                    continue
+                named = {a.get("name"): as_text(a.get("answer")) for a in (s.get("answers") or {}).values() if "answer" in a}
+                email = (named.get(form.get("e_name")) or "").lower()
+                by_me = (email and email == (user.get("email") or "").lower()) or \
+                    participant_key(named.get(form.get("a_name")) or "") == participant_key(user.get("name") or "")
+                if by_me and participant_key(named.get(form["p_name"]) or "") == p["participant"]:
+                    await db.case_note_starts.update_one({"start_id": p["start_id"]},
+                                                         {"$set": {"status": "done", "submission_id": s.get("id"), "done_at": now_iso()}})
+                    _cache["rows"] = None
+                    done = True
+                    break
+            if not done:
+                p.pop("baseline", None)
+                return p
+    return None
+
+
+@router.get("/caseload/pending")
+async def my_pending(user=Depends(current_user)):
+    if not is_worker(user) or not configured():
+        return {"pending": None}
+    return {"pending": await resolve_pending(user)}
+
+
+class OpenIn(BaseModel):
+    participant: str
+    form_id: Optional[str] = ""
+    url: str
+
+
+@router.post("/caseload/forms/open")
+async def open_case_note(body: OpenIn, user=Depends(current_user)):
+    """Support Workers: start a case note. Blocked while a previous case note is still unfinished."""
+    if not is_worker(user):
+        return {"url": body.url}
+    key = participant_key(body.participant)
+    par = await db.participants.find_one({"key": key, "assigned_ids": user["user_id"]}, {"_id": 0, "name": 1})
+    if not par:
+        raise HTTPException(403, "You're not assigned to this participant")
+    pending = await resolve_pending(user)
+    if pending:
+        raise HTTPException(409, f"Finish your {pending['form_title']} for {pending['participant_name']} first")
+    form, baseline = None, []
+    if body.form_id:
+        async with httpx.AsyncClient(timeout=20, headers={"APIKEY": os.environ["JOTFORM_API_KEY"].strip()}) as c:
+            team = await team_header(c, jot_base())
+            form = next((f for f in await case_forms(c, team) if f["form_id"] == body.form_id and f["kind"] == "day"), None)
+            if form:
+                baseline = [s.get("id") for s in await recent_subs(c, team, body.form_id)]
+    if not form:  # Forms without a participant field can't be tracked, so they don't lock the worker
+        return {"url": body.url}
+    url = prefill(form, par["name"], user)
+    await db.case_note_starts.insert_one({"start_id": f"cns_{secrets.token_hex(6)}", "user_id": user["user_id"],
+                                          "user_name": user.get("name") or "", "participant": key,
+                                          "participant_name": par["name"], "form_id": form["form_id"],
+                                          "form_title": form["title"], "url": url, "baseline": baseline,
+                                          "status": "pending", "started_at": now_iso()})
+    return {"url": url}
+
+
+@router.delete("/caseload/pending/{start_id}")
+async def clear_pending(start_id: str, user=Depends(current_user)):
+    """Coordinators/Admins can release a worker who opened a case note by mistake."""
+    if not can_manage(user):
+        raise HTTPException(403, "Only Service & Support Coordinators and Admins can clear this")
+    res = await db.case_note_starts.update_one({"start_id": start_id, "status": "pending"},
+                                               {"$set": {"status": "cleared", "cleared_by": user.get("name") or "", "cleared_at": now_iso()}})
+    if not res.matched_count:
+        raise HTTPException(404, "Nothing to clear")
+    return {"ok": True}
+
+
+async def case_note_reminders():
+    """End of day: remind assigned Support Workers when a participant has no Support Worker case note today,
+    and anyone who started a case note but hasn't submitted it."""
+    today = datetime.now(DIGEST_TZ).date().isoformat()
+    rows = await load_rows()
+    noted = {participant_key(r["participant"]) for r in rows if r["kind"] == "day" and r["date"][:10] == today}
+    async for p in db.participants.find({"assigned_ids": {"$ne": []}}, {"_id": 0}):
+        if p["key"] not in noted:
+            await notify(p["assigned_ids"], "casenote", f"No case note yet today: {p['name']}",
+                         f"Nobody has completed a case note for {p['name']} today. If you supported them, please complete it now.",
+                         "/caseload")
+    async for s in db.case_note_starts.find({"status": "pending"}, {"_id": 0}):
+        await notify([s["user_id"]], "casenote", f"Finish your case note: {s['participant_name']}",
+                     f"Your {s['form_title']} for {s['participant_name']} hasn't been submitted yet. You can't start another until it's done.",
+                     "/caseload")
+
+
+async def case_note_reminder_loop():
+    await asyncio.sleep(90)
+    while True:
+        try:
+            local = datetime.now(DIGEST_TZ)
+            key = f"casenote_reminders_{local.date().isoformat()}"
+            if configured() and local.hour >= 18 and not await db.meta.find_one({"key": key}):
+                await case_note_reminders()
+                await db.meta.insert_one({"key": key, "created_at": now_iso()})
+        except Exception as e:
+            logger.error(f"Case note reminders failed: {type(e).__name__}: {e}")
+        await asyncio.sleep(600)
 
 
 @router.get("/caseload")
@@ -290,6 +419,13 @@ async def caseload(user=Depends(current_user), refresh: Optional[bool] = False):
                 done = {a["user_id"] for a in got}
                 h["acks"] = [{"name": a["name"], "at": a["at"]} for a in got]
                 h["waiting"] = [a["name"] for a in p["assigned"] if a["user_id"] not in done]
+    if not worker:
+        pend: dict = {}
+        async for s_ in db.case_note_starts.find({"status": "pending"}, {"_id": 0, "baseline": 0}):
+            pend.setdefault(s_["participant"], []).append({"start_id": s_["start_id"], "name": s_["user_name"],
+                                                            "form": s_["form_title"], "started_at": s_["started_at"]})
+        for p_ in out:
+            p_["pending"] = pend.get(participant_key(p_["name"]), [])
     out.sort(key=lambda p: (p["last_date"], p["name"]), reverse=True)
     intros = [p["participant_id"] for p in listed if worker and user["user_id"] not in p.get("intro_seen_ids", [])]
     return {"configured": configured(), "can_manage": can_manage(user), "worker": worker, "intros": intros, "participants": out}
@@ -377,6 +513,8 @@ async def assign_participant(participant_id: str, body: AssignIn, user=Depends(m
     await db.participants.update_one({"participant_id": participant_id},
                                      {"$set": {"assigned_ids": valid, "intro_seen_ids": seen, "updated_at": now_iso()}})
     await welcome_workers([i for i in valid if i not in before], p)
+    await db.case_note_starts.update_many({"participant": p.get("key") or participant_key(p["name"]), "status": "pending",
+                                           "user_id": {"$nin": valid}}, {"$set": {"status": "cleared"}})
     return {"assigned_ids": valid}
 
 
@@ -598,6 +736,7 @@ async def remove_participant(participant_id: str, user=Depends(manager)):
     await db.caseload_summaries.delete_many({"participant": key})
     await db.caseload_shares.delete_many({"participant": key})
     await db.handover_acks.delete_many({"participant": key})
+    await db.case_note_starts.update_many({"participant": key, "status": "pending"}, {"$set": {"status": "cleared"}})
     return {"ok": True}
 
 
@@ -789,9 +928,14 @@ async def save_profile(participant_id: str, body: ProfileIn, user=Depends(manage
     data = {k: (getattr(body, k) or "").strip()[:4000] for k in PROFILE_FIELDS}
     data["contacts"] = [{k: (v or "").strip()[:200] for k, v in c.model_dump().items()} for c in body.contacts[:20] if c.name.strip()]
     data.update(updated_by=user.get("name") or "", updated_at=now_iso())
-    res = await db.participants.update_one({"participant_id": participant_id}, {"$set": {"profile": data}})
-    if not res.matched_count:
+    p = await db.participants.find_one_and_update({"participant_id": participant_id}, {"$set": {"profile": data}})
+    if not p:
         raise HTTPException(404, "Participant not found")
+    old = ((p.get("profile") or {}).get("health_alerts") or "").strip()
+    if data["health_alerts"] and data["health_alerts"] != old and p.get("assigned_ids"):
+        await notify(p["assigned_ids"], "health", f"Health alerts updated: {p['name']}",
+                     f"{user.get('name') or 'Your coordinator'} updated {p['name']}'s health & alerts. Please read them before your next shift.",
+                     f"/participant/{participant_id}")
     return data
 
 
