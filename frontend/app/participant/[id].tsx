@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api } from "@/src/api";
 import { NudgeButton } from "@/src/components/participant-sheets";
+import { BirthdayWall } from "@/src/components/birthday-wall";
 import { Text } from "@/src/components/text";
 import { useToast } from "@/src/components/toast";
 import { Avatar, Button, ErrorState, Field, Ionicons, Loading, dmyToIso, formatDate, isoToDmy } from "@/src/components/ui";
@@ -114,6 +115,8 @@ export default function ParticipantProfile() {
           {!!p.updated_at && <Text style={styles.meta}>Updated {formatDate(p.updated_at)}{p.updated_by ? ` by ${p.updated_by}` : ""}</Text>}
         </View>
       </View>
+
+      {!editing && <BirthdayWall participantId={d.participant_id} name={d.name} />}
 
       {!!d.intro_status?.length && (
         <View style={styles.card} testID="participant-intro-status">

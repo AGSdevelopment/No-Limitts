@@ -751,6 +751,7 @@ async def remove_participant(participant_id: str, user=Depends(manager)):
     await db.caseload_shares.delete_many({"participant": key})
     await db.handover_acks.delete_many({"participant": key})
     await db.handover_photos.delete_many({"participant": key})
+    await db.birthday_messages.delete_many({"participant_id": p["participant_id"]})
     await db.case_note_starts.update_many({"participant": key, "status": "pending"}, {"$set": {"status": "cleared"}})
     return {"ok": True}
 

@@ -11,7 +11,7 @@ import { useToast } from "@/src/components/toast";
 import { Avatar, Button, ErrorState, Ionicons, Loading } from "@/src/components/ui";
 import { makeStyles, useTheme } from "@/src/theme";
 
-function Sheet({ visible, onClose, title, sub, children, testID }: {
+export function Sheet({ visible, onClose, title, sub, children, testID }: {
   visible: boolean; onClose: () => void; title: string; sub?: string; children: React.ReactNode; testID: string;
 }) {
   const styles = useStyles();

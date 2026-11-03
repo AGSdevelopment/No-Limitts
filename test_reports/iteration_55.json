@@ -1,0 +1,45 @@
+{
+  "summary": "Iter55 tested the Birthday Card Wall, Nudge All Expired, handover photo captions and the single-nudge regression. Backend: 14/14 pytest passed. Covered: wall open window (±7 days, 8 days = closed), birthday in_days/turns/date, one message per user (posting again updates it), mine/can_remove flags, empty or >300-char text gives 400, exactly 300 accepted, unassigned worker gets 403, assigned worker can sign, worker can't remove an admin's message (403), admin removes a worker's message, 404s. Nudge-all: employee gets 403; returns {nudged:2, workers:1}; only expired certs are nudged (the expiring one is not); one notification per cert; a second call returns 0/0. Single nudge still works (200, then 400 the same day, 404, 403). Caption PATCH: uploader and manager can edit, input is trimmed and cut to 200 chars, a non-uploader worker gets 403, unknown photo gives 404. Frontend at 390x844, all passed: birthday wall sign, post, edit (pre-filled) and remove; team-certificates 'Nudge all expired (1 worker)' opens the confirm sheet, sends, and the button disappears with 'Reminder sent today by Alex Admin' on both expired certs; per-cert 'Nudge to renew' still works. The handover caption UI can't be reached with real data (no Jotform handovers exist), so I injected a handover into the /api/caseload response with page.route and seeded one photo. The viewer's Edit caption saves through PATCH and the change is in the DB. The library picker opens handover-caption-sheet and handover-caption-input, and the upload correctly fails with 400 because the handover is fake. No deprecated Expo packages found.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/certificates/team/nudge-expired", "issue": "send_nudge runs once per certificate, so a worker with N expired certs gets N app notifications and N emails from one tap. Consider one notification and one email per worker listing all their certs."},
+      {"endpoint": "POST /api/certificates/team/nudge-expired + /{id}/nudge", "issue": "'Already nudged today' is based on the UTC date (now_iso()[:10]), not Perth time. A nudge sent at 7am Perth (23:00 UTC the previous day) can be sent again at 9am Perth. The frontend also uses the UTC date for the 'Reminder sent today' label."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "participant/[id] BirthdayWall", "issues": [
+        "Remove (trash) deletes the message straight away, with no confirmation and no success toast (ConfirmSheet is available in participant-sheets).",
+        "After the birthday, the wording says 'X turns 36 3 days ago'; it should be 'turned'. Reference: src/components/birthday-wall.tsx:52",
+        "The Cancel button in edit mode has no testID."
+      ]},
+      {"screen": "caseload HandoverPhotos viewer", "issues": [
+        "The caption edit TextInput is inside a full-screen Modal with no KeyboardAvoidingView. On iOS the keyboard will cover the input and the Save button. Reference: src/components/handover-photos.tsx:146-175",
+        "Remove in the viewer deletes the photo straight away, with no confirmation."
+      ]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter55_birthday_wall_nudge_all_captions.py", "/app/test_reports/pytest/pytest_iter55.xml"],
+  "action_items": [
+    "(Optional) Group nudge-all notifications and emails per worker instead of per certificate.",
+    "(Optional) Use the Perth date (DIGEST_TZ) for the once-a-day nudge check on both backend and frontend.",
+    "Wrap the handover photo viewer caption editor in a KeyboardAvoidingView.",
+    "Add a confirmation step before removing a birthday message or handover photo; change 'turns' to 'turned' when birthday.in_days < 0."
+  ],
+  "critical_code_review_comments": [
+    "edit_handover_caption doesn't call can_see_participant. The uploader/can_manage check makes this safe, but the access check is inconsistent with GET and DELETE (which also don't check). Fine as is.",
+    "can_manage excludes HR, so HR can view and sign the birthday wall but can't remove other people's messages or edit captions. Confirm this is intended.",
+    "The participant header's 'participant-birthday' line shows the NEXT birthday, while the wall can show the birthday just passed (up to 7 days after). The two can show different ages."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter55_birthday_wall_nudge_all_captions.py"],
+  "success_rate": {"backend": "100% (14/14)", "frontend": "100% (birthday wall, nudge all, per-cert nudge, caption edit and caption sheet via injected handover)"},
+  "seed_data_creation": "Temporary only, and all cleaned up: TEST55/TESTUI certs (deleted), user_testemp001 hidden:false and then restored to true, the employee temporarily assigned to Test Birthday Person and then removed, DOB changed and restored to 1990-11-03, birthday_messages deleted (0 left; this includes the main agent's earlier 'Happy birthday!! 🎉' admin message, which my upsert overwrote), seeded handover_photos deleted, test notifications deleted.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "No real Jotform handovers exist. To test the handover photo UI, use page.route on the URL ending /api/caseload to inject participants[0].handover, and seed a matching db.handover_photos doc. The nudge-all confirm Sheet slides in: wait about 1.5s before clicking team-certs-nudge-all-confirm. No real non-hidden user has expired certs, so nudge-all only reaches seeded test certs.",
+  "rca_of_issue": ""
+}

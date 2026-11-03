@@ -257,3 +257,6 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Monthly case note completion PDF: emailed (30-day private link) to each support_coordinator on the 1st; GET /api/caseload/monthly-report/pdf, POST /api/caseload/monthly-report/email. Only participants added in the app are counted.
 - Renewal nudge: POST /api/certificates/{cert_id}/nudge (coordinators/HR/admins, once a day per cert) -> in-app + email to worker; "Nudge to renew" on /team-certificates.
 - Monthly report "all participants" mode now includes Jotform-only participants (marked *, counted from their first Jotform note).
+- Handover photo captions: caption sheet before upload, PATCH /api/caseload/handover/photos/{id} to edit.
+- Nudge all expired: POST /api/certificates/team/nudge-expired (skips already-reminded-today), button + confirm on /team-certificates.
+- Birthday card wall: GET/POST/DELETE /api/participants/{id}/birthday-wall (open 7 days either side; one message per person per birthday; collection birthday_messages). Shown on participant profile.

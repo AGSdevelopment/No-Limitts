@@ -1,5 +1,5 @@
 """Training certificates and expiry reminders."""
-from datetime import date
+from datetime import date, datetime
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
@@ -7,7 +7,7 @@ from html import escape
 from typing import Optional
 import asyncio
 import uuid
-from core import EXPIRY_WARNING_DAYS, MAX_UPLOAD_BYTES, P, bearer, current_user, db, dmy, logger, new_id, notify, now_iso, spawn, user_from_token
+from core import DIGEST_TZ, EXPIRY_WARNING_DAYS, MAX_UPLOAD_BYTES, P, bearer, current_user, db, dmy, logger, new_id, notify, now_iso, spawn, user_from_token
 from routes.drive import copy_cert_to_drive, upload_to_spaces
 from email_service import EMAIL_FROM_NAME, send_email
 from storage import APP_NAME, get_object, put_object
@@ -137,7 +137,7 @@ async def team_cert_alerts() -> list:
     owners = {u["user_id"]: u async for u in db.users.find({"user_id": {"$in": list({c["owner_id"] for c in alerts})}},
                                                           {"_id": 0, "user_id": 1, "name": 1, "user_type": 1})}
     out = [{**c, "owner_name": owners.get(c["owner_id"], {}).get("name") or c.get("owner_name") or "",
-            "owner_type": owners.get(c["owner_id"], {}).get("user_type") or ""} for c in alerts if c["owner_id"] in owners]
+            "owner_type": owners.get(c["owner_id"], {}).get("user_type") or "", "nudged_today": nudged_today(c)} for c in alerts if c["owner_id"] in owners]
     out.sort(key=lambda c: c["expiry_date"])
     return out
 
@@ -150,6 +150,12 @@ async def team_certificates(user=Depends(current_user)):
     return {"warning_days": EXPIRY_WARNING_DAYS, "certificates": await team_cert_alerts()}
 
 
+def nudged_today(c: dict) -> bool:
+    """Once-a-day nudge limit, using the Perth calendar day."""
+    at = c.get("nudged_at")
+    return bool(at) and datetime.fromisoformat(at).astimezone(DIGEST_TZ).date() == datetime.now(DIGEST_TZ).date()
+
+
 @router.post("/certificates/{cert_id}/nudge")
 async def nudge_renewal(cert_id: str, user=Depends(current_user)):
     """Coordinators, HR and Admins remind a worker to renew an expiring or expired certificate (once a day per certificate)."""
@@ -158,27 +164,58 @@ async def nudge_renewal(cert_id: str, user=Depends(current_user)):
     cert = await db.certificates.find_one({"cert_id": cert_id, "is_deleted": False}, P)
     if not cert:
         raise HTTPException(404, "Certificate not found")
-    st = cert_status(cert["expiry_date"])
-    if st["status"] == "valid":
+    if cert_status(cert["expiry_date"])["status"] == "valid":
         raise HTTPException(400, "This certificate isn't due for renewal yet")
-    if (cert.get("nudged_at") or "")[:10] == now_iso()[:10]:
+    if nudged_today(cert):
         raise HTTPException(400, f"{cert.get('nudged_by_name') or 'Someone'} already sent a reminder today")
     owner = await db.users.find_one({"user_id": cert["owner_id"]}, P)
     if not owner:
         raise HTTPException(404, "This staff member is no longer active")
-    when = "has expired" if st["status"] == "expired" else f"expires in {st['days_left']} day{'s' if st['days_left'] != 1 else ''}"
+    return await send_nudge([cert], owner, user)
+
+
+@router.post("/certificates/team/nudge-expired")
+async def nudge_all_expired(user=Depends(current_user)):
+    """One tap: remind every worker with an expired certificate (one message per worker; skips any reminded today)."""
+    if not sees_team_certs(user):
+        raise HTTPException(403, "For Service Coordinators, HR and Admins")
+    due = [c for c in await team_cert_alerts() if c["status"] == "expired" and c["owner_id"] != user["user_id"] and not nudged_today(c)]
+    by_owner: dict = {}
+    for c in due:
+        by_owner.setdefault(c["owner_id"], []).append(c)
+    owners = {u["user_id"]: u async for u in db.users.find({"user_id": {"$in": list(by_owner)}}, P)}
+    for oid, certs in by_owner.items():
+        await send_nudge(certs, owners[oid], user)
+    return {"nudged": len(due), "workers": len(by_owner)}
+
+
+async def send_nudge(certs: list, owner: dict, user: dict) -> dict:
+    """One notification and one email to the worker covering all the given certificates."""
     sender = user.get("name") or "Your coordinator"
-    await notify([owner["user_id"]], "certificate", f"Please renew: {cert['title']}",
-                 f"{sender} asked you to renew {cert['title']}. It {when} ({dmy(cert['expiry_date'])}). Upload the new one in Certificates.",
-                 "/(tabs)/certificates")
+
+    def line(c):
+        st = cert_status(c["expiry_date"])
+        when = "expired" if st["status"] == "expired" else f"expires in {st['days_left']} day{'s' if st['days_left'] != 1 else ''}"
+        return f"{c['title']} ({when}, {dmy(c['expiry_date'])})"
+    if len(certs) == 1:
+        title, body = f"Please renew: {certs[0]['title']}", f"{sender} asked you to renew {line(certs[0])}. Upload the new one in Certificates."
+    else:
+        title = f"Please renew {len(certs)} certificates"
+        body = f"{sender} asked you to renew: " + "; ".join(line(c) for c in certs) + ". Upload the new ones in Certificates."
+    await notify([owner["user_id"]], "certificate", title, body, "/(tabs)/certificates")
     if owner.get("email"):
-        html = expiry_email_html((owner.get("name") or "there").split(" ")[0], cert["title"], dmy(cert["expiry_date"]),
-                                 st["status"], st["days_left"]).replace(
-            "<p>Please renew", f"<p>{escape(sender)} has asked you to renew it.</p><p>Please renew", 1)
-        spawn(send_email(to=owner["email"], subject=f"Please renew your {cert['title']}", html=html))
+        items = "".join(f"<li>{escape(line(c))}</li>" for c in certs)
+        html = (f'<table role="presentation" width="100%"><tr><td style="padding:24px;font-family:Arial,sans-serif;color:#11181C">'
+                f'<p>Hi {escape((owner.get("name") or "there").split(" ")[0])},</p>'
+                f'<p>{escape(sender)} has asked you to renew {"this certificate" if len(certs) == 1 else "these certificates"}:</p>'
+                f'<ul>{items}</ul><p>Please renew and upload the new certificate in the {escape(EMAIL_FROM_NAME)} app.</p>'
+                f'<p style="font-size:12px;color:#888">Sent by {escape(EMAIL_FROM_NAME)}. We never ask for your password by email.</p>'
+                f'</td></tr></table>')
+        spawn(send_email(to=owner["email"], subject=title, html=html))
     at = now_iso()
-    await db.certificates.update_one({"cert_id": cert_id}, {"$set": {"nudged_at": at, "nudged_by_name": sender}})
-    return {"nudged_at": at, "nudged_by_name": sender}
+    await db.certificates.update_many({"cert_id": {"$in": [c["cert_id"] for c in certs]}},
+                                      {"$set": {"nudged_at": at, "nudged_by_name": sender}})
+    return {"nudged_at": at, "nudged_by_name": sender, "nudged_today": True}
 
 
 @router.post("/certificates")

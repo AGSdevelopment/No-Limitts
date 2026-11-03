@@ -1,12 +1,14 @@
 // Shift handover photos: assigned Support Workers and Coordinators attach photos so the next worker sees what happened.
 import { useState } from "react";
 import { Linking, Modal, Platform, Pressable, ScrollView, View } from "react-native";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { API_URL, api, authHeaders, getApiToken } from "@/src/api";
-import { Text } from "@/src/components/text";
+import { Text, TextInput } from "@/src/components/text";
+import { Sheet } from "@/src/components/participant-sheets";
 import { useToast } from "@/src/components/toast";
 import { Button, Ionicons, formatDate } from "@/src/components/ui";
 import { uploadForm } from "@/src/utils/upload";
@@ -26,18 +28,23 @@ export function HandoverPhotos({ participant, handoverId, photos, myId, canManag
   const [busy, setBusy] = useState(false);
   const [viewing, setViewing] = useState<Photo | null>(null);
   const [camAsk, setCamAsk] = useState<null | "ask" | "settings">(null);
+  const [pending, setPending] = useState<ImagePicker.ImagePickerAsset | null>(null);
+  const [caption, setCaption] = useState("");
+  const [editCap, setEditCap] = useState<string | null>(null);
 
+  const pick = (a: ImagePicker.ImagePickerAsset) => { setCaption(""); setPending(a); };
   const upload = async (a: ImagePicker.ImagePickerAsset) => {
     setBusy(true);
     try {
       const res = await uploadForm(`${API_URL}/caseload/handover/photos`, {
         headers: authHeaders(),
-        fields: { participant, submission_id: handoverId },
+        fields: { participant, submission_id: handoverId, caption: caption.trim() },
         files: { file: { uri: a.uri, name: a.fileName ?? "handover.jpg", mimeType: a.mimeType ?? "image/jpeg" } },
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(typeof body.detail === "string" ? body.detail : "Couldn't add the photo");
       toast("Photo added to the handover", "success");
+      setPending(null);
       onChange();
     } catch (e: any) {
       toast(e.message, "error");
@@ -45,14 +52,26 @@ export function HandoverPhotos({ participant, handoverId, photos, myId, canManag
       setBusy(false);
     }
   };
+  const saveCaption = async () => {
+    if (!viewing || editCap === null) return;
+    try {
+      const r = await api<Photo>(`/caseload/handover/photos/${viewing.photo_id}`, { method: "PATCH", body: { caption: editCap } });
+      setViewing({ ...viewing, caption: r.caption });
+      setEditCap(null);
+      toast("Caption saved", "success");
+      onChange();
+    } catch (e: any) {
+      toast(e.message, "error");
+    }
+  };
   const fromLibrary = async () => {
     const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.7 });
-    if (!r.canceled && r.assets?.[0]) upload(r.assets[0]);
+    if (!r.canceled && r.assets?.[0]) pick(r.assets[0]);
   };
   const launchCamera = async () => {
     setCamAsk(null);
     const r = await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.7 });
-    if (!r.canceled && r.assets?.[0]) upload(r.assets[0]);
+    if (!r.canceled && r.assets?.[0]) pick(r.assets[0]);
   };
   const takePhoto = async () => {
     if (Platform.OS === "web") return launchCamera();
@@ -82,9 +101,10 @@ export function HandoverPhotos({ participant, handoverId, photos, myId, canManag
       {!!photos.length && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
           {photos.map((p) => (
-            <Pressable key={p.photo_id} onPress={() => setViewing(p)} accessibilityLabel={`Handover photo from ${p.by_name}`}
-              testID={`handover-photo-${p.photo_id}`}>
+            <Pressable key={p.photo_id} onPress={() => { setEditCap(null); setViewing(p); }} accessibilityLabel={`Handover photo from ${p.by_name}`}
+              testID={`handover-photo-${p.photo_id}`} style={{ width: 88 }}>
               <Image source={{ uri: photoUrl(p.photo_id) }} style={styles.thumb} contentFit="cover" />
+              {!!p.caption && <Text style={styles.thumbCap} numberOfLines={2}>{p.caption}</Text>}
             </Pressable>
           ))}
         </ScrollView>
@@ -114,7 +134,18 @@ export function HandoverPhotos({ participant, handoverId, photos, myId, canManag
         </View>
       </Modal>
 
+      <Sheet visible={!!pending} onClose={() => !busy && setPending(null)} title="Add to handover"
+        sub="Add a short caption so the next Support Worker knows what this shows." testID="handover-caption-sheet">
+        {pending && <Image source={{ uri: pending.uri }} style={styles.preview} contentFit="cover" />}
+        <TextInput value={caption} onChangeText={setCaption} placeholder="e.g. New bruise on left arm, reported to coordinator"
+          placeholderTextColor={colors.muted} maxLength={200} style={styles.input} testID="handover-caption-input" />
+        <Button label="Add photo" icon="cloud-upload-outline" loading={busy} disabled={busy} onPress={() => pending && upload(pending)}
+          testID="handover-caption-save" />
+        <Button label="Cancel" variant="ghost" disabled={busy} onPress={() => setPending(null)} />
+      </Sheet>
+
       <Modal visible={!!viewing} animationType="fade" onRequestClose={() => setViewing(null)}>
+        <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
         <View style={[styles.viewer, { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 16 }]} testID="handover-photo-viewer">
           <View style={styles.row}>
             <Text style={[styles.viewerText, { flex: 1 }]}>{viewing ? `${viewing.by_name} · ${formatDate(viewing.at)}` : ""}</Text>
@@ -123,10 +154,27 @@ export function HandoverPhotos({ participant, handoverId, photos, myId, canManag
             </Pressable>
           </View>
           {viewing && <Image source={{ uri: photoUrl(viewing.photo_id) }} style={{ flex: 1 }} contentFit="contain" />}
-          {viewing && (viewing.by_id === myId || canManage) && (
-            <Button label="Remove photo" icon="trash-outline" variant="danger" onPress={() => remove(viewing)} testID="handover-photo-remove" />
+          {viewing && editCap === null && !!viewing.caption && (
+            <Text style={styles.viewerCap} testID="handover-photo-caption">{viewing.caption}</Text>
           )}
+          {viewing && (viewing.by_id === myId || canManage) && (editCap === null ? (
+            <View style={styles.row}>
+              <Button label={viewing.caption ? "Edit caption" : "Add caption"} icon="create-outline" variant="secondary" style={{ flex: 1 }}
+                onPress={() => setEditCap(viewing.caption)} testID="handover-photo-edit-caption" />
+              <Button label="Remove" icon="trash-outline" variant="danger" style={{ flex: 1 }} onPress={() => remove(viewing)} testID="handover-photo-remove" />
+            </View>
+          ) : (
+            <View style={{ gap: 8 }}>
+              <TextInput value={editCap} onChangeText={setEditCap} placeholder="Caption" placeholderTextColor={colors.muted} maxLength={200}
+                style={styles.input} autoFocus testID="handover-photo-caption-input" />
+              <View style={styles.row}>
+                <Button label="Save" icon="checkmark" style={{ flex: 1 }} onPress={saveCaption} testID="handover-photo-caption-save" />
+                <Button label="Cancel" variant="secondary" style={{ flex: 1 }} onPress={() => setEditCap(null)} />
+              </View>
+            </View>
+          ))}
         </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -142,4 +190,8 @@ const useStyles = makeStyles((c) => ({
   viewer: { flex: 1, backgroundColor: "#000000", paddingHorizontal: 16, gap: 12 },
   viewerText: { fontSize: 14, color: "#FFFFFF" },
   close: { width: 48, height: 48, alignItems: "center", justifyContent: "center" },
+  thumbCap: { fontSize: 11, color: c.muted, marginTop: 2 },
+  viewerCap: { fontSize: 15, color: "#FFFFFF", lineHeight: 21 },
+  preview: { width: "100%", height: 180, borderRadius: 12, backgroundColor: c.surfaceSecondary },
+  input: { minHeight: 48, borderRadius: 12, paddingHorizontal: 14, fontSize: 15, color: c.onSurface, backgroundColor: c.surfaceSecondary },
 }));

@@ -8,7 +8,8 @@ import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { Text } from "@/src/components/text";
 import { useToast } from "@/src/components/toast";
-import { Avatar, EmptyState, ErrorState, Ionicons, Loading, formatDate } from "@/src/components/ui";
+import { Avatar, Button, EmptyState, ErrorState, Ionicons, Loading, formatDate } from "@/src/components/ui";
+import { Sheet } from "@/src/components/participant-sheets";
 import { makeStyles, useTheme } from "@/src/theme";
 
 const FILTERS = [
@@ -26,7 +27,22 @@ export default function TeamCertificates() {
   const q = useQuery<any>({ queryKey: ["team-certificates"], queryFn: () => api("/certificates/team"), enabled: allowed });
   const [filter, setFilter] = useState<(typeof FILTERS)[number]["key"]>("all");
   const [nudging, setNudging] = useState<string | null>(null);
+  const [confirmAll, setConfirmAll] = useState(false);
+  const [nudgingAll, setNudgingAll] = useState(false);
   const toast = useToast();
+  const nudgeAll = async () => {
+    setNudgingAll(true);
+    try {
+      const r = await api<any>("/certificates/team/nudge-expired", { method: "POST" });
+      toast(r.nudged ? `Reminders sent to ${r.workers} worker${r.workers === 1 ? "" : "s"}` : "Everyone was already reminded today", "success");
+      setConfirmAll(false);
+      await q.refetch();
+    } catch (e: any) {
+      toast(e.message, "error");
+    } finally {
+      setNudgingAll(false);
+    }
+  };
   const nudge = async (c: any) => {
     setNudging(c.cert_id);
     try {
@@ -45,6 +61,8 @@ export default function TeamCertificates() {
   if (q.isError) return <ErrorState message="Couldn't load team certificates." onRetry={q.refetch} />;
   const all = q.data.certificates as any[];
   const rows = all.filter((c) => filter === "all" || c.status === filter);
+  const overdue = all.filter((c) => c.status === "expired" && c.owner_id !== user?.user_id && !c.nudged_today);
+  const overdueWorkers = new Set(overdue.map((c) => c.owner_id)).size;
 
   return (
     <FlatList
@@ -68,6 +86,16 @@ export default function TeamCertificates() {
               );
             })}
           </View>
+          {!!overdue.length && (
+            <Button label={`Nudge all expired (${overdueWorkers} worker${overdueWorkers === 1 ? "" : "s"})`} icon="notifications-outline"
+              onPress={() => setConfirmAll(true)} testID="team-certs-nudge-all" />
+          )}
+          <Sheet visible={confirmAll} onClose={() => !nudgingAll && setConfirmAll(false)} title="Remind everyone with an expired certificate?"
+            sub={`${overdueWorkers} worker${overdueWorkers === 1 ? "" : "s"} will get an app notification and an email for ${overdue.length} expired certificate${overdue.length === 1 ? "" : "s"}. Anyone already reminded today is skipped.`}
+            testID="team-certs-nudge-all-sheet">
+            <Button label="Send reminders" icon="send-outline" loading={nudgingAll} disabled={nudgingAll} onPress={nudgeAll} testID="team-certs-nudge-all-confirm" />
+            <Button label="Cancel" variant="ghost" disabled={nudgingAll} onPress={() => setConfirmAll(false)} />
+          </Sheet>
         </View>
       }
       ListEmptyComponent={<EmptyState icon="ribbon-outline" title="All up to date" subtitle="No team certificates are expiring in the next 60 days." />}
@@ -80,7 +108,7 @@ export default function TeamCertificates() {
               <Text style={styles.name}>{item.owner_name}</Text>
               <Text style={styles.body} numberOfLines={2}>{item.title}</Text>
               <Text style={styles.meta}>{expired ? "Expired" : "Expires"} {formatDate(item.expiry_date)}</Text>
-              {(item.nudged_at ?? "").slice(0, 10) === new Date().toISOString().slice(0, 10) ? (
+              {item.nudged_today ? (
                 <Text style={styles.nudged} testID={`team-cert-nudged-${item.cert_id}`}>
                   Reminder sent today{item.nudged_by_name ? ` by ${item.nudged_by_name}` : ""}
                 </Text>

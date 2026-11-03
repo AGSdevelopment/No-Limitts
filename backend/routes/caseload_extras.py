@@ -12,6 +12,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
+from pydantic import BaseModel
 
 from core import DIGEST_TZ, MAX_UPLOAD_BYTES, bearer, current_user, db, dmy, logger, notify, now_iso, user_from_token
 from email_service import send_email
@@ -95,6 +96,22 @@ async def handover_photo_file(photo_id: str, request: Request, token: Optional[s
     return Response(content=data, media_type=ph.get("content_type") or ctype, headers={"Cache-Control": "private, max-age=3600"})
 
 
+class CaptionIn(BaseModel):
+    caption: str = ""
+
+
+@router.patch("/caseload/handover/photos/{photo_id}")
+async def edit_handover_caption(photo_id: str, body: CaptionIn, user=Depends(current_user)):
+    ph = await db.handover_photos.find_one({"photo_id": photo_id}, {"_id": 0})
+    if not ph:
+        raise HTTPException(404, "Photo not found")
+    if ph["by_id"] != user["user_id"] and not can_manage(user):
+        raise HTTPException(403, "Only the person who added it or a Coordinator can edit this caption")
+    cap = body.caption.strip()[:200]
+    await db.handover_photos.update_one({"photo_id": photo_id}, {"$set": {"caption": cap}})
+    return {**photo_out(ph), "caption": cap}
+
+
 @router.delete("/caseload/handover/photos/{photo_id}")
 async def delete_handover_photo(photo_id: str, user=Depends(current_user)):
     ph = await db.handover_photos.find_one({"photo_id": photo_id}, {"_id": 0})
@@ -127,13 +144,86 @@ def perth_today() -> date:
     return datetime.now(DIGEST_TZ).date()
 
 
+# ---- Birthday card wall: open from 7 days before to 7 days after the birthday ----
+
+WALL_DAYS = 7
+
+
+async def wall_participant(participant_id: str, user: dict) -> dict:
+    p = await db.participants.find_one({"participant_id": participant_id}, {"_id": 0})
+    if not p:
+        raise HTTPException(404, "Participant not found")
+    await can_see_participant(user, p["key"])
+    return p
+
+
+def wall_window(p: dict) -> Optional[dict]:
+    """The birthday the wall is for, if it's within the open window."""
+    today = perth_today()
+    nb = next_birthday((p.get("profile") or {}).get("date_of_birth"), today - timedelta(days=WALL_DAYS))
+    if not nb or date.fromisoformat(nb["date"]) > today + timedelta(days=WALL_DAYS):
+        return None
+    return {**nb, "in_days": (date.fromisoformat(nb["date"]) - today).days}
+
+
+def message_out(m: dict, user: dict) -> dict:
+    return {"message_id": m["message_id"], "name": m["name"], "text": m["text"], "at": m["at"],
+            "mine": m["user_id"] == user["user_id"], "can_remove": m["user_id"] == user["user_id"] or can_manage(user)}
+
+
+@router.get("/participants/{participant_id}/birthday-wall")
+async def birthday_wall(participant_id: str, user=Depends(current_user)):
+    p = await wall_participant(participant_id, user)
+    win = wall_window(p)
+    if not win:
+        return {"open": False, "messages": []}
+    msgs = await db.birthday_messages.find({"participant_id": participant_id, "date": win["date"]}, {"_id": 0}).sort("at", 1).to_list(500)
+    return {"open": True, "birthday": win, "messages": [message_out(m, user) for m in msgs]}
+
+
+class WallIn(BaseModel):
+    text: str
+
+
+@router.post("/participants/{participant_id}/birthday-wall")
+async def sign_birthday_wall(participant_id: str, body: WallIn, user=Depends(current_user)):
+    """Sign (or update your message on) the participant's birthday card. One message per person per birthday."""
+    p = await wall_participant(participant_id, user)
+    win = wall_window(p)
+    if not win:
+        raise HTTPException(400, "The birthday card opens 7 days before their birthday")
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(400, "Write a message first")
+    if len(text) > 300:
+        raise HTTPException(400, "Keep it under 300 characters")
+    q = {"participant_id": participant_id, "date": win["date"], "user_id": user["user_id"]}
+    existing = await db.birthday_messages.find_one(q, {"_id": 0})
+    doc = {**q, "message_id": (existing or {}).get("message_id") or f"bdm_{secrets.token_hex(6)}",
+           "name": user.get("name") or "", "text": text, "at": now_iso()}
+    await db.birthday_messages.update_one(q, {"$set": doc}, upsert=True)
+    return message_out(doc, user)
+
+
+@router.delete("/participants/{participant_id}/birthday-wall/{message_id}")
+async def remove_birthday_message(participant_id: str, message_id: str, user=Depends(current_user)):
+    await wall_participant(participant_id, user)
+    m = await db.birthday_messages.find_one({"participant_id": participant_id, "message_id": message_id}, {"_id": 0})
+    if not m:
+        raise HTTPException(404, "Message not found")
+    if m["user_id"] != user["user_id"] and not can_manage(user):
+        raise HTTPException(403, "You can only remove your own message")
+    await db.birthday_messages.delete_one({"message_id": message_id})
+    return {"ok": True}
+
+
 async def birthday_reminders():
     today = perth_today()
     async for p in db.participants.find({"assigned_ids": {"$ne": []}, "profile.date_of_birth": {"$nin": [None, ""]}}, {"_id": 0}):
         nb = next_birthday(p["profile"]["date_of_birth"], today)
         if nb and nb["in_days"] == 0:
             await notify(p["assigned_ids"], "birthday", f"It's {p['name']}'s birthday today! 🎂",
-                         f"{p['name']} turns {nb['turns']} today. Don't forget to wish them a happy birthday on your shift.",
+                         f"{p['name']} turns {nb['turns']} today. Sign their birthday card in the app and wish them a happy birthday on your shift.",
                          f"/participant/{p['participant_id']}")
 
 
