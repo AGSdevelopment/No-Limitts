@@ -248,3 +248,4 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Streak leaderboard: GET /api/caseload/streaks (workers, coordinators, HR, admin) → support workers ranked by current streak; Leaderboard screen has "Team events" / "Case note streaks" tabs (workers see streaks only; /leaderboard?tab=streaks).
 - Days off: GET/POST/DELETE /api/caseload/days-off (db.days_off {user_id,date}; workers; -14d..+60d); skipped in streaks (neither count nor break); DaysOffSheet from streak card.
 - Missed notes export: GET /api/caseload/missed/export?days=&token= → xlsx (Summary, By day, About); download link on Missed notes screen.
+- Friday streak shout-out: routes/teams.py build_streak_shoutout() (top 5 current streaks ≥2, hidden users excluded) posted in weekly_wrap_loop Fridays 3pm Perth via announce("streaks"); toggle "streaks" on Teams announcements (integrations screen). Skips when nobody has a streak.

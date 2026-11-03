@@ -47,7 +47,7 @@ async def announcements_status(admin=Depends(admin_user)):
     doc = await db.integrations.find_one({"key": ANN_KEY}, P)
     return {"linked": bool(doc and doc.get("webhook")), "updates": (doc or {}).get("updates", True),
             "events": (doc or {}).get("events", True), "celebrations": (doc or {}).get("celebrations", True),
-            "weekly_wrap": (doc or {}).get("weekly_wrap", True)}
+            "weekly_wrap": (doc or {}).get("weekly_wrap", True), "streaks": (doc or {}).get("streaks", True)}
 
 
 class AnnouncementsIn(BaseModel):
@@ -56,12 +56,13 @@ class AnnouncementsIn(BaseModel):
     events: bool = True
     celebrations: bool = True
     weekly_wrap: bool = True
+    streaks: bool = True
 
 
 @router.put("/integrations/teams-announcements")
 async def set_announcements(body: AnnouncementsIn, admin=Depends(admin_user)):
     upd = {"key": ANN_KEY, "updates": body.updates, "events": body.events, "celebrations": body.celebrations,
-           "weekly_wrap": body.weekly_wrap}
+           "weekly_wrap": body.weekly_wrap, "streaks": body.streaks}
     url = (body.webhook_url or "").strip()
     test = None
     if url:
@@ -114,9 +115,35 @@ async def weekly_wrap_loop():
             if now_p.weekday() == 4 and now_p.hour >= 15 and not await db.meta.find_one({"key": key}):
                 if await announce("weekly_wrap", await build_weekly_wrap(now_p.date())):
                     await db.meta.insert_one({"key": key, "created_at": now_iso()})
+            skey = f"teams_streak_shoutout_{now_p.date().isoformat()}"
+            if now_p.weekday() == 4 and now_p.hour >= 15 and not await db.meta.find_one({"key": skey}):
+                text = await build_streak_shoutout()
+                if not text or await announce("streaks", text):
+                    await db.meta.insert_one({"key": skey, "created_at": now_iso()})
         except Exception as e:
             logger.error(f"Weekly wrap failed: {e}")
         await asyncio.sleep(3600)
+
+
+async def build_streak_shoutout() -> str:
+    """Friday shout-out for the top case note streaks (2+ days). Empty when there's nothing to celebrate."""
+    from routes.caseload import configured as jot_ready, load_rows, note_streak
+    if not jot_ready():
+        return ""
+    rows = await load_rows()
+    board = []
+    async for u in db.users.find({"user_type": "support_worker", "hidden": {"$ne": True}}, {"_id": 0, "user_id": 1, "name": 1, "email": 1}):
+        st = await note_streak(u, rows)
+        if st["current"] >= 2:
+            board.append((st["current"], u["name"]))
+    if not board:
+        return ""
+    board.sort(key=lambda b: (-b[0], b[1].lower()))
+    medals = ["🥇", "🥈", "🥉"]
+    lines = [f"{medals[i] if i < 3 else '🔥'} **{name}** · {n} days in a row" for i, (n, name) in enumerate(board[:5])]
+    return ("🔥 **Case note streak shout-out!**\n\nHuge thanks to our Support Workers for keeping their case notes "
+            "up to date, day after day:\n\n" + "\n".join(lines) +
+            "\n\nGreat notes mean great support for our participants. See the full leaderboard in the No Limitts app.")
 
 
 async def posted_keys() -> set:
@@ -125,7 +152,7 @@ async def posted_keys() -> set:
 
 
 async def announce(kind: str, text: str) -> bool:
-    """kind: 'updates' | 'events' | 'celebrations'. Never raises (runs in the background).
+    """kind: 'updates' | 'events' | 'celebrations' | 'weekly_wrap' | 'streaks'. Never raises (runs in the background).
     Returns False only when a linked, enabled channel failed to receive the post."""
     try:
         doc = await db.integrations.find_one({"key": ANN_KEY}, P)
