@@ -6,7 +6,7 @@ from core import P, current_user, db
 from pdf_brand import LOGO
 from routes.celebrations import celebrations
 from routes.compliance import is_new_starter
-from routes.certificates import with_status
+from routes.certificates import sees_team_certs, team_cert_alerts, with_status
 from routes.events import event_fields, photo_highlights, visible_events
 
 router = APIRouter(prefix="/api")
@@ -32,7 +32,16 @@ async def dashboard(user=Depends(current_user)):
             "photo_highlights": await photo_highlights(user),
             "open_task_count": len(tasks), "updates": updates, "unread_notifications": unread,
             "pending_policies": pending_policies, "latest_social": latest_social,
-            "celebrations": await celebrations(user), "is_new_starter": is_new_starter(user)}
+            "celebrations": await celebrations(user), "is_new_starter": is_new_starter(user),
+            "team_cert_alerts": await team_summary(user)}
+
+
+async def team_summary(user: dict):
+    if not sees_team_certs(user):
+        return None
+    alerts = [c for c in await team_cert_alerts() if c["owner_id"] != user["user_id"]]
+    return {"expired": sum(c["status"] == "expired" for c in alerts), "expiring": sum(c["status"] == "expiring" for c in alerts),
+            "soonest": alerts[:3]}
 
 
 @router.get("/brand/logo.png")

@@ -259,7 +259,7 @@ export default function UploadCertificate() {
           <Chip key={n} label={`+${n} year${n > 1 ? "s" : ""}`} selected={expiry === addYears(n)} onPress={() => setExpiry(addYears(n))} testID={`upload-expiry-quick-${n}`} />
         ))}
       </ScrollView>
-      <Text style={styles.hint}>We&apos;ll remind you in the app and by email 30 days before it expires.</Text>
+      <Text style={styles.hint}>We&apos;ll remind you in the app and by email 60 days before it expires.</Text>
         </>
       )}
       <View style={styles.cpdBox} testID="upload-share-box">

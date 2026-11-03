@@ -1,0 +1,45 @@
+{
+  "summary": "Tested certificate expiry alerts (60-day window), handover photos, participant birthdays, the monthly caseload report and regression. Backend: 33/33 pytest pass. Covered: GET /api/certificates/team (403 for worker; warning_days 60; hidden users excluded; 45d=expiring, 75d excluded, expired=-3 days_left; sorted; no storage_path), dashboard team_cert_alerts (null for employee; counts and soonest<=3 for admin), handover photo POST/GET/DELETE (non-image 400, unassigned worker 403, no token 401, assigned worker can upload, view and delete own, other worker can't delete 403, 10-photo limit 400, 404 after delete), DOB PUT validation (5 bad formats 400, employee 403), birthday in_days/turns on participant and caseload rows, monthly PDF (admin 200 %PDF, ?month=2026-09 OK, bad/2026-13/future 400, employee/no-token 403), email-to-me 200 plus the shared link returns a PDF, and regression on caseload, streaks, missed and certificates. Frontend at 390x844 passes. Caseload shows the Monthly report box: Open PDF opens a new tab and the PDF GET returns 200; Email to me shows the toast 'Report sent to admin.test@example.com'. The birthday badge reads 'Birthday today! Turns 36'. On the participant profile the birthday line shows, the DOB field is pre-filled as 03-11-1990, an invalid date shows the DD-MM-YYYY error toast, a future date shows the backend error toast, and saving 08-11-1990 shows 'Birthday 8 Nov 2026 · turns 36 (in 5 days)'; it was then restored. Team certificates shows the empty state 'All up to date' with 0 counts. With seeded certs, the home card shows '2 expiring in 60 days · 1 expired' and opens /team-certificates, and the All(3)/Expiring(2)/Expired(1) filter chips work. As employee the home card and monthly box are hidden and /team-certificates shows 'Not available'. Fixed one bug: the RN-web 'Unexpected text node' error in participant edit mode. No deprecated Expo packages found. The handover photo UI could not be tested live because there is no Jotform handover, so it was code-reviewed only.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "certificates expiry_loop / check_certificate (routes/certificates.py:71-89)", "issue": "Only the certificate OWNER gets the in-app notification and email. Service Coordinators, HR and Admins get no push or email when a staff certificate enters the 60-day window or expires; they only see the passive home card and /team-certificates. The request asked for alerts to ALL coordinators, HR and admins. There is also no countdown: each stage (expiring, then expired) notifies once."},
+      {"endpoint": "GET /api/caseload/monthly-report/pdf + email", "issue": "monthly_report() only uses in-app db.participants. Jotform-only participants that show in the caseload (e.g. 'Pronathi Nair') are left out of the PDF, so the 'all participants' scope is incomplete."},
+      {"endpoint": "build_report_pdf (caseload_extras.py:207)", "issue": "The 'Generated' date uses date.today(), which is server UTC, but is labelled '(Perth time)'. Use perth_today()."},
+      {"endpoint": "DELETE /api/caseload/handover/photos/{id}", "issue": "Deletes the DB record but leaves the object in storage (orphaned participant photo)."},
+      {"endpoint": "POST /api/caseload/handover/photos", "issue": "submission_id is not checked against the participant's actual handover, so any string is accepted (e.g. a leftover record 'fake123' from main agent testing is still in db.handover_photos)."},
+      {"endpoint": "PUT /api/participants/{id}/profile", "issue": "The DOB upper bound uses date.today() (UTC), not Perth. date.fromisoformat on Python 3.11+ also accepts compact '19900714'. Minor."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "participant/[id].tsx edit mode", "issue": "`{editing && draftNote && (...)}` rendered an empty string inside a View, which triggered the RN-web red toast 'Unexpected text node: . A text node cannot be a child of a <View>'. FIXED by changing it to `!!draftNote`; verified the error is gone.", "testID": "participant-edit", "priority": "MEDIUM (fixed)"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "handover-photos.tsx", "issues": ["There is no caption input, although the backend supports a caption."]},
+      {"screen": "team-certificates", "issues": ["The screen can only be reached from the home card, and only when alerts exist. There is no permanent entry point (e.g. Library or Certificates tab).", "Cert cards can't be tapped (no way to nudge or contact the staff member)."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter54_teamcerts_handover_photos_birthday_report.py", "/app/backend/tests/iter54_ui_seed.py", "/app/test_reports/pytest/pytest_iter54.xml"],
+  "action_items": [
+    "Notify (in-app and optionally email) all visible support_coordinator, HR and admin users when a team member's certificate first enters the 60-day window or expires, e.g. a daily or weekly digest, and consider countdown reminders at 30/14/7 days.",
+    "Include Jotform-only caseload participants in the monthly report, or document that only in-app participants are counted.",
+    "Use perth_today() for the PDF 'Generated' date.",
+    "Delete the storage object (or mark it deleted) when a handover photo is removed. Optionally validate that submission_id matches the participant's latest handover. Clean up the leftover handover_photos doc 'fake123'.",
+    "Optional: add a caption field to the handover photo UI, and a permanent entry to /team-certificates for coordinators, HR and admins."
+  ],
+  "critical_code_review_comments": [
+    "Handover photo access control is correct: workers must be assigned, other users need check_access, and DELETE is limited to the uploader or can_manage.",
+    "Monthly PDF via ?token query and the shared link (30-day expiry, re-checks can_manage) look correct.",
+    "Uvicorn --reload: creating or editing any file under /app/backend (including tests/) restarts the backend, and startup (server.py:282) sets hidden:true on the test users again. Keep this in mind when seeding."
+  ],
+  "updated_files": ["/app/frontend/app/participant/[id].tsx"],
+  "success_rate": {"backend": "100% (33/33)", "frontend": "100% of testable flows (handover photo UI code-reviewed only, no Jotform handover available)"},
+  "seed_data_creation": "Temporary: user_testemp001 hidden:false plus cert_TESTUI_45/cert_TESTUI_exp, removed afterwards (hidden:true restored). Test Birthday Person DOB was restored to 1990-11-03 and assigned_ids to [].",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run pytest with -n 0. Use `python tests/iter54_ui_seed.py seed|clean` for the team certs UI. If the backend reloads after seeding, set hidden:false on user_testemp001 again. The environment date is 3 Nov 2026 (Perth). The only in-app participant is 'Test Birthday Person' (par_960475e91169, DOB 1990-11-03). No Jotform handover exists, so the handover photo UI can't render.",
+  "rca_of_issue": "Text-node error: in JSX, `a && b` returns b when b is a falsy string (''), so an empty string text node ended up under the ScrollView/View in edit mode. Coercing it with !! fixes this."
+}

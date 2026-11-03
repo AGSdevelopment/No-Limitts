@@ -157,11 +157,32 @@ export default function Home() {
                 </View>
                 {d.cert_alerts.slice(0, 3).map((c: any) => (
                   <Text key={c.cert_id} style={styles.alertLine}>
-                    {c.title} — {c.status === "expired" ? `expired ${formatDate(c.expiry_date)}` : `${c.days_left} days left`}
+                    {c.title} — {c.status === "expired" ? `expired ${formatDate(c.expiry_date)}` : `${c.days_left} day${c.days_left === 1 ? "" : "s"} left`}
                   </Text>
                 ))}
               </Card>
             </Animated.View>
+          )}
+
+          {!!d.team_cert_alerts && (d.team_cert_alerts.expired + d.team_cert_alerts.expiring) > 0 && (
+            <Card testID="home-team-cert-card" onPress={() => router.push("/team-certificates")}
+              style={[styles.alert, styles.policyCard, d.team_cert_alerts.expired ? styles.alertError : styles.alertWarn]}>
+              <Ionicons name="hourglass-outline" size={22} color={d.team_cert_alerts.expired ? colors.errorText : colors.warningText} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.rowTitle}>Team certificates to renew</Text>
+                <Text style={styles.rowSub}>
+                  {d.team_cert_alerts.expiring ? `${d.team_cert_alerts.expiring} expiring in 60 days` : ""}
+                  {d.team_cert_alerts.expiring && d.team_cert_alerts.expired ? " · " : ""}
+                  {d.team_cert_alerts.expired ? `${d.team_cert_alerts.expired} expired` : ""}
+                </Text>
+                {d.team_cert_alerts.soonest.slice(0, 2).map((c: any) => (
+                  <Text key={c.cert_id} style={styles.alertLine} numberOfLines={1}>
+                    {c.owner_name}: {c.title} — {c.status === "expired" ? "expired" : `${c.days_left} days`}
+                  </Text>
+                ))}
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.muted} />
+            </Card>
           )}
 
           {d.pending_policies > 0 && (

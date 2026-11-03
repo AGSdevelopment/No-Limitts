@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { API_URL, api, authHeaders, getApiToken, openLink } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { StaffEmailSheet } from "@/src/components/staff-email-sheet";
+import { HandoverPhotos } from "@/src/components/handover-photos";
 import { AddParticipantSheet, AssignSheet, CaseFormsSheet, ConfirmSheet, DaysOffSheet, HourSheet, ImportResultSheet, IntroSheet, NudgeButton, hourLabel } from "@/src/components/participant-sheets";
 import * as DocumentPicker from "expo-document-picker";
 import { uploadForm } from "@/src/utils/upload";
@@ -51,6 +52,18 @@ export default function Caseload() {
       setPickingHour(false);
     } catch (e: any) {
       toast(e.message, "error");
+    }
+  };
+  const [emailingReport, setEmailingReport] = useState(false);
+  const emailReport = async () => {
+    setEmailingReport(true);
+    try {
+      const r = await api<any>("/caseload/monthly-report/email", { method: "POST" });
+      toast(`Report sent to ${r.sent_to}`, "success");
+    } catch (e: any) {
+      toast(e.message, "error");
+    } finally {
+      setEmailingReport(false);
     }
   };
   const clearPending = async (startId: string) => {
@@ -211,6 +224,26 @@ export default function Caseload() {
               )}
             </View>
           )}
+          {q.data.can_manage && (
+            <View style={styles.reportBox} testID="caseload-monthly-report">
+              <View style={styles.aiHead}>
+                <Ionicons name="stats-chart-outline" size={16} color={colors.brandPrimary} />
+                <Text style={styles.aiTitle}>Monthly case note report</Text>
+              </View>
+              <Text style={styles.meta}>Emailed to each coordinator on the 1st of every month. You can open last month&apos;s now.</Text>
+              <Pressable onPress={() => router.push("/team-certificates")} style={styles.templateLink} testID="caseload-team-certs">
+                <Ionicons name="ribbon-outline" size={16} color={colors.brandPrimary} />
+                <Text style={styles.templateText}>Team certificates expiring soon</Text>
+              </Pressable>
+              <View style={styles.manageRow}>
+                <Button label="Open PDF" icon="document-text-outline" variant="secondary" style={{ flex: 1 }}
+                  onPress={() => openLink(`${API_URL}/caseload/monthly-report/pdf?token=${encodeURIComponent(getApiToken() ?? "")}`)}
+                  testID="caseload-monthly-pdf" />
+                <Button label="Email to me" icon="mail-outline" variant="secondary" style={{ flex: 1 }} loading={emailingReport}
+                  onPress={emailReport} testID="caseload-monthly-email" />
+              </View>
+            </View>
+          )}
           <TextInput value={search} onChangeText={setSearch} placeholder="Search participants" placeholderTextColor={colors.muted}
             style={styles.search} testID="caseload-search" />
           {q.data.can_manage && (
@@ -242,6 +275,13 @@ export default function Caseload() {
               <Avatar name={item.name} size={44} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.name}>{item.name}</Text>
+                {!!item.birthday && (
+                  <View style={styles.bday} testID={`caseload-birthday-${item.name}`}>
+                    <Text style={styles.bdayText}>
+                      🎂 {item.birthday.in_days === 0 ? `Birthday today! Turns ${item.birthday.turns}` : `Birthday ${item.birthday.in_days === 1 ? "tomorrow" : `in ${item.birthday.in_days} days`} · turns ${item.birthday.turns}`}
+                    </Text>
+                  </View>
+                )}
                 <Text style={styles.meta}>
                   {item.count ? `${item.count} note${item.count > 1 ? "s" : ""} · last ${formatDate(item.last_date)}` : "No notes yet"}
                   {!worker && item.participant_id ? ` · ${item.assigned.length} Support Worker${item.assigned.length === 1 ? "" : "s"}` : ""}
@@ -262,6 +302,8 @@ export default function Caseload() {
                     {item.handover.fields.filter((f: any) => !/name|email/i.test(f.label)).slice(0, 10).map((f: any, i: number) => (
                       <Text key={i} style={styles.field}><Text style={styles.fieldLabel}>{f.label}: </Text>{f.value}</Text>
                     ))}
+                    <HandoverPhotos participant={item.name} handoverId={item.handover.id} photos={item.handover.photos ?? []}
+                      myId={user?.user_id} canManage={q.data.can_manage} onChange={q.refetch} />
                     {item.handover.read_by_me ? (
                       <View style={styles.aiHead} testID={`caseload-handover-read-${item.name}`}>
                         <Ionicons name="checkmark-circle" size={18} color={colors.successText} />
@@ -414,4 +456,7 @@ const useStyles = makeStyles((c) => ({
   aiTitle: { flex: 1, fontSize: 14, fontWeight: "700", color: c.brandPrimary },
   aiRedo: { width: 44, height: 32, alignItems: "flex-end", justifyContent: "center" },
   aiNote: { fontSize: 12, color: c.muted },
+  reportBox: { backgroundColor: c.surface, borderRadius: 14, padding: 12, gap: 6 },
+  bday: { alignSelf: "flex-start", backgroundColor: c.brandTertiary, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2, marginVertical: 2 },
+  bdayText: { fontSize: 12, fontWeight: "700", color: c.brandPrimary },
 }));

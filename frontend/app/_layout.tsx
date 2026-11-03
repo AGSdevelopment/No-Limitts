@@ -82,6 +82,7 @@ function RootStack() {
         <Stack.Screen name="login" />
       </Stack.Protected>
       <Stack.Screen name="privacy" options={{ ...header, title: "Privacy policy" }} />
+      <Stack.Screen name="team-certificates" options={{ ...header, title: "Team certificates" }} />
     </Stack>
   );
 }

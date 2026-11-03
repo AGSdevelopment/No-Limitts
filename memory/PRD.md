@@ -249,3 +249,9 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Days off: GET/POST/DELETE /api/caseload/days-off (db.days_off {user_id,date}; workers; -14d..+60d); skipped in streaks (neither count nor break); DaysOffSheet from streak card.
 - Missed notes export: GET /api/caseload/missed/export?days=&token= → xlsx (Summary, By day, About); download link on Missed notes screen.
 - Friday streak shout-out: routes/teams.py build_streak_shoutout() (top 5 current streaks ≥2, hidden users excluded) posted in weekly_wrap_loop Fridays 3pm Perth via announce("streaks"); toggle "streaks" on Teams announcements (integrations screen). Skips when nobody has a streak.
+
+## Nov 2026 updates (iteration 54)
+- Certificate expiry countdown now 60 days (core.EXPIRY_WARNING_DAYS). Workers: home card with days left. Coordinators/HR/Admins: GET /api/certificates/team, /team-certificates screen, home card (dashboard.team_cert_alerts), in-app notification per stage.
+- Handover photos (routes/caseload_extras.py): POST/GET/DELETE /api/caseload/handover/photos; validated against the participant's real Jotform handover; shown in caseload handover card (src/components/handover-photos.tsx). Collection handover_photos.
+- Participant birthdays: profile.date_of_birth; caseload badge within 7 days; 8am Perth alert to assigned workers.
+- Monthly case note completion PDF: emailed (30-day private link) to each support_coordinator on the 1st; GET /api/caseload/monthly-report/pdf, POST /api/caseload/monthly-report/email. Only participants added in the app are counted.

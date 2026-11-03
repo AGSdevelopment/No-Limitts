@@ -82,6 +82,12 @@ async def check_certificate(cert: dict):
     if required:
         body += ". It's required for your role, so please renew it" + (" now" if stage == "expired" else " before then")
     await notify([cert["owner_id"]], "certificate", title, body, "/(tabs)/certificates")
+    if owner and not owner.get("hidden"):  # Service Coordinators, HR and Admins follow the team countdown
+        team = [u["user_id"] async for u in db.users.find(
+            {"$or": [{"role": "admin"}, {"user_type": {"$in": ["hr", "support_coordinator"]}}], "hidden": {"$ne": True},
+             "user_id": {"$ne": cert["owner_id"]}}, {"_id": 0, "user_id": 1})]
+        if team:
+            await notify(team, "certificate", f"{owner['name']}: {title.lower()}", body.split(". It's required")[0], "/team-certificates")
     if owner and owner.get("email"):
         subject = f"{title}: {cert['title']}"
         await send_email(to=owner["email"], subject=subject,
@@ -116,6 +122,32 @@ async def list_certificates(scope: str = "mine", user=Depends(current_user)):
     order = {"expired": 0, "expiring": 1, "valid": 2}
     certs.sort(key=lambda c: (order[c["status"]], c["expiry_date"]))
     return certs
+
+
+def sees_team_certs(user: dict) -> bool:
+    return user.get("role") == "admin" or user.get("user_type") in ("hr", "support_coordinator")
+
+
+async def team_cert_alerts() -> list:
+    """Every staff member's certificates that are expired or expire within the warning window, soonest first."""
+    hidden = {u["user_id"] async for u in db.users.find({"hidden": True}, {"_id": 0, "user_id": 1})}
+    certs = [with_status(c) for c in await db.certificates.find({"is_deleted": False}, P).to_list(10000)
+             if c["owner_id"] not in hidden]
+    alerts = [c for c in certs if c["status"] != "valid"]
+    owners = {u["user_id"]: u async for u in db.users.find({"user_id": {"$in": list({c["owner_id"] for c in alerts})}},
+                                                          {"_id": 0, "user_id": 1, "name": 1, "user_type": 1})}
+    out = [{**c, "owner_name": owners.get(c["owner_id"], {}).get("name") or c.get("owner_name") or "",
+            "owner_type": owners.get(c["owner_id"], {}).get("user_type") or ""} for c in alerts if c["owner_id"] in owners]
+    out.sort(key=lambda c: c["expiry_date"])
+    return out
+
+
+@router.get("/certificates/team")
+async def team_certificates(user=Depends(current_user)):
+    """Countdown of expiring training certificates across the team, for Service Coordinators, HR and Admins."""
+    if not sees_team_certs(user):
+        raise HTTPException(403, "For Service Coordinators, HR and Admins")
+    return {"warning_days": EXPIRY_WARNING_DAYS, "certificates": await team_cert_alerts()}
 
 
 @router.post("/certificates")

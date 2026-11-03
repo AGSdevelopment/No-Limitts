@@ -89,7 +89,7 @@ export default function Certificates() {
             <EmptyState
               icon="ribbon-outline"
               title="No certificates uploaded yet."
-              subtitle="Upload your training certificates and we'll remind you 30 days before they expire."
+              subtitle="Upload your training certificates and we'll count down from 60 days before they expire."
               actionLabel={scope === "mine" ? "Upload certificate" : undefined}
               onAction={() => router.push("/upload-certificate")}
             />

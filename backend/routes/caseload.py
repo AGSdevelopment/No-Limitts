@@ -408,7 +408,13 @@ async def caseload(user=Depends(current_user), refresh: Optional[bool] = False):
                     "handover": max((n for n in v if "handover" in (n.get("source") or "").lower()),
                                     key=lambda n: (n["date"], n["created_at"] or ""), default=None),
                     "notes": sorted(v, key=lambda n: (n["date"], n["created_at"] or ""), reverse=True)[:10]})
+    from routes.caseload_extras import handover_photos, next_birthday  # local import: extras imports this module
+    today = datetime.now(DIGEST_TZ).date()
+    for p in out:
+        nb = next_birthday(((by_key.get(participant_key(p["name"])) or {}).get("profile") or {}).get("date_of_birth"), today)
+        p["birthday"] = nb if nb and nb["in_days"] <= 7 else None
     hids = [p["handover"]["id"] for p in out if p["handover"]]
+    photos = await handover_photos(hids)
     acks: dict = {}
     if hids:
         async for a in db.handover_acks.find({"submission_id": {"$in": hids}}, {"_id": 0}).sort("at", 1):
@@ -419,6 +425,7 @@ async def caseload(user=Depends(current_user), refresh: Optional[bool] = False):
             h = p["handover"] = dict(h)  # copy: the row is shared via the 5-minute cache, don't leak per-user fields
             got = acks.get(h["id"], [])
             h["read_by_me"] = any(a["user_id"] == user["user_id"] for a in got)
+            h["photos"] = photos.get(h["id"], [])
             if not worker:
                 done = {a["user_id"] for a in got}
                 h["acks"] = [{"name": a["name"], "at": a["at"]} for a in got]
@@ -475,6 +482,7 @@ class ProfileIn(BaseModel):
     support_needs: Optional[str] = ""
     communication: Optional[str] = ""
     health_alerts: Optional[str] = ""
+    date_of_birth: Optional[str] = ""
     contacts: List[Contact] = []
 
 
@@ -742,6 +750,7 @@ async def remove_participant(participant_id: str, user=Depends(manager)):
     await db.caseload_summaries.delete_many({"participant": key})
     await db.caseload_shares.delete_many({"participant": key})
     await db.handover_acks.delete_many({"participant": key})
+    await db.handover_photos.delete_many({"participant": key})
     await db.case_note_starts.update_many({"participant": key, "status": "pending"}, {"$set": {"status": "cleared"}})
     return {"ok": True}
 
@@ -920,18 +929,29 @@ async def get_participant(participant_id: str, user=Depends(current_user)):
         check_access(user)
     names = {u["user_id"]: u["name"] async for u in db.users.find({"user_id": {"$in": p.get("assigned_ids", [])}}, {"_id": 0, "user_id": 1, "name": 1})}
     prof = p.get("profile") or {}
+    from routes.caseload_extras import next_birthday  # local import: extras imports this module
     return {"participant_id": p["participant_id"], "name": p["name"], "can_edit": can_manage(user),
+            "birthday": next_birthday(prof.get("date_of_birth"), datetime.now(DIGEST_TZ).date()),
             "assigned": [names[i] for i in p.get("assigned_ids", []) if i in names],
             "intro_status": [{"user_id": i, "name": names[i], "read": i in p.get("intro_seen_ids", []),
                               "nudged_at": (p.get("nudged_at") or {}).get(i, "")}
                              for i in p.get("assigned_ids", []) if i in names] if can_manage(user) else [],
-            "profile": {**{k: prof.get(k, "") for k in PROFILE_FIELDS}, "contacts": prof.get("contacts", []),
+            "profile": {**{k: prof.get(k, "") for k in PROFILE_FIELDS}, "date_of_birth": prof.get("date_of_birth", ""),
+                        "contacts": prof.get("contacts", []),
                         "updated_by": prof.get("updated_by", ""), "updated_at": prof.get("updated_at", "")}}
 
 
 @router.put("/participants/{participant_id}/profile")
 async def save_profile(participant_id: str, body: ProfileIn, user=Depends(manager)):
     data = {k: (getattr(body, k) or "").strip()[:4000] for k in PROFILE_FIELDS}
+    dob = (body.date_of_birth or "").strip()
+    if dob:
+        try:
+            if not date(1900, 1, 1) <= date.fromisoformat(dob) <= date.today():
+                raise ValueError
+        except ValueError:
+            raise HTTPException(400, "Enter the date of birth like 1990-07-14")
+    data["date_of_birth"] = dob
     data["contacts"] = [{k: (v or "").strip()[:200] for k, v in c.model_dump().items()} for c in body.contacts[:20] if c.name.strip()]
     data.update(updated_by=user.get("name") or "", updated_at=now_iso())
     p = await db.participants.find_one_and_update({"participant_id": participant_id}, {"$set": {"profile": data}})

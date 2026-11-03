@@ -34,7 +34,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 
-EXPIRY_WARNING_DAYS = 30
+EXPIRY_WARNING_DAYS = 60
 
 
 MAX_UPLOAD_BYTES = 15 * 1024 * 1024

@@ -11,7 +11,7 @@ import { api } from "@/src/api";
 import { NudgeButton } from "@/src/components/participant-sheets";
 import { Text } from "@/src/components/text";
 import { useToast } from "@/src/components/toast";
-import { Avatar, Button, ErrorState, Field, Ionicons, Loading, formatDate } from "@/src/components/ui";
+import { Avatar, Button, ErrorState, Field, Ionicons, Loading, dmyToIso, formatDate, isoToDmy } from "@/src/components/ui";
 import { makeStyles, useTheme } from "@/src/theme";
 
 const SECTIONS = [
@@ -34,6 +34,7 @@ export default function ParticipantProfile() {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({});
   const [contacts, setContacts] = useState<Contact[]>([]);
+  const [dob, setDob] = useState("");
   const [saving, setSaving] = useState(false);
   const [drafting, setDrafting] = useState(false);
   const [draftNote, setDraftNote] = useState("");
@@ -44,6 +45,7 @@ export default function ParticipantProfile() {
     const p = q.data.profile;
     setForm(Object.fromEntries(SECTIONS.map((s) => [s.key, p[s.key] ?? ""])));
     setContacts(p.contacts ?? []);
+    setDob(isoToDmy(p.date_of_birth ?? ""));
   }, [q.data, editing]);
   useEffect(() => {
     // A Support Worker opening the profile counts as having seen the new-participant intro
@@ -57,9 +59,11 @@ export default function ParticipantProfile() {
   const empty = !SECTIONS.some((s) => p[s.key]) && !p.contacts.length;
 
   const save = async () => {
+    const dobIso = dob.trim() ? dmyToIso(dob) : "";
+    if (dobIso === null) return toast("Enter the date of birth as DD-MM-YYYY", "error");
     setSaving(true);
     try {
-      await api(`/participants/${id}/profile`, { method: "PUT", body: { ...form, contacts } });
+      await api(`/participants/${id}/profile`, { method: "PUT", body: { ...form, date_of_birth: dobIso, contacts } });
       await q.refetch();
       setEditing(false);
       setDraftNote("");
@@ -102,6 +106,11 @@ export default function ParticipantProfile() {
         <View style={{ flex: 1 }}>
           <Text style={styles.name}>{d.name}</Text>
           <Text style={styles.meta}>{d.assigned.length ? `Support Workers: ${d.assigned.join(", ")}` : "No Support Workers assigned yet"}</Text>
+          {!!d.birthday && (
+            <Text style={styles.bday} testID="participant-birthday">
+              🎂 {d.birthday.in_days === 0 ? `Birthday today! Turns ${d.birthday.turns}` : `Birthday ${formatDate(d.birthday.date)} · turns ${d.birthday.turns}${d.birthday.in_days <= 7 ? ` (${d.birthday.in_days === 1 ? "tomorrow" : `in ${d.birthday.in_days} days`})` : ""}`}
+            </Text>
+          )}
           {!!p.updated_at && <Text style={styles.meta}>Updated {formatDate(p.updated_at)}{p.updated_by ? ` by ${p.updated_by}` : ""}</Text>}
         </View>
       </View>
@@ -131,7 +140,7 @@ export default function ParticipantProfile() {
             loading={drafting} onPress={draftWithAI} testID="participant-ai-draft" />
         </>
       )}
-      {editing && draftNote && (
+      {editing && !!draftNote && (
         <View style={styles.aiBanner} testID="participant-ai-banner">
           <Ionicons name="sparkles" size={16} color={colors.brandPrimary} />
           <Text style={[styles.meta, { flex: 1 }]}>{draftNote}</Text>
@@ -140,6 +149,8 @@ export default function ParticipantProfile() {
 
       {editing ? (
         <>
+          <Field label="Date of birth" value={dob} onChangeText={setDob} placeholder="DD-MM-YYYY" keyboardType="numbers-and-punctuation"
+            testID="participant-field-dob" />
           {SECTIONS.map((s) => (
             <Field key={s.key} label={s.label} value={form[s.key]} onChangeText={(v) => setForm((f) => ({ ...f, [s.key]: v }))}
               placeholder={s.placeholder} multiline style={styles.multi} testID={`participant-field-${s.key}`} />
@@ -211,6 +222,7 @@ const useStyles = makeStyles((c) => ({
   hero: { flexDirection: "row", alignItems: "center", gap: 14, backgroundColor: c.surface, borderRadius: 16, padding: 16 },
   name: { fontSize: 20, fontWeight: "700", color: c.onSurface },
   meta: { fontSize: 13, color: c.muted, lineHeight: 18 },
+  bday: { fontSize: 13, fontWeight: "700", color: c.brandPrimary, lineHeight: 18 },
   card: { backgroundColor: c.surface, borderRadius: 14, padding: 14, gap: 8 },
   alert: { borderLeftWidth: 4, borderLeftColor: c.errorText },
   row: { flexDirection: "row", alignItems: "center", gap: 8 },

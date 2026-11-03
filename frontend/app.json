@@ -11,8 +11,8 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.emergent.staffhub.obhj8k",
       "infoPlist": {
-        "NSPhotoLibraryUsageDescription": "Attach certificate photos from your gallery",
-        "NSCameraUsageDescription": "Photograph certificates to fill in details automatically",
+        "NSPhotoLibraryUsageDescription": "Attach certificate and shift handover photos",
+        "NSCameraUsageDescription": "Photograph certificates and shift handovers for your team",
         "ITSAppUsesNonExemptEncryption": false
       }
     },
@@ -51,8 +51,8 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Attach certificate photos from your gallery",
-          "cameraPermission": "Photograph certificates to fill in details automatically",
+          "photosPermission": "Attach certificate and shift handover photos",
+          "cameraPermission": "Photograph certificates and shift handovers for your team",
           "microphonePermission": false
         }
       ],
