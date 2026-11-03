@@ -118,6 +118,30 @@ export function NudgeButton({ participantId, worker, onDone }: { participantId: 
   );
 }
 
+export function hourLabel(h: number) {
+  return `${h % 12 === 0 ? 12 : h % 12}:00 ${h < 12 ? "am" : "pm"}`;
+}
+
+const HOURS = [14, 15, 16, 17, 18, 19, 20, 21, 22];
+
+export function HourSheet({ visible, current, onPick, onClose }: { visible: boolean; current: number; onPick: (h: number) => void; onClose: () => void }) {
+  const styles = useStyles();
+  return (
+    <Sheet visible={visible} onClose={onClose} title="Case note reminder time"
+      sub="When the end-of-day reminder goes out to Support Workers (Perth time). It's sent once a day." testID="hour-sheet">
+      <View style={styles.hours}>
+        {HOURS.map((h) => (
+          <Pressable key={h} onPress={() => onPick(h)} style={[styles.hour, h === current && styles.hourOn]} accessibilityRole="button"
+            accessibilityState={{ selected: h === current }} testID={`hour-${h}`}>
+            <Text style={[styles.hourText, h === current && styles.hourTextOn]}>{hourLabel(h)}</Text>
+          </Pressable>
+        ))}
+      </View>
+      <Button label="Cancel" variant="ghost" onPress={onClose} testID="hour-cancel" />
+    </Sheet>
+  );
+}
+
 export function ImportResultSheet({ result, onClose }: { result: { added: any[]; updated: any[]; skipped: any[] } | null; onClose: () => void }) {
   const styles = useStyles();
   const unknown = [...(result?.added ?? []), ...(result?.updated ?? [])].filter((r) => r.unknown?.length);
@@ -302,5 +326,10 @@ const useStyles = makeStyles((c) => ({
   nudge: { flexDirection: "row", alignItems: "center", gap: 4, minHeight: 36, paddingHorizontal: 12, borderRadius: 18, backgroundColor: c.brandTertiary },
   nudgeText: { fontSize: 13, fontWeight: "700", color: c.brandPrimary },
   pendingBox: { backgroundColor: c.warningSoft, borderRadius: 12, padding: 12, gap: 6 },
+  hours: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  hour: { minHeight: 44, minWidth: 96, paddingHorizontal: 14, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: c.surfaceSecondary },
+  hourOn: { backgroundColor: c.brandPrimary },
+  hourText: { fontSize: 14, fontWeight: "600", color: c.onSurface },
+  hourTextOn: { color: c.onBrandPrimary },
   introBody: { fontSize: 14, color: c.onSurface, lineHeight: 20 },
 }));

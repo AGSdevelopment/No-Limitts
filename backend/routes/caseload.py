@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from pydantic import BaseModel
-from core import DIGEST_TZ, bearer, current_user, db, dmy, logger, notify, now_iso, user_from_token
+from core import DIGEST_TZ, admin_user, bearer, current_user, db, dmy, logger, notify, now_iso, user_from_token
 from email_service import send_email
 from pdf_brand import FIRST_TOP, add_logo
 import ai_service
@@ -337,7 +337,7 @@ async def case_note_reminders():
     and anyone who started a case note but hasn't submitted it."""
     today = datetime.now(DIGEST_TZ).date().isoformat()
     rows = await load_rows()
-    noted = {participant_key(r["participant"]) for r in rows if r["kind"] == "day" and r["date"][:10] == today}
+    noted = {participant_key(r["participant"]) for r in rows if r["kind"] == "day" and note_day(r) == today}
     async for p in db.participants.find({"assigned_ids": {"$ne": []}}, {"_id": 0}):
         if p["key"] not in noted:
             await notify(p["assigned_ids"], "casenote", f"No case note yet today: {p['name']}",
@@ -355,9 +355,13 @@ async def case_note_reminder_loop():
         try:
             local = datetime.now(DIGEST_TZ)
             key = f"casenote_reminders_{local.date().isoformat()}"
-            if configured() and local.hour >= 18 and not await db.meta.find_one({"key": key}):
+            if configured() and local.hour >= await reminder_hour() and not await db.meta.find_one({"key": key}):
                 await case_note_reminders()
                 await db.meta.insert_one({"key": key, "created_at": now_iso()})
+            wk = f"missed_report_{local.strftime('%G-W%V')}"
+            if configured() and local.weekday() == 0 and local.hour >= 8 and not await db.meta.find_one({"key": wk}):
+                await weekly_missed_report()
+                await db.meta.insert_one({"key": wk, "created_at": now_iso()})
         except Exception as e:
             logger.error(f"Case note reminders failed: {type(e).__name__}: {e}")
         await asyncio.sleep(600)
@@ -428,7 +432,9 @@ async def caseload(user=Depends(current_user), refresh: Optional[bool] = False):
             p_["pending"] = pend.get(participant_key(p_["name"]), [])
     out.sort(key=lambda p: (p["last_date"], p["name"]), reverse=True)
     intros = [p["participant_id"] for p in listed if worker and user["user_id"] not in p.get("intro_seen_ids", [])]
-    return {"configured": configured(), "can_manage": can_manage(user), "worker": worker, "intros": intros, "participants": out}
+    streak = await note_streak(user, await load_rows() if configured() else []) if worker else None
+    return {"configured": configured(), "can_manage": can_manage(user), "worker": worker, "intros": intros,
+            "streak": streak, "participants": out}
 
 
 class ParticipantIn(BaseModel):
@@ -983,3 +989,111 @@ async def draft_profile(participant_id: str, user=Depends(manager)):
                        for c in (data.get("contacts") or [])[:20] if isinstance(c, dict) and str(c.get("name") or "").strip()]
     out["note_count"] = len(blocks)
     return out
+
+
+# ---- Reminder time, note streaks and the weekly missed-notes report ----
+
+DATE_RX = re.compile(r"^\d{4}-\d{2}-\d{2}")
+
+
+def note_day(r: dict) -> str:
+    """The day a note is for: its date field when it's an ISO date, otherwise the day it was submitted."""
+    d = (r.get("date") or "")[:10]
+    return d if DATE_RX.match(d) else (r.get("created_at") or "")[:10]
+
+
+async def reminder_hour() -> int:
+    doc = await db.meta.find_one({"key": "casenote_reminder_hour"})
+    return int(doc["hour"]) if doc and doc.get("hour") is not None else 18
+
+
+class ReminderIn(BaseModel):
+    hour: int
+
+
+@router.get("/caseload/settings")
+async def caseload_settings(user=Depends(current_user)):
+    check_access(user)
+    return {"reminder_hour": await reminder_hour(), "timezone": "Perth time"}
+
+
+@router.put("/caseload/settings")
+async def save_caseload_settings(body: ReminderIn, user=Depends(admin_user)):
+    if not 0 <= body.hour <= 23:
+        raise HTTPException(400, "Choose an hour between 0 and 23")
+    await db.meta.update_one({"key": "casenote_reminder_hour"},
+                             {"$set": {"key": "casenote_reminder_hour", "hour": body.hour, "updated_by": user.get("name") or "",
+                                       "updated_at": now_iso()}}, upsert=True)
+    return {"reminder_hour": body.hour}
+
+
+def written_by(r: dict, user: dict) -> bool:
+    email = (r.get("email") or "").lower()
+    return (bool(email) and email == (user.get("email") or "").lower()) or \
+        (bool(r.get("coordinator")) and participant_key(r["coordinator"]) == participant_key(user.get("name") or ""))
+
+
+async def note_streak(user: dict, rows: list) -> dict:
+    """Days in a row (counting back from today, or yesterday if today has no note yet) on which the worker completed
+    at least one case note and left none unfinished."""
+    days = {note_day(r) for r in rows if r["kind"] == "day" and written_by(r, user)}
+    broken = set()
+    # Only a note the worker left unfinished breaks the streak (not releases, unassigning or removed participants)
+    async for s in db.case_note_starts.find({"user_id": user["user_id"], "status": "pending"},
+                                            {"_id": 0, "started_at": 1}):
+        broken.add(datetime.fromisoformat(s["started_at"]).astimezone(DIGEST_TZ).date().isoformat())
+    good = days - broken
+    today = datetime.now(DIGEST_TZ).date()
+
+    def run(start) -> int:
+        n, d = 0, start
+        while d.isoformat() in good:
+            n, d = n + 1, d - timedelta(days=1)
+        return n
+    current = run(today) or run(today - timedelta(days=1))
+    best, d = 0, today
+    for _ in range(90):
+        best = max(best, run(d))
+        d -= timedelta(days=1)
+    return {"current": current, "best": best, "today_done": today.isoformat() in good}
+
+
+async def missed_notes(days: int = 7) -> list:
+    """Participants with a Support Worker assigned, and the past days (not today) with no Support Worker case note."""
+    rows = await load_rows()
+    have: dict = {}
+    for r in rows:
+        if r["kind"] == "day":
+            have.setdefault(participant_key(r["participant"]), set()).add(note_day(r))
+    today = datetime.now(DIGEST_TZ).date()
+    window = [(today - timedelta(days=i)).isoformat() for i in range(1, days + 1)]
+    out = []
+    async for p in db.participants.find({"assigned_ids": {"$ne": []}}, {"_id": 0}).sort("name", 1):
+        created = p.get("created_at") or ""
+        since = datetime.fromisoformat(created).astimezone(DIGEST_TZ).date().isoformat() if "T" in created else created[:10]
+        missing = [d for d in window if d not in have.get(p["key"], set()) and d >= since]
+        if missing:
+            out.append({"participant_id": p["participant_id"], "name": p["name"], "missing": sorted(missing),
+                        "assigned": len(p.get("assigned_ids", []))})
+    out.sort(key=lambda x: (-len(x["missing"]), x["name"]))
+    return out
+
+
+@router.get("/caseload/missed")
+async def missed_report(days: int = 7, user=Depends(current_user)):
+    if not can_manage(user):
+        raise HTTPException(403, "The missed notes report is for Service & Support Coordinators and Admins")
+    return {"days": max(1, min(days, 31)), "participants": await missed_notes(max(1, min(days, 31)))}
+
+
+async def weekly_missed_report():
+    """Monday morning: tell coordinators how many participants had days without a case note last week."""
+    report = await missed_notes(7)
+    if not report:
+        return
+    ids = [u["user_id"] async for u in db.users.find({"user_type": "support_coordinator", "hidden": {"$ne": True}}, {"_id": 0, "user_id": 1})]
+    if not ids:
+        ids = [u["user_id"] async for u in db.users.find({"role": "admin", "hidden": {"$ne": True}}, {"_id": 0, "user_id": 1})]
+    total = sum(len(p["missing"]) for p in report)
+    await notify(ids, "casenote", f"Missed case notes last week: {len(report)} participant{'s' if len(report) != 1 else ''}",
+                 f"{total} day{'s' if total != 1 else ''} without a Support Worker case note. Tap to see who.", "/missed-notes")

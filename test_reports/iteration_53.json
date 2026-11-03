@@ -1,0 +1,39 @@
+{
+  "summary": "Tested reminder time setting, note streaks and the missed notes report. Backend: 14/14 pytest pass (GET/PUT /api/caseload/settings incl. 403 for worker, 400 for hour 25/24/-1, 422 for non-int, persists and restored to 18; GET /api/caseload/missed?days=7|14|30 lists only assigned participants, skips today and days before created_at, clamps days to 1..31, worker gets 403; worker /api/caseload streak {current,best,today_done}, admin streak null; weekly_missed_report() notifies the 1 visible support_coordinator with link /missed-notes, type casenote). Frontend at 390x844: admin Library > Caseload shows the Missed notes and Reminder 6:00 pm buttons. The hour sheet shows hour-14..hour-22 with 6pm selected. Choosing 8pm shows the toast 'Case note reminders will go out at 8:00 pm (Perth time)', the sheet closes and the label changes to 'Reminder 8:00 pm'. Reset to 6pm worked. The Missed case notes screen's 7/14/30 chips show 7/14/20 days for a participant created 20 days ago. Tapping the card opens /participant/{id}. Support Worker > My participants shows the streak card 'Start a case note streak' and no manager buttons. All test data was cleaned up and the reminder hour is back at 18. No deprecated Expo packages in the files reviewed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "routes/caseload.py note_streak", "issue": "Days come from Jotform created_at[:10] (Jotform account timezone, often US/Eastern), but 'today' is the Perth date (DIGEST_TZ). Notes written in the Perth morning can land on the previous day, which can wrongly break or extend a streak. missed_notes uses note_day() (the date field) instead, so the two features use different day rules."},
+      {"endpoint": "routes/caseload.py missed_notes", "issue": "since = participant created_at[:10] is a UTC date. Between 16:00 and 24:00 UTC the Perth date is already the next day, so the day before the participant was added (Perth time) can be counted as missed."},
+      {"endpoint": "routes/caseload.py note_streak", "issue": "The 'broken' set includes case_note_starts with status 'cleared'. That status is also set by system actions (worker unassigned, participant removed, form gone) and by coordinator releases, so the worker's streak breaks for something they didn't do. Consider only counting 'pending' starts, or a separate status for system clears."},
+      {"endpoint": "routes/caseload.py note_streak", "issue": "Product note: a day counts as soon as the worker writes at least one note, not when every assigned participant has a note. The streak also resets on rostered days off. The spec says 'completed every case note'."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "caseload (admin)", "issues": ["The 'Reminder 6:00 pm' button label wraps to 2 lines ('Reminder 6:00 / pm') at 390px wide. Shorten it to e.g. '6:00 pm' or use numberOfLines/a smaller label."]},
+      {"screen": "missed-notes (worker deep link)", "issues": ["A Support Worker who opens /missed-notes directly sees the chips plus the error 'Only Service & Support Coordinators and Admins can manage participants'. The wording doesn't fit a report; it's better to hide the chips or redirect."]},
+      {"screen": "missed-notes / hour-sheet", "issues": ["accessibilityState selected doesn't render as aria-selected on web (null) for the chips and hours. This only affects accessibility; the visual selected state works."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter53_reminder_time_streaks_missed.py", "/app/backend/tests/iter53_ui_seed.py", "/app/test_reports/pytest/pytest_iter53.xml"],
+  "action_items": [
+    "Use the same Perth-local day rule for streaks and missed notes: convert Jotform created_at from the account timezone to DIGEST_TZ, or use note_day() in note_streak.",
+    "Compute missed_notes 'since' as the participant's created_at converted to the Perth date.",
+    "Don't break streaks for system-cleared starts (unassign, participant removal, form gone).",
+    "Stop the 'Reminder 6:00 pm' button label wrapping on 390px screens."
+  ],
+  "critical_code_review_comments": [
+    "caseload() calls load_rows() twice for workers. It's cached so this is harmless, but it could reuse the rows already loaded.",
+    "The reminder loop runs every 600s, so an hour change applies within about 10 minutes. If the hour is set earlier than the current Perth hour, today's reminder goes out immediately (if not already sent). That is expected but worth noting in the UI."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter53_reminder_time_streaks_missed.py", "/app/backend/tests/iter53_ui_seed.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "Created TEST_ participants (assigned to user_testemp001, created_at back-dated) and removed them all. Removed the /missed-notes notifications from the weekly report test. Reminder hour restored to 18. The participants collection is empty again.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run pytest with -n 0. iter53_ui_seed.py seed|clean creates or removes a back-dated test participant for UI tests. The weekly report test calls routes.caseload.weekly_missed_report() directly and needs a participant with missed days. The environment date is Nov 2026 (Perth). A Jotform-only participant 'Pronathi Nair' shows in the caseload but isn't in-app, so it isn't in the missed report."
+}
