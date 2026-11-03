@@ -142,6 +142,56 @@ export function HourSheet({ visible, current, onPick, onClose }: { visible: bool
   );
 }
 
+function isoDay(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+export function DaysOffSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  const styles = useStyles();
+  const toast = useToast();
+  const q = useQuery<{ dates: string[] }>({ queryKey: ["days-off"], queryFn: () => api("/caseload/days-off"), enabled: visible });
+  const [busy, setBusy] = useState<string | null>(null);
+  const days = Array.from({ length: 28 }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() + i - 7);
+    return d;
+  });
+  const toggle = async (iso: string, on: boolean) => {
+    setBusy(iso);
+    try {
+      await api(on ? `/caseload/days-off/${iso}` : "/caseload/days-off", on ? { method: "DELETE" } : { method: "POST", body: { date: iso } });
+      await q.refetch();
+    } catch (e: any) {
+      toast(e.message, "error");
+    } finally {
+      setBusy(null);
+    }
+  };
+  const today = isoDay(new Date());
+  return (
+    <Sheet visible={visible} onClose={onClose} title="Days off"
+      sub="Tap the days you're not working. They won't break your case note streak or count towards it." testID="days-off-sheet">
+      {q.isLoading ? <Loading /> : (
+        <ScrollView style={{ maxHeight: 360 }} contentContainerStyle={styles.hours}>
+          {days.map((d) => {
+            const iso = isoDay(d);
+            const on = q.data?.dates.includes(iso) ?? false;
+            return (
+              <Pressable key={iso} onPress={() => toggle(iso, on)} disabled={busy === iso} style={[styles.hour, on && styles.hourOn]}
+                accessibilityRole="checkbox" accessibilityState={{ checked: on }} testID={`day-off-${iso}`}>
+                <Text style={[styles.hourText, on && styles.hourTextOn]}>
+                  {iso === today ? "Today" : d.toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" })}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      )}
+      <Button label="Done" onPress={onClose} testID="days-off-done" />
+    </Sheet>
+  );
+}
+
 export function ImportResultSheet({ result, onClose }: { result: { added: any[]; updated: any[]; skipped: any[] } | null; onClose: () => void }) {
   const styles = useStyles();
   const unknown = [...(result?.added ?? []), ...(result?.updated ?? [])].filter((r) => r.unknown?.length);

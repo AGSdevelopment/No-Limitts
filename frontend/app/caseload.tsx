@@ -9,7 +9,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { API_URL, api, authHeaders, getApiToken, openLink } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { StaffEmailSheet } from "@/src/components/staff-email-sheet";
-import { AddParticipantSheet, AssignSheet, CaseFormsSheet, ConfirmSheet, HourSheet, ImportResultSheet, IntroSheet, NudgeButton, hourLabel } from "@/src/components/participant-sheets";
+import { AddParticipantSheet, AssignSheet, CaseFormsSheet, ConfirmSheet, DaysOffSheet, HourSheet, ImportResultSheet, IntroSheet, NudgeButton, hourLabel } from "@/src/components/participant-sheets";
 import * as DocumentPicker from "expo-document-picker";
 import { uploadForm } from "@/src/utils/upload";
 import { useToast } from "@/src/components/toast";
@@ -41,6 +41,7 @@ export default function Caseload() {
   const [introDone, setIntroDone] = useState<string[]>([]);
   const [unassignedOnly, setUnassignedOnly] = useState(false);
   const [pickingHour, setPickingHour] = useState(false);
+  const [daysOffOpen, setDaysOffOpen] = useState(false);
   const settings = useQuery<any>({ queryKey: ["caseload-settings"], queryFn: () => api("/caseload/settings"), enabled: allowed && user?.role === "admin" });
   const saveHour = async (hour: number) => {
     try {
@@ -185,9 +186,19 @@ export default function Caseload() {
               <View style={{ flex: 1 }}>
                 <Text style={styles.name}>{q.data.streak.current ? `${q.data.streak.current}-day case note streak` : "Start a case note streak"}</Text>
                 <Text style={styles.meta}>
-                  {q.data.streak.today_done ? "Today's done. Nice work!" : "Complete today's case notes to keep it going."}
+                  {q.data.streak.today_off ? "Today is marked as a day off." : q.data.streak.today_done ? "Today's done. Nice work!" : "Complete today's case notes to keep it going."}
                   {q.data.streak.best > 1 ? ` Best: ${q.data.streak.best} days.` : ""}
                 </Text>
+                <View style={styles.streakLinks}>
+                  <Pressable onPress={() => router.push("/leaderboard?tab=streaks")} style={styles.templateLink} testID="caseload-streak-board">
+                    <Ionicons name="trophy-outline" size={16} color={colors.brandPrimary} />
+                    <Text style={styles.templateText}>Leaderboard</Text>
+                  </Pressable>
+                  <Pressable onPress={() => setDaysOffOpen(true)} style={styles.templateLink} testID="caseload-days-off">
+                    <Ionicons name="calendar-clear-outline" size={16} color={colors.brandPrimary} />
+                    <Text style={styles.templateText}>Days off</Text>
+                  </Pressable>
+                </View>
               </View>
             </View>
           )}
@@ -362,6 +373,7 @@ export default function Caseload() {
       confirmLabel="Remove participant" busy={removeBusy} onConfirm={remove} onClose={() => setRemoving(null)} />
     <ImportResultSheet result={imported} onClose={() => setImported(null)} />
     <HourSheet visible={pickingHour} current={settings.data?.reminder_hour ?? 18} onPick={saveHour} onClose={() => setPickingHour(false)} />
+    <DaysOffSheet visible={daysOffOpen} onClose={() => { setDaysOffOpen(false); q.refetch(); }} />
     <IntroSheet participantId={q.data.intros?.find((i: string) => !introDone.includes(i)) ?? null}
       onDone={() => { setIntroDone((d) => [...d, q.data.intros.find((i: string) => !d.includes(i))]); q.refetch(); }}
       onOpenProfile={(id) => router.push(`/participant/${id}`)} />
@@ -386,6 +398,7 @@ const useStyles = makeStyles((c) => ({
   trash: { width: 48, height: 48, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: c.surfaceSecondary },
   introList: { gap: 4, backgroundColor: c.surfaceSecondary, borderRadius: 12, padding: 10 },
   streak: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: c.surface, borderRadius: 16, padding: 14 },
+  streakLinks: { flexDirection: "row", gap: 16, marginTop: 2 },
   chips: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
   chip: { minHeight: 44, paddingHorizontal: 14, borderRadius: 22, justifyContent: "center", backgroundColor: c.surface },
   chipOn: { backgroundColor: c.brandPrimary },

@@ -245,3 +245,6 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Reminder time: GET/PUT /api/caseload/settings (admin PUT; meta casenote_reminder_hour, default 18, Perth); admin "Reminder h:00" button + HourSheet on Caseload.
 - Note streaks: /api/caseload returns `streak` {current,best,today_done} for workers (days with ≥1 Day-to-Day note by them via email/name, none left unfinished/released that day); flame card on My participants.
 - Missed notes: GET /api/caseload/missed?days=7|14|30 (managers) → participants with assigned workers and past days with no Day-to-Day note (since participant added); screen app/missed-notes.tsx; weekly Monday 8am Perth notification to support coordinators (fallback admins) linking /missed-notes. note_day() uses ISO date field else submission date.
+- Streak leaderboard: GET /api/caseload/streaks (workers, coordinators, HR, admin) → support workers ranked by current streak; Leaderboard screen has "Team events" / "Case note streaks" tabs (workers see streaks only; /leaderboard?tab=streaks).
+- Days off: GET/POST/DELETE /api/caseload/days-off (db.days_off {user_id,date}; workers; -14d..+60d); skipped in streaks (neither count nor break); DaysOffSheet from streak card.
+- Missed notes export: GET /api/caseload/missed/export?days=&token= → xlsx (Summary, By day, About); download link on Missed notes screen.

@@ -1035,27 +1035,124 @@ def written_by(r: dict, user: dict) -> bool:
 
 async def note_streak(user: dict, rows: list) -> dict:
     """Days in a row (counting back from today, or yesterday if today has no note yet) on which the worker completed
-    at least one case note and left none unfinished."""
+    at least one case note and left none unfinished. Days off are skipped: they neither count nor break the streak."""
     days = {note_day(r) for r in rows if r["kind"] == "day" and written_by(r, user)}
     broken = set()
     # Only a note the worker left unfinished breaks the streak (not releases, unassigning or removed participants)
     async for s in db.case_note_starts.find({"user_id": user["user_id"], "status": "pending"},
                                             {"_id": 0, "started_at": 1}):
         broken.add(datetime.fromisoformat(s["started_at"]).astimezone(DIGEST_TZ).date().isoformat())
+    off = {d["date"] async for d in db.days_off.find({"user_id": user["user_id"]}, {"_id": 0, "date": 1})}
     good = days - broken
     today = datetime.now(DIGEST_TZ).date()
 
     def run(start) -> int:
         n, d = 0, start
-        while d.isoformat() in good:
-            n, d = n + 1, d - timedelta(days=1)
+        for _ in range(120):
+            iso = d.isoformat()
+            if iso in good:
+                n += 1
+            elif iso not in off:
+                break
+            d -= timedelta(days=1)
         return n
-    current = run(today) or run(today - timedelta(days=1))
-    best, d = 0, today
+    start = today if (today.isoformat() in good or today.isoformat() in off) else today - timedelta(days=1)
+    current = run(start)
+    best, d = current, today
     for _ in range(90):
-        best = max(best, run(d))
+        if d.isoformat() in good:
+            best = max(best, run(d))
         d -= timedelta(days=1)
-    return {"current": current, "best": best, "today_done": today.isoformat() in good}
+    return {"current": current, "best": best, "today_done": today.isoformat() in good, "today_off": today.isoformat() in off}
+
+
+@router.get("/caseload/streaks")
+async def streak_board(user=Depends(current_user)):
+    """Case note streak leaderboard for Support Workers (visible to Support Workers, Coordinators, HR and Admins)."""
+    if not is_worker(user):
+        check_access(user)
+    rows = await load_rows() if configured() else []
+    out = []
+    async for u in db.users.find({"user_type": "support_worker", "hidden": {"$ne": True}},
+                                 {"_id": 0, "user_id": 1, "name": 1, "email": 1, "picture": 1}):
+        st = await note_streak(u, rows)
+        if st["current"] or st["best"]:
+            out.append({"user_id": u["user_id"], "name": u["name"], "picture": u.get("picture"), **st, "me": u["user_id"] == user["user_id"]})
+    out.sort(key=lambda r: (-r["current"], -r["best"], r["name"].lower()))
+    return {"rows": out[:50]}
+
+
+class DayOffIn(BaseModel):
+    date: str
+
+
+@router.get("/caseload/days-off")
+async def list_days_off(user=Depends(current_user)):
+    today = datetime.now(DIGEST_TZ).date()
+    lo = (today - timedelta(days=60)).isoformat()
+    return {"dates": sorted([d["date"] async for d in db.days_off.find({"user_id": user["user_id"], "date": {"$gte": lo}}, {"_id": 0, "date": 1})])}
+
+
+@router.post("/caseload/days-off")
+async def add_day_off(body: DayOffIn, user=Depends(current_user)):
+    if not is_worker(user):
+        raise HTTPException(403, "Days off are for Support Workers")
+    try:
+        d = date.fromisoformat(body.date)
+    except ValueError:
+        raise HTTPException(400, "Use a date like 2026-07-14")
+    today = datetime.now(DIGEST_TZ).date()
+    if not today - timedelta(days=14) <= d <= today + timedelta(days=60):
+        raise HTTPException(400, "Choose a day within the last 2 weeks or the next 2 months")
+    await db.days_off.update_one({"user_id": user["user_id"], "date": d.isoformat()},
+                                 {"$setOnInsert": {"user_id": user["user_id"], "date": d.isoformat(), "created_at": now_iso()}}, upsert=True)
+    return {"ok": True}
+
+
+@router.delete("/caseload/days-off/{day}")
+async def remove_day_off(day: str, user=Depends(current_user)):
+    await db.days_off.delete_one({"user_id": user["user_id"], "date": day})
+    return {"ok": True}
+
+
+@router.get("/caseload/missed/export")
+async def missed_export(request: Request, days: int = 7, token: Optional[str] = None):
+    """Missed notes report as a spreadsheet for audits."""
+    user = await user_from_token(bearer(request) or token)
+    if not user or not can_manage(user):
+        raise HTTPException(403, "The missed notes report is for Service & Support Coordinators and Admins")
+    import io
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill
+    days = max(1, min(days, 31))
+    report = await missed_notes(days)
+    ids = {i for p in report for i in (await db.participants.find_one({"participant_id": p["participant_id"]}, {"assigned_ids": 1}) or {}).get("assigned_ids", [])}
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Summary"
+    ws.append(["Participant", "Days missed", "Missed dates", "Support Workers"])
+    detail = wb.create_sheet("By day")
+    detail.append(["Date", "Participant", "Support Workers"])
+    names = {u["user_id"]: u["name"] async for u in db.users.find({"user_id": {"$in": list(ids)}}, {"_id": 0, "user_id": 1, "name": 1})}
+    for p in report:
+        par = await db.participants.find_one({"participant_id": p["participant_id"]}, {"_id": 0, "assigned_ids": 1})
+        workers = ", ".join(names[i] for i in (par or {}).get("assigned_ids", []) if i in names)
+        ws.append([p["name"], len(p["missing"]), ", ".join(dmy(d) for d in p["missing"]), workers])
+        for d in p["missing"]:
+            detail.append([dmy(d), p["name"], workers])
+    for sheet, widths in ((ws, (28, 14, 60, 50)), (detail, (14, 28, 50))):
+        for c in sheet[1]:
+            c.font, c.fill = Font(bold=True, color="FFFFFF"), PatternFill("solid", fgColor="673E8D")
+        for col, w in zip("ABCD", widths):
+            sheet.column_dimensions[col].width = w
+        sheet.freeze_panes = "A2"
+    info = wb.create_sheet("About")
+    info.append([f"Missed Support Worker case notes, last {days} days (today not included), Perth time."])
+    info.append([f"Generated {dmy(date.today().isoformat())} by {user.get('name') or ''}"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    return Response(content=buf.getvalue(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="No Limitts missed case notes {date.today().isoformat()}.xlsx"'})
 
 
 async def missed_notes(days: int = 7) -> list:

@@ -3,6 +3,7 @@ import { FlatList, RefreshControl, View } from "react-native";
 import { Text } from "@/src/components/text";
 import { useQuery } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useLocalSearchParams } from "expo-router";
 
 import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
@@ -17,10 +18,57 @@ export default function Leaderboard() {
   const styles = useStyles();
   const { colors } = useTheme();
   const [period, setPeriod] = useState<"year" | "all">("year");
-  const allowed = user?.role === "admin" || user?.staff_group === "support_office";
-  const q = useQuery<any>({ queryKey: ["leaderboard", period], queryFn: () => api(`/events/leaderboard?period=${period}`), enabled: allowed });
+  const eventsAllowed = user?.role === "admin" || user?.staff_group === "support_office";
+  const streaksAllowed = user?.role === "admin" || ["support_worker", "support_coordinator", "hr"].includes(user?.user_type ?? "");
+  const params = useLocalSearchParams<{ tab?: string }>();
+  const [tab, setTab] = useState<"events" | "streaks">(params.tab === "streaks" || !eventsAllowed ? "streaks" : "events");
+  const q = useQuery<any>({ queryKey: ["leaderboard", period], queryFn: () => api(`/events/leaderboard?period=${period}`), enabled: eventsAllowed && tab === "events" });
+  const sq = useQuery<any>({ queryKey: ["streak-board"], queryFn: () => api("/caseload/streaks"), enabled: streaksAllowed && tab === "streaks" });
 
-  if (!allowed) return <EmptyState icon="lock-closed-outline" title="Admins and Support Office only" />;
+  if (!eventsAllowed && !streaksAllowed) return <EmptyState icon="lock-closed-outline" title="Not available for your role" />;
+
+  const tabs = eventsAllowed && streaksAllowed && (
+    <View style={styles.chips}>
+      <Chip label="Team events" selected={tab === "events"} onPress={() => setTab("events")} testID="leaderboard-tab-events" />
+      <Chip label="Case note streaks" selected={tab === "streaks"} onPress={() => setTab("streaks")} testID="leaderboard-tab-streaks" />
+    </View>
+  );
+
+  if (tab === "streaks") {
+    return (
+      <FlatList
+        style={styles.root}
+        data={sq.data?.rows ?? []}
+        keyExtractor={(r) => r.user_id}
+        contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: insets.bottom + 24, flexGrow: 1 }}
+        refreshControl={<RefreshControl refreshing={sq.isRefetching} onRefresh={() => sq.refetch()} tintColor={colors.brandPrimary} />}
+        testID="streak-board-screen"
+        ListHeaderComponent={
+          <View style={{ gap: 10, marginBottom: 4 }}>
+            {tabs}
+            <Text style={styles.sub}>Support Workers with the longest run of days completing their case notes. Days off don&apos;t break a streak.</Text>
+          </View>
+        }
+        ListEmptyComponent={
+          sq.isLoading ? <Loading /> : sq.isError ? <ErrorState message="Couldn't load streaks." onRetry={() => sq.refetch()} /> : <EmptyState icon="flame-outline" title="No streaks yet" subtitle="Complete case notes on consecutive days to get on the board." />
+        }
+        renderItem={({ item, index }) => (
+          <View style={[styles.card, index < 3 && item.current > 0 && styles.top, item.me && styles.me]} testID={`streak-row-${item.user_id}`}>
+            <Text style={styles.rank}>{item.current > 0 ? MEDALS[index] ?? `${index + 1}` : "–"}</Text>
+            <Avatar name={item.name} picture={item.picture} size={40} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.name}>{item.name}{item.me ? " (you)" : ""}</Text>
+              <Text style={styles.sub}>Best {item.best} day{item.best === 1 ? "" : "s"}{item.today_done ? " · today done" : ""}</Text>
+            </View>
+            <View style={styles.score}>
+              <Text style={styles.scoreNum}>🔥 {item.current}</Text>
+              <Text style={styles.scoreLabel}>day{item.current === 1 ? "" : "s"}</Text>
+            </View>
+          </View>
+        )}
+      />
+    );
+  }
 
   return (
     <FlatList
@@ -32,6 +80,7 @@ export default function Leaderboard() {
       testID="leaderboard-screen"
       ListHeaderComponent={
         <View style={{ gap: 10, marginBottom: 4 }}>
+          {tabs}
           <View style={styles.chips}>
             <Chip label="This year" selected={period === "year"} onPress={() => setPeriod("year")} testID="leaderboard-period-year" />
             <Chip label="All time" selected={period === "all"} onPress={() => setPeriod("all")} testID="leaderboard-period-all" />
@@ -67,6 +116,7 @@ const useStyles = makeStyles((c) => ({
   chips: { flexDirection: "row", gap: 8 },
   card: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: c.surface, borderRadius: 16, padding: 12 },
   top: { borderWidth: 1, borderColor: c.brandPrimary },
+  me: { backgroundColor: c.brandTertiary },
   rank: { width: 32, textAlign: "center", fontSize: 20, fontWeight: "800", color: c.onSurface },
   name: { fontSize: 16, fontWeight: "700", color: c.onSurface },
   sub: { fontSize: 13, color: c.muted },

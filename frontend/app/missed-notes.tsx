@@ -5,7 +5,7 @@ import { useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { api } from "@/src/api";
+import { API_URL, api, getApiToken, openLink } from "@/src/api";
 import { Text } from "@/src/components/text";
 import { Avatar, EmptyState, ErrorState, Ionicons, Loading } from "@/src/components/ui";
 import { makeStyles, useTheme } from "@/src/theme";
@@ -37,6 +37,11 @@ export default function MissedNotes() {
       ListHeaderComponent={
         <View style={{ gap: 10 }}>
           <Text style={styles.meta}>Days with no Support Worker case note, for participants who have a Support Worker assigned. Today isn&apos;t counted yet.</Text>
+          <Pressable onPress={() => openLink(`${API_URL}/caseload/missed/export?days=${days}&token=${encodeURIComponent(getApiToken() ?? "")}`)}
+            style={styles.download} accessibilityRole="button" testID="missed-export">
+            <Ionicons name="download-outline" size={18} color={colors.brandPrimary} />
+            <Text style={styles.downloadText}>Download as spreadsheet (last {days} days)</Text>
+          </Pressable>
           <View style={styles.chips}>
             {RANGES.map((r) => (
               <Pressable key={r} onPress={() => setDays(r)} style={[styles.chip, days === r && styles.chipOn]} accessibilityRole="button"
@@ -79,6 +84,8 @@ const useStyles = makeStyles((c) => ({
   root: { flex: 1, backgroundColor: c.background },
   meta: { fontSize: 13, color: c.muted, lineHeight: 18 },
   chips: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
+  download: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44, alignSelf: "flex-start" },
+  downloadText: { fontSize: 14, fontWeight: "600", color: c.brandPrimary },
   chip: { minHeight: 44, paddingHorizontal: 14, borderRadius: 22, justifyContent: "center", backgroundColor: c.surface },
   chipOn: { backgroundColor: c.brandPrimary },
   chipText: { fontSize: 13, fontWeight: "600", color: c.onSurface },
