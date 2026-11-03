@@ -16,6 +16,7 @@ const FILTERS = [
   { key: "all", label: "All" },
   { key: "expiring", label: "Expiring" },
   { key: "expired", label: "Expired" },
+  { key: "renewals", label: "Renewal progress" },
 ] as const;
 
 export default function TeamCertificates() {
@@ -26,6 +27,7 @@ export default function TeamCertificates() {
   const allowed = user?.role === "admin" || ["hr", "support_coordinator"].includes(user?.user_type ?? "");
   const q = useQuery<any>({ queryKey: ["team-certificates"], queryFn: () => api("/certificates/team"), enabled: allowed });
   const [filter, setFilter] = useState<(typeof FILTERS)[number]["key"]>("all");
+  const rq = useQuery<any>({ queryKey: ["team-cert-renewals"], queryFn: () => api("/certificates/team/renewals"), enabled: allowed });
   const [nudging, setNudging] = useState<string | null>(null);
   const [confirmAll, setConfirmAll] = useState(false);
   const [nudgingAll, setNudgingAll] = useState(false);
@@ -36,7 +38,7 @@ export default function TeamCertificates() {
       const r = await api<any>("/certificates/team/nudge-expired", { method: "POST" });
       toast(r.nudged ? `Reminders sent to ${r.workers} worker${r.workers === 1 ? "" : "s"}` : "Everyone was already reminded today", "success");
       setConfirmAll(false);
-      await q.refetch();
+      await Promise.all([q.refetch(), rq.refetch()]);
     } catch (e: any) {
       toast(e.message, "error");
     } finally {
@@ -48,7 +50,7 @@ export default function TeamCertificates() {
     try {
       await api(`/certificates/${c.cert_id}/nudge`, { method: "POST" });
       toast(`Reminder sent to ${c.owner_name}`, "success");
-      await q.refetch();
+      await Promise.all([q.refetch(), rq.refetch()]);
     } catch (e: any) {
       toast(e.message, "error");
     } finally {
@@ -60,8 +62,10 @@ export default function TeamCertificates() {
   if (q.isLoading) return <Loading />;
   if (q.isError) return <ErrorState message="Couldn't load team certificates." onRetry={q.refetch} />;
   const all = q.data.certificates as any[];
-  const rows = all.filter((c) => filter === "all" || c.status === filter);
-  const overdue = all.filter((c) => c.status === "expired" && c.owner_id !== user?.user_id && !c.nudged_today);
+  const renewals = (rq.data?.renewals ?? []) as any[];
+  const showRenewals = filter === "renewals";
+  const rows = showRenewals ? renewals : all.filter((c) => filter === "all" || c.status === filter);
+  const overdue = all.filter((c) => c.status === "expired" && c.owner_id !== user?.user_id && !c.nudged_today && !c.renewed);
   const overdueWorkers = new Set(overdue.map((c) => c.owner_id)).size;
 
   return (
@@ -69,15 +73,16 @@ export default function TeamCertificates() {
       style={styles.root}
       testID="team-certificates-screen"
       data={rows}
-      keyExtractor={(c) => c.cert_id}
+      keyExtractor={(c) => (showRenewals ? `r_${c.cert_id}` : c.cert_id)}
       contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: insets.bottom + 24, flexGrow: 1 }}
-      refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={q.refetch} tintColor={colors.brandPrimary} />}
+      refreshControl={<RefreshControl refreshing={q.isRefetching || rq.isRefetching} onRefresh={() => { q.refetch(); rq.refetch(); }}
+        tintColor={colors.brandPrimary} />}
       ListHeaderComponent={
         <View style={{ gap: 10 }}>
           <Text style={styles.meta}>Training certificates across the team that expire in the next {q.data.warning_days} days, or already have. Staff get reminders too.</Text>
           <View style={styles.chips}>
             {FILTERS.map((f) => {
-              const n = f.key === "all" ? all.length : all.filter((c) => c.status === f.key).length;
+              const n = f.key === "all" ? all.length : f.key === "renewals" ? renewals.length : all.filter((c) => c.status === f.key).length;
               return (
                 <Pressable key={f.key} onPress={() => setFilter(f.key)} accessibilityRole="button" accessibilityState={{ selected: filter === f.key }}
                   style={[styles.chip, filter === f.key && styles.chipOn]} testID={`team-certs-filter-${f.key}`}>
@@ -86,7 +91,17 @@ export default function TeamCertificates() {
               );
             })}
           </View>
-          {!!overdue.length && (
+          {showRenewals && (
+            <View style={styles.summary} testID="team-renewals-summary">
+              <Text style={styles.summaryText}>
+                <Text style={{ color: colors.successText, fontWeight: "800" }}>{rq.data?.renewed ?? 0} renewed</Text>
+                {"  ·  "}
+                <Text style={{ color: colors.warningText, fontWeight: "800" }}>{rq.data?.waiting ?? 0} still waiting</Text>
+              </Text>
+              <Text style={styles.meta}>Certificates you&apos;ve nudged in the last 60 days, and whether the worker has uploaded a new one since.</Text>
+            </View>
+          )}
+          {!showRenewals && !!overdue.length && (
             <Button label={`Nudge all expired (${overdueWorkers} worker${overdueWorkers === 1 ? "" : "s"})`} icon="notifications-outline"
               onPress={() => setConfirmAll(true)} testID="team-certs-nudge-all" />
           )}
@@ -98,8 +113,11 @@ export default function TeamCertificates() {
           </Sheet>
         </View>
       }
-      ListEmptyComponent={<EmptyState icon="ribbon-outline" title="All up to date" subtitle="No team certificates are expiring in the next 60 days." />}
+      ListEmptyComponent={showRenewals
+        ? (rq.isLoading ? <Loading /> : <EmptyState icon="notifications-outline" title="No reminders yet" subtitle="Nudge a worker to renew and their progress shows here." />)
+        : <EmptyState icon="ribbon-outline" title="All up to date" subtitle="No team certificates are expiring in the next 60 days." />}
       renderItem={({ item }) => {
+        if (showRenewals) return <RenewalRow item={item} />;
         const expired = item.status === "expired";
         return (
           <View style={styles.card} testID={`team-cert-${item.cert_id}`}>
@@ -108,7 +126,11 @@ export default function TeamCertificates() {
               <Text style={styles.name}>{item.owner_name}</Text>
               <Text style={styles.body} numberOfLines={2}>{item.title}</Text>
               <Text style={styles.meta}>{expired ? "Expired" : "Expires"} {formatDate(item.expiry_date)}</Text>
-              {item.nudged_today ? (
+              {item.renewed ? (
+                <Text style={styles.nudged} testID={`team-cert-renewed-${item.cert_id}`}>
+                  ✓ Renewed: new one expires {formatDate(item.renewed.expiry_date)}
+                </Text>
+              ) : item.nudged_today ? (
                 <Text style={styles.nudged} testID={`team-cert-nudged-${item.cert_id}`}>
                   Reminder sent today{item.nudged_by_name ? ` by ${item.nudged_by_name}` : ""}
                 </Text>
@@ -135,7 +157,42 @@ export default function TeamCertificates() {
   );
 }
 
+function RenewalRow({ item }: { item: any }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  const done = !!item.renewed;
+  return (
+    <View style={styles.card} testID={`team-renewal-${item.cert_id}`}>
+      <Avatar name={item.owner_name} size={40} />
+      <View style={{ flex: 1 }}>
+        <Text style={styles.name}>{item.owner_name}</Text>
+        <Text style={styles.body} numberOfLines={2}>{item.title}</Text>
+        <Text style={styles.meta}>
+          Nudged {formatDate(item.nudged_at)}{item.nudged_by_name ? ` by ${item.nudged_by_name}` : ""}{item.nudges > 1 ? ` · ${item.nudges} reminders` : ""}
+        </Text>
+        {done ? (
+          <Text style={styles.nudged}>
+            Uploaded {formatDate(item.renewed.uploaded_at)}: expires {formatDate(item.renewed.expiry_date)}
+          </Text>
+        ) : (
+          <Text style={[styles.meta, { color: colors.warningText, fontWeight: "600" }]}>
+            {item.deleted ? "Old certificate removed, no new one uploaded yet" : `No new upload yet (was due ${formatDate(item.expiry_date)})`}
+          </Text>
+        )}
+      </View>
+      <View style={[styles.pill, done ? styles.pillDone : styles.countWarn]}>
+        <Ionicons name={done ? "checkmark-circle" : "time-outline"} size={18} color={done ? colors.successText : colors.warningText} />
+        <Text style={[styles.countLabel, { color: done ? colors.successText : colors.warningText }]}>{done ? "Renewed" : "Waiting"}</Text>
+      </View>
+    </View>
+  );
+}
+
 const useStyles = makeStyles((c) => ({
+  summary: { backgroundColor: c.surface, borderRadius: 14, padding: 12, gap: 4 },
+  summaryText: { fontSize: 15, color: c.onSurface },
+  pill: { width: 72, borderRadius: 12, paddingVertical: 8, alignItems: "center", gap: 2 },
+  pillDone: { backgroundColor: c.successSoft },
   root: { flex: 1, backgroundColor: c.background },
   card: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: c.surface, borderRadius: 14, padding: 14 },
   name: { fontSize: 15, fontWeight: "700", color: c.onSurface },

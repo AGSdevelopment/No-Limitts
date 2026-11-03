@@ -1,5 +1,6 @@
 """Training certificates and expiry reminders."""
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
+import re
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
@@ -136,10 +137,64 @@ async def team_cert_alerts() -> list:
     alerts = [c for c in certs if c["status"] != "valid"]
     owners = {u["user_id"]: u async for u in db.users.find({"user_id": {"$in": list({c["owner_id"] for c in alerts})}},
                                                           {"_id": 0, "user_id": 1, "name": 1, "user_type": 1})}
+    by_owner: dict = {}
+    for c in certs:
+        by_owner.setdefault(c["owner_id"], []).append(c)
     out = [{**c, "owner_name": owners.get(c["owner_id"], {}).get("name") or c.get("owner_name") or "",
-            "owner_type": owners.get(c["owner_id"], {}).get("user_type") or "", "nudged_today": nudged_today(c)} for c in alerts if c["owner_id"] in owners]
+            "owner_type": owners.get(c["owner_id"], {}).get("user_type") or "", "nudged_today": nudged_today(c),
+            "renewed": renewal_of(c, by_owner.get(c["owner_id"], []))} for c in alerts if c["owner_id"] in owners]
     out.sort(key=lambda c: c["expiry_date"])
     return out
+
+
+def norm_title(t: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (t or "").lower())
+
+
+def renewal_of(cert: dict, owner_certs: list) -> Optional[dict]:
+    """A newer upload of the same certificate (matching title) with a later expiry date."""
+    a = norm_title(cert["title"])
+    for c in sorted(owner_certs, key=lambda x: x.get("created_at") or "", reverse=True):
+        b = norm_title(c["title"])
+        if (c["cert_id"] != cert["cert_id"] and c["expiry_date"] > cert["expiry_date"]
+                and (c.get("created_at") or "") > (cert.get("created_at") or "")
+                and a and b and (a == b or (min(len(a), len(b)) >= 4 and (a in b or b in a)))):
+            return {"cert_id": c["cert_id"], "title": c["title"], "expiry_date": c["expiry_date"], "uploaded_at": c.get("created_at") or ""}
+    return None
+
+
+@router.get("/certificates/team/renewals")
+async def renewal_progress(user=Depends(current_user)):
+    """Certificates nudged in the last 60 days and whether the worker has uploaded a renewal since."""
+    if not sees_team_certs(user):
+        raise HTTPException(403, "For Service Coordinators, HR and Admins")
+    since = (datetime.now(timezone.utc) - timedelta(days=60)).isoformat()
+    latest: dict = {}
+    async for n in db.cert_nudges.find({"at": {"$gte": since}}, {"_id": 0}).sort("at", 1):
+        latest[n["cert_id"]] = {**n, "count": latest.get(n["cert_id"], {}).get("count", 0) + 1}
+    if not latest:
+        return {"renewals": [], "renewed": 0, "waiting": 0}
+    owner_ids = list({n["owner_id"] for n in latest.values()})
+    owners = {u["user_id"]: u async for u in db.users.find({"user_id": {"$in": owner_ids}}, {"_id": 0, "user_id": 1, "name": 1, "hidden": 1})}
+    by_owner: dict = {}
+    async for c in db.certificates.find({"owner_id": {"$in": owner_ids}, "is_deleted": False}, P):
+        by_owner.setdefault(c["owner_id"], []).append(c)
+    out = []
+    for n in latest.values():
+        o = owners.get(n["owner_id"])
+        if not o or o.get("hidden"):
+            continue
+        orig = next((c for c in by_owner.get(n["owner_id"], []) if c["cert_id"] == n["cert_id"]), None)
+        ren = renewal_of(orig or {"cert_id": n["cert_id"], "title": n["title"], "expiry_date": n["expiry_date"], "created_at": ""},
+                         by_owner.get(n["owner_id"], []))
+        if ren and ren["uploaded_at"] < n["first_at"]:
+            ren = {**ren, "before_nudge": True}
+        out.append({"cert_id": n["cert_id"], "owner_id": n["owner_id"], "owner_name": o["name"], "title": n["title"],
+                    "expiry_date": n["expiry_date"], "nudged_at": n["at"], "nudged_by_name": n["by_name"], "nudges": n["count"],
+                    "deleted": orig is None, "renewed": ren})
+    out.sort(key=lambda r: (bool(r["renewed"]), r["nudged_at"]))
+    done = sum(bool(r["renewed"]) for r in out)
+    return {"renewals": out, "renewed": done, "waiting": len(out) - done}
 
 
 @router.get("/certificates/team")
@@ -179,7 +234,8 @@ async def nudge_all_expired(user=Depends(current_user)):
     """One tap: remind every worker with an expired certificate (one message per worker; skips any reminded today)."""
     if not sees_team_certs(user):
         raise HTTPException(403, "For Service Coordinators, HR and Admins")
-    due = [c for c in await team_cert_alerts() if c["status"] == "expired" and c["owner_id"] != user["user_id"] and not nudged_today(c)]
+    due = [c for c in await team_cert_alerts() if c["status"] == "expired" and c["owner_id"] != user["user_id"]
+           and not nudged_today(c) and not c["renewed"]]
     by_owner: dict = {}
     for c in due:
         by_owner.setdefault(c["owner_id"], []).append(c)
@@ -213,6 +269,11 @@ async def send_nudge(certs: list, owner: dict, user: dict) -> dict:
                 f'</td></tr></table>')
         spawn(send_email(to=owner["email"], subject=title, html=html))
     at = now_iso()
+    firsts = {n["cert_id"]: n["first_at"] async for n in db.cert_nudges.find(
+        {"cert_id": {"$in": [c["cert_id"] for c in certs]}}, {"_id": 0, "cert_id": 1, "first_at": 1})}
+    await db.cert_nudges.insert_many([{"nudge_id": new_id("nudge"), "cert_id": c["cert_id"], "owner_id": owner["user_id"],
+                                       "title": c["title"], "expiry_date": c["expiry_date"], "by_id": user["user_id"],
+                                       "by_name": sender, "at": at, "first_at": firsts.get(c["cert_id"], at)} for c in certs])
     await db.certificates.update_many({"cert_id": {"$in": [c["cert_id"] for c in certs]}},
                                       {"$set": {"nudged_at": at, "nudged_by_name": sender}})
     return {"nudged_at": at, "nudged_by_name": sender, "nudged_today": True}

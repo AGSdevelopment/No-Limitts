@@ -260,3 +260,4 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Handover photo captions: caption sheet before upload, PATCH /api/caseload/handover/photos/{id} to edit.
 - Nudge all expired: POST /api/certificates/team/nudge-expired (skips already-reminded-today), button + confirm on /team-certificates.
 - Birthday card wall: GET/POST/DELETE /api/participants/{id}/birthday-wall (open 7 days either side; one message per person per birthday; collection birthday_messages). Shown on participant profile.
+- Renewal progress: cert_nudges log; GET /api/certificates/team/renewals (renewed vs waiting, matched by similar title + later expiry uploaded after); renewed certs excluded from nudge-all and home counts; 'Renewal progress' chip on /team-certificates.

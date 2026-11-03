@@ -39,7 +39,7 @@ async def dashboard(user=Depends(current_user)):
 async def team_summary(user: dict):
     if not sees_team_certs(user):
         return None
-    alerts = [c for c in await team_cert_alerts() if c["owner_id"] != user["user_id"]]
+    alerts = [c for c in await team_cert_alerts() if c["owner_id"] != user["user_id"] and not c["renewed"]]
     return {"expired": sum(c["status"] == "expired" for c in alerts), "expiring": sum(c["status"] == "expiring" for c in alerts),
             "soonest": alerts[:3]}
 
