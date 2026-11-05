@@ -930,9 +930,9 @@ async def get_participant(participant_id: str, user=Depends(current_user)):
         check_access(user)
     names = {u["user_id"]: u["name"] async for u in db.users.find({"user_id": {"$in": p.get("assigned_ids", [])}}, {"_id": 0, "user_id": 1, "name": 1})}
     prof = p.get("profile") or {}
-    from routes.caseload_extras import next_birthday  # local import: extras imports this module
+    from routes.caseload_extras import next_birthday, wall_window  # local import: extras imports this module
     return {"participant_id": p["participant_id"], "name": p["name"], "can_edit": can_manage(user),
-            "birthday": next_birthday(prof.get("date_of_birth"), datetime.now(DIGEST_TZ).date()),
+            "birthday": wall_window(p) or next_birthday(prof.get("date_of_birth"), datetime.now(DIGEST_TZ).date()),
             "assigned": [names[i] for i in p.get("assigned_ids", []) if i in names],
             "intro_status": [{"user_id": i, "name": names[i], "read": i in p.get("intro_seen_ids", []),
                               "nudged_at": (p.get("nudged_at") or {}).get(i, "")}

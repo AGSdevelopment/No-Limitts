@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { Linking, Pressable, RefreshControl, View } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useAuth } from "@/src/auth";
 import { useQuery } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -27,6 +28,8 @@ type Contact = { name: string; relationship: string; phone: string; email: strin
 
 export default function ParticipantProfile() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
+  const { user } = useAuth();
   const styles = useStyles();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
@@ -109,7 +112,7 @@ export default function ParticipantProfile() {
           <Text style={styles.meta}>{d.assigned.length ? `Support Workers: ${d.assigned.join(", ")}` : "No Support Workers assigned yet"}</Text>
           {!!d.birthday && (
             <Text style={styles.bday} testID="participant-birthday">
-              🎂 {d.birthday.in_days === 0 ? `Birthday today! Turns ${d.birthday.turns}` : `Birthday ${formatDate(d.birthday.date)} · turns ${d.birthday.turns}${d.birthday.in_days <= 7 ? ` (${d.birthday.in_days === 1 ? "tomorrow" : `in ${d.birthday.in_days} days`})` : ""}`}
+              🎂 {d.birthday.in_days === 0 ? `Birthday today! Turns ${d.birthday.turns}` : d.birthday.in_days < 0 ? `Turned ${d.birthday.turns} on ${formatDate(d.birthday.date)}` : `Birthday ${formatDate(d.birthday.date)} · turns ${d.birthday.turns}${d.birthday.in_days <= 7 ? ` (${d.birthday.in_days === 1 ? "tomorrow" : `in ${d.birthday.in_days} days`})` : ""}`}
             </Text>
           )}
           {!!p.updated_at && <Text style={styles.meta}>Updated {formatDate(p.updated_at)}{p.updated_by ? ` by ${p.updated_by}` : ""}</Text>}
@@ -117,6 +120,10 @@ export default function ParticipantProfile() {
       </View>
 
       {!editing && <BirthdayWall participantId={d.participant_id} name={d.name} />}
+      {!editing && user?.user_type !== "support_worker" && (
+        <Button label="Handover photo timeline" icon="images-outline" variant="secondary"
+          onPress={() => router.push(`/handover-photos/${d.participant_id}`)} testID="participant-photo-timeline" />
+      )}
 
       {!!d.intro_status?.length && (
         <View style={styles.card} testID="participant-intro-status">

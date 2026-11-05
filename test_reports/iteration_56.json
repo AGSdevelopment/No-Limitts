@@ -1,0 +1,37 @@
+{
+  "summary": "Iter56: Birthday card PDF, renewal thank-you to nudgers, renew-from-reminder, and handover photo timeline were tested on both backend and frontend. Backend: 18/18 pytest pass (run serially with -n 0). Frontend: every requested flow passes at a 390x844 viewport. Admin profile shows 'Print card (PDF)', which opens /birthday-wall/pdf?token=... and returns 200 application/pdf. Admin profile also shows 'Handover photo timeline', and its screen shows the empty state. The employee Certificates tab shows 'Upload renewal' on an expired and an expiring cert. That button, the deep link and a tap on the nudge notification all open /upload-certificate?renew=<id> with the 'Renewing <title>' banner, title and issuer prefilled and mode chips hidden. A full UI renewal upload (file picked plus expiry) succeeded, and the admin received '✓ Emp Test renewed <title>'. Tapping that notification opens /team-certificates, which shows 'Renewed: new one expires ...'. No deprecated Expo packages found.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/certificates (renews)", "issue": "The renews check does not filter is_deleted, so a worker can link a renewal to a certificate they already deleted. Reference: backend/routes/certificates.py:311"},
+      {"endpoint": "GET /api/certificates/team/renewals & renewal_of", "issue": "When several renewals exist, the newest matching upload is reported (title match), not necessarily the one with renews=<cert_id>. Acceptable, but the explicit link should arguably take priority. Reference: certificates.py:157-164"}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Certificates tab (worker)", "issues": ["After a worker uploads a renewal, the old expired cert still shows the red Expired badge and the 'Upload renewal' button. GET /certificates?scope=mine has no renewed info, so the worker gets no sign that the renewal was linked. Consider hiding the button or showing 'Renewed' (as team-certificates already does)."]},
+      {"screen": "Participant profile", "issues": ["The header shows 'Birthday 3 Nov 2027 · turns 37' while the wall right below says 'Test turned 36 2 days ago'. Both are technically right, but it reads as a contradiction during the post-birthday window."]},
+      {"screen": "Handover photo timeline (empty)", "issues": ["The header line '... · 0 photos across 0 handovers' repeats the empty state. It could be hidden when total=0 (cosmetic)."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter56_birthday_card_pdf_renewal_thanks_timeline.py", "/app/test_reports/pytest/pytest_iter56.xml"],
+  "action_items": [
+    "Optional: on the worker Certificates tab, hide 'Upload renewal' and show 'Renewed' when a cert already has a renewal (renewal_of), so the worker isn't asked to upload again.",
+    "Optional: add is_deleted: False to the renews ownership check in upload_certificate.",
+    "Optional: in renewal_of, prefer an explicit renews link over a title match when both exist."
+  ],
+  "critical_code_review_comments": [
+    "thank_nudgers is spawned after the insert. It is idempotent via cert_nudges.thanked, and a second upload did not re-thank (verified).",
+    "The timeline endpoint uses check_access (admin/hr/support_coordinator), and the frontend hides the button only for user_type support_worker. That matches the current data (all executives have role admin), but a user with a null or unknown user_type and role employee would see the button and get a 403.",
+    "Test file note: the pytest classes share user_testemp001 hidden-toggle state, so run with -n 0 (xdist splits classes and races setup and teardown)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter56_birthday_card_pdf_renewal_thanks_timeline.py"],
+  "success_rate": {"backend": "100% (18/18)", "frontend": "100% (all requested flows)"},
+  "seed_data_creation": "All of it was temporary and deleted by id: TEST_ certificates (employee and admin), their cert_nudges and cpd_logs, TEST_ birthday messages on par_960475e91169, hph_TEST_* handover_photos rows, and TEST_ notifications. The participant's DOB was briefly changed for the 400 test and restored to 1990-11-03. user_testemp001 is restored to hidden=true. Uploaded files remain in object storage, and copy_cert_to_drive may have copied the test PDFs to the Drive integration if it is configured. Pre-existing notifications from earlier iterations are still in the employee's inbox (e.g. 'Please renew: Zebra Handling', 'CPR TEST'); these were not created this run.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run the iter56 pytest file with -n 0. Today is 2026-11-05 and the DOB of par_960475e91169 is 1990-11-03, so the wall is open until 2026-11-10 (after that, the PDF tests need a DOB tweak like the iter55 fixture). The employee's own cert cert_b81666135f5a 'First Aid' expires 2026-11-05 and was left untouched."
+}

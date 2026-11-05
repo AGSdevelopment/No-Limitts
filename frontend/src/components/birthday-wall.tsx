@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Pressable, View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 
-import { api } from "@/src/api";
+import { API_URL, api, getApiToken, openLink } from "@/src/api";
 import { Text, TextInput } from "@/src/components/text";
 import { useToast } from "@/src/components/toast";
 import { Avatar, Button, Ionicons } from "@/src/components/ui";
@@ -66,6 +66,11 @@ export function BirthdayWall({ participantId, name }: { participantId: string; n
         </View>
       ))}
       {!messages.length && <Text style={styles.meta}>No messages yet. Be the first to sign!</Text>}
+      {!!messages.length && (
+        <Button label="Print card (PDF)" icon="print-outline" variant="secondary"
+          onPress={() => openLink(`${API_URL}/participants/${participantId}/birthday-wall/pdf?token=${encodeURIComponent(getApiToken() ?? "")}`)}
+          testID="birthday-wall-print" />
+      )}
       {text === null ? (
         <Button label={mine ? "Edit my message" : "Sign the card"} icon="create-outline" variant="secondary"
           onPress={() => setText(mine?.text ?? "")} testID="birthday-wall-sign" />

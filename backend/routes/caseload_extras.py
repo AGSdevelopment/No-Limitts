@@ -420,3 +420,75 @@ async def caseload_extras_loop():
         except Exception as e:
             logger.error(f"Caseload extras loop failed: {type(e).__name__}: {e}")
         await asyncio.sleep(600)
+
+
+# ---- Printable birthday card ----
+
+def build_card_pdf(first: str, turns: int, messages: list) -> bytes:
+    import io
+    import pymupdf
+    notes = "".join(
+        f"<div style='margin:0 0 10px 0;padding:10px;background:#FFF4DE;border-radius:8px'>"
+        f"<p style='margin:0;font-size:12px;color:#11181C'>{escape(m['text'])}</p>"
+        f"<p style='margin:4px 0 0 0;font-size:10px;color:#673E8D;font-weight:bold'>{escape(m['name'])}</p></div>"
+        for m in messages)
+    html = (f"<div style='text-align:center'>"
+            f"<h1 style='color:#f7a51d;font-size:34px;margin:6px 0'>Happy Birthday, {escape(first)}!</h1>"
+            f"<p style='font-size:14px;color:#673E8D;margin:0 0 18px 0'>Wishing you a wonderful {turns}{ordinal(turns)} birthday</p></div>"
+            f"{notes}"
+            f"<p style='text-align:center;font-size:11px;color:#673E8D;margin-top:14px'>With love from everyone at No Limitts</p>")
+    buf = io.BytesIO()
+    writer = pymupdf.DocumentWriter(buf)
+    story = pymupdf.Story(html=html)
+    page, more, first_page = pymupdf.paper_rect("a4"), True, True
+    while more:
+        dev = writer.begin_page(page)
+        more, _ = story.place(page + (48, FIRST_TOP if first_page else 48, -48, -48))
+        story.draw(dev)
+        writer.end_page()
+        first_page = False
+    writer.close()
+    return add_logo(buf.getvalue())
+
+
+def ordinal(n: int) -> str:
+    return "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+
+
+@router.get("/participants/{participant_id}/birthday-wall/pdf")
+async def birthday_card_pdf(participant_id: str, request: Request, token: Optional[str] = None):
+    user = await user_from_token(bearer(request) or token)
+    if not user:
+        raise HTTPException(401, "Please sign in again")
+    p = await wall_participant(participant_id, user)
+    win = wall_window(p)
+    if not win:
+        raise HTTPException(400, "The birthday card opens 7 days before their birthday")
+    msgs = await db.birthday_messages.find({"participant_id": participant_id, "date": win["date"]}, {"_id": 0}).sort("at", 1).to_list(500)
+    pdf = await run_in_threadpool(build_card_pdf, p["name"].split(" ")[0], win["turns"], msgs)
+    fname = re.sub(r"[^A-Za-z0-9]+", "_", p["name"]).strip("_")
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'inline; filename="Birthday_card_{fname}.pdf"'})
+
+
+# ---- Handover photo timeline (Coordinators, HR and Admins) ----
+
+@router.get("/participants/{participant_id}/handover-photos")
+async def handover_photo_timeline(participant_id: str, user=Depends(current_user)):
+    check_access(user)
+    p = await db.participants.find_one({"participant_id": participant_id}, {"_id": 0})
+    if not p:
+        raise HTTPException(404, "Participant not found")
+    photos = await db.handover_photos.find({"participant": p["key"]}, {"_id": 0}).sort("at", -1).to_list(2000)
+    rows = {r["id"]: r for r in (await load_rows() if configured() else []) if r["id"]}
+    groups: dict = {}
+    for ph in photos:
+        g = groups.setdefault(ph["submission_id"], {"submission_id": ph["submission_id"], "photos": []})
+        g["photos"].append(photo_out(ph))
+    out = []
+    for sid, g in groups.items():
+        r = rows.get(sid) or {}
+        out.append({**g, "date": r.get("date") or g["photos"][-1]["at"][:10], "author": r.get("email") or "",
+                    "source": r.get("source") or "Shift handover"})
+    out.sort(key=lambda g: (g["date"], g["photos"][0]["at"]), reverse=True)
+    return {"name": p["name"], "total": len(photos), "handovers": out}

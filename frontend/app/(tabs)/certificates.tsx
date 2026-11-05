@@ -120,6 +120,15 @@ export default function Certificates() {
                         : `Expires ${formatDate(item.expiry_date)}`}
                   </Text>
                 </View>
+                {item.renewed ? (
+                  <Text style={styles.renewedText} testID={`cert-renewed-${item.cert_id}`}>✓ Renewed: new one expires {formatDate(item.renewed.expiry_date)}</Text>
+                ) : item.status !== "valid" && item.owner_id === user?.user_id && (
+                  <Pressable onPress={() => router.push(`/upload-certificate?renew=${item.cert_id}`)} style={styles.renewBtn}
+                    accessibilityRole="button" testID={`cert-renew-${item.cert_id}`}>
+                    <Ionicons name="refresh-outline" size={16} color={colors.brandPrimary} />
+                    <Text style={styles.renewText}>Upload renewal</Text>
+                  </Pressable>
+                )}
               </View>
               {(item.owner_id === user?.user_id || user?.role === "admin") && (
                 <Pressable testID={`cert-delete-${item.cert_id}`} hitSlop={10} onPress={() => setToDelete(item)} style={styles.trash}>
@@ -155,6 +164,9 @@ export default function Certificates() {
 }
 
 const useStyles = makeStyles((c) => ({
+  renewBtn: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 44, alignSelf: "flex-start" },
+  renewText: { fontSize: 14, fontWeight: "700", color: c.brandPrimary },
+  renewedText: { fontSize: 13, fontWeight: "600", color: c.successText },
   root: { flex: 1, backgroundColor: c.background },
   chipRow: { flexGrow: 0, height: 56, backgroundColor: c.surface },
   chipContent: { paddingHorizontal: 16, gap: 8, alignItems: "center" },

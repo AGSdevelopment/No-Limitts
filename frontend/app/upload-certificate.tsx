@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Linking, Modal, Platform, Pressable, ScrollView, Switch, View } from "react-native";
 import { Text } from "@/src/components/text";
-import { Stack, useRouter } from "expo-router";
+import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import * as Haptics from "expo-haptics";
@@ -51,6 +51,14 @@ export default function UploadCertificate() {
   const [spaces, setSpaces] = useState<string[]>([]);
   const toggleSpace = (k: string) => setSpaces((s) => (s.includes(k) ? s.filter((x) => x !== k) : [...s, k]));
   const [mode, setMode] = useState<"certificate" | "resource">("certificate");
+  const { renew } = useLocalSearchParams<{ renew?: string }>();
+  const mine = useQuery<any[]>({ queryKey: ["certificates", "mine"], queryFn: () => api("/certificates?scope=mine"), enabled: !!renew });
+  const renewing = renew ? mine.data?.find((c) => c.cert_id === renew) : undefined;
+  useEffect(() => {
+    if (!renewing) return;
+    setTitle((t) => t || renewing.title);
+    setIssuer((i) => i || renewing.issuer || "");
+  }, [renewing]);
 
   const submitResource = async () => {
     if (!file) return setError("Please attach the file to share.");
@@ -158,7 +166,7 @@ export default function UploadCertificate() {
         headers: authHeaders(),
         fields: {
           title: title.trim(), issuer: issuer.trim(), issue_date: issueIso, expiry_date: expiryIso,
-          share_cpd: shareCpd ? shareType : "", drive_spaces: spaces.join(","),
+          share_cpd: shareCpd ? shareType : "", drive_spaces: spaces.join(","), renews: renewing?.cert_id ?? "",
         },
         files: { file },
       });
@@ -177,7 +185,7 @@ export default function UploadCertificate() {
       toast(
         failed.length
           ? `Uploaded, but couldn't add it to ${failed.join(" and ")}. Ask an admin to check the Drive connection.`
-          : done.length ? `Certificate uploaded and added to ${done.join(", ")}` : "Certificate uploaded",
+          : done.length ? `Certificate uploaded and added to ${done.join(", ")}` : renewing ? "Renewal uploaded. Thanks!" : "Certificate uploaded",
         failed.length ? "info" : "success",
       );
       if (router.canGoBack()) router.back();
@@ -198,11 +206,23 @@ export default function UploadCertificate() {
       bottomOffset={24}
       testID="upload-certificate-screen"
     >
-      <Stack.Screen options={{ title: mode === "resource" ? "Share a resource" : "Upload certificate" }} />
+      <Stack.Screen options={{ title: renewing ? "Renew certificate" : mode === "resource" ? "Share a resource" : "Upload certificate" }} />
+      {renewing ? (
+        <View style={styles.renewBox} testID="upload-renewing">
+          <Ionicons name="refresh-circle" size={24} color={colors.brandPrimary} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.shareTitle}>Renewing {renewing.title}</Text>
+            <Text style={styles.pickSub}>
+              {renewing.status === "expired" ? "Expired" : "Expires"} {isoToDmy(renewing.expiry_date)}. Upload the new one and we&apos;ll link it to the old one.
+            </Text>
+          </View>
+        </View>
+      ) : (
       <View style={styles.modeRow}>
         <Chip label="Certificate" selected={mode === "certificate"} onPress={() => setMode("certificate")} testID="upload-mode-certificate" />
         <Chip label="Resource to share (no expiry)" selected={mode === "resource"} onPress={() => setMode("resource")} testID="upload-mode-resource" />
       </View>
+      )}
       {file ? (
         <View style={styles.fileCard} testID="upload-selected-file">
           <IconBox name={file.mimeType?.includes("pdf") ? "document-text" : "image"} size={44} />
@@ -340,6 +360,8 @@ const useStyles = makeStyles((c) => ({
   cpdTitle: { fontSize: 15, fontWeight: "600", color: c.onSurface },
   shareTitle: { fontSize: 14, fontWeight: "600", color: c.onSurface },
   modeRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 },
+  renewBox: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: c.surface, borderRadius: 14, padding: 12, marginBottom: 16,
+    borderWidth: 2, borderColor: c.brandPrimary },
   typeHint: { fontSize: 13, color: c.errorText, textAlign: "center", marginTop: 8 },
   typeRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   error: { fontSize: 14, color: c.errorText, marginBottom: 12 },

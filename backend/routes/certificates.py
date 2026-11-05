@@ -120,6 +120,11 @@ async def list_certificates(scope: str = "mine", user=Depends(current_user)):
     else:
         q["owner_id"] = user["user_id"]
     certs = [with_status(c) for c in await db.certificates.find(q, P).to_list(5000)]
+    by_owner: dict = {}
+    for c in certs:
+        by_owner.setdefault(c["owner_id"], []).append(c)
+    for c in certs:
+        c["renewed"] = renewal_of(c, by_owner[c["owner_id"]]) if c["status"] != "valid" else None
     order = {"expired": 0, "expiring": 1, "valid": 2}
     certs.sort(key=lambda c: (order[c["status"]], c["expiry_date"]))
     return certs
@@ -154,13 +159,36 @@ def norm_title(t: str) -> str:
 def renewal_of(cert: dict, owner_certs: list) -> Optional[dict]:
     """A newer upload of the same certificate (matching title) with a later expiry date."""
     a = norm_title(cert["title"])
-    for c in sorted(owner_certs, key=lambda x: x.get("created_at") or "", reverse=True):
+    ordered = sorted(owner_certs, key=lambda x: x.get("created_at") or "", reverse=True)
+    ordered = [c for c in ordered if c.get("renews") == cert["cert_id"]] + [c for c in ordered if c.get("renews") != cert["cert_id"]]
+    for c in ordered:
+        if c.get("renews") == cert["cert_id"]:
+            return {"cert_id": c["cert_id"], "title": c["title"], "expiry_date": c["expiry_date"], "uploaded_at": c.get("created_at") or ""}
         b = norm_title(c["title"])
         if (c["cert_id"] != cert["cert_id"] and c["expiry_date"] > cert["expiry_date"]
                 and (c.get("created_at") or "") > (cert.get("created_at") or "")
                 and a and b and (a == b or (min(len(a), len(b)) >= 4 and (a in b or b in a)))):
             return {"cert_id": c["cert_id"], "title": c["title"], "expiry_date": c["expiry_date"], "uploaded_at": c.get("created_at") or ""}
     return None
+
+
+async def thank_nudgers(owner: dict):
+    """When a nudged worker uploads the renewal, tell whoever nudged them (once per nudged certificate)."""
+    pending: dict = {}
+    async for n in db.cert_nudges.find({"owner_id": owner["user_id"], "thanked": {"$ne": True}}, {"_id": 0}):
+        pending.setdefault(n["cert_id"], []).append(n)
+    if not pending:
+        return
+    mine = await db.certificates.find({"owner_id": owner["user_id"], "is_deleted": False}, P).to_list(1000)
+    for cert_id, nudges in pending.items():
+        orig = next((c for c in mine if c["cert_id"] == cert_id), None)
+        ren = renewal_of(orig, mine) if orig else None
+        if not ren or ren["uploaded_at"] < min(n["at"] for n in nudges):
+            continue
+        to = list({n["by_id"] for n in nudges if n["by_id"] != owner["user_id"]})
+        await notify(to, "certificate", f"✓ {owner['name']} renewed {orig['title']}",
+                     f"Thanks for the nudge! The new certificate expires {dmy(ren['expiry_date'])}.", "/team-certificates")
+        await db.cert_nudges.update_many({"cert_id": cert_id}, {"$set": {"thanked": True}})
 
 
 @router.get("/certificates/team/renewals")
@@ -258,7 +286,8 @@ async def send_nudge(certs: list, owner: dict, user: dict) -> dict:
     else:
         title = f"Please renew {len(certs)} certificates"
         body = f"{sender} asked you to renew: " + "; ".join(line(c) for c in certs) + ". Upload the new ones in Certificates."
-    await notify([owner["user_id"]], "certificate", title, body, "/(tabs)/certificates")
+    link = f"/upload-certificate?renew={certs[0]['cert_id']}" if len(certs) == 1 else "/(tabs)/certificates"
+    await notify([owner["user_id"]], "certificate", title, body, link)
     if owner.get("email"):
         items = "".join(f"<li>{escape(line(c))}</li>" for c in certs)
         html = (f'<table role="presentation" width="100%"><tr><td style="padding:24px;font-family:Arial,sans-serif;color:#11181C">'
@@ -282,8 +311,12 @@ async def send_nudge(certs: list, owner: dict, user: dict) -> dict:
 @router.post("/certificates")
 async def upload_certificate(title: str = Form(...), expiry_date: str = Form(...), issuer: str = Form(""),
                              issue_date: str = Form(""), cpd_hours: str = Form(""), file: UploadFile = File(...),
-                             share_cpd: str = Form(""), drive_spaces: str = Form(""), user=Depends(current_user)):
+                             share_cpd: str = Form(""), drive_spaces: str = Form(""), renews: str = Form(""),
+                             user=Depends(current_user)):
     title = title.strip()
+    renews = renews.strip()
+    if renews and not await db.certificates.find_one({"cert_id": renews, "owner_id": user["user_id"], "is_deleted": False}, {"_id": 0, "cert_id": 1}):
+        raise HTTPException(400, "The certificate you're renewing wasn't found")
     if not title:
         raise HTTPException(400, "Title is required")
     if share_cpd.strip() and share_cpd.strip().lower() not in ("course", "webinar", "case study", "resource link"):
@@ -319,7 +352,10 @@ async def upload_certificate(title: str = Form(...), expiry_date: str = Form(...
             "issuer": issuer.strip(), "issue_date": issue_date, "expiry_date": expiry_date,
             "storage_path": result["path"], "file_name": file.filename or "certificate", "content_type": ctype,
             "size": len(data), "is_deleted": False, "notified_stage": "valid", "created_at": now_iso()}
+    if renews:
+        cert["renews"] = renews
     await db.certificates.insert_one(dict(cert))
+    spawn(thank_nudgers(user))
     if hours:
         log = {"log_id": new_id("cpd"), "user_id": user["user_id"], "user_name": user["name"], "title": title,
                "provider": issuer.strip()[:200], "date": date.today().isoformat(), "hours": hours,
