@@ -1,0 +1,48 @@
+{
+  "summary": "Iteration 58 tested Participant Management (Funding and Rostering) end to end. Backend: 21 of 21 pytest tests passed. They cover permissions (admin only, unknown values filtered), /pm/access, the template (token query 200, employee 403, no token 401), import (2 good rows; 5 bad rows give the right per-row reasons; missing columns or a non-xlsx file give 400), list and detail, both rate-change modes (the math is correct), deleting funding while shifts exist (400), tags (worker self-request goes pending, then coordinator approval adds the worker to assigned_ids; an admin request auto-approves; a decline sets 'rejected' and notifies), and shift creation checks (not on team, outside funding dates, bad time or date, already started, not enough budget: all 400). Shift clash rules: a different participant <30 min apart gives 409, exactly 30 min apart is allowed, and same-participant overlap is allowed. Shifts 14+ days out are auto-accepted; inside 2 weeks they are pending_acceptance. The worker view hides funding_type, est_cost, cost and unit_rate and includes plan. Clock-in before accept gives 400. Clocking outside the window with no reason gives 422 outside_window. 'Unavoidable delay' with no detail gives 400. The approval flow completes the shift and depletes funding (90 min approved = $75, 30 unbudgeted minutes). Clocking inside the window completes the shift directly. The report xlsx has Summary and Incidents sheets; 91 days gives 400 and 90 gives 200. Frontend (375x667): all requested flows work, both as admin and as worker. Three real bugs: the clock reason sheet state is not reset; Rosters get no clock-out notification; shifts booked before a rate change still use the old rate.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/shifts/{id}/clock-out", "issue": "The 'Clock times to approve' notification only goes to users with an explicit 'rosters' permission (db.users.find({permissions:'rosters'})). Admins have Rosters access through their role but are not notified. Reproduced: an outside-window clock-out created 0 'Clock times to approve' notifications. Fix: also include role=='admin' users (non-hidden)."},
+      {"endpoint": "PUT /api/funding/{id}/rate", "issue": "Shifts already rostered keep the old rate. They store unit_rate/est_cost at creation, and complete() charges s['unit_rate']. So after a price change, upcoming shifts still deplete at the OLD rate, and 'booked in upcoming shifts' stays at the old est_cost (seen in UI: $135.12 still booked after 67.56 changed to 70). Fix: on rate change, update unit_rate/est_cost on not-yet-completed shifts for that funding (or use the funding's current rate in complete())."},
+      {"endpoint": "POST /api/shifts/{id}/clock-in|clock-out", "issue": "check_reason stores 'detail' for any reason, not only 'Unavoidable delay'. Together with the frontend bug below, this leaks stale detail text onto other reasons."},
+      {"endpoint": "GET /api/pm/options", "issue": "The Support Team list filters out hidden users. The seeded test worker user_testemp001 (hidden) never appears in the New shift sheet ('No approved Support Team yet'), even though it is in assigned_ids. This is probably intentional, but the UI message is misleading for this case."},
+      {"endpoint": "Shift lifecycle", "issue": "There is no way for a worker to decline a pending_acceptance shift (the 'declined' status is referenced but never set)."},
+      {"endpoint": "POST /api/funding/import", "issue": "There is no de-duplication: re-importing the same file creates duplicate funding lines for the same participant and dates."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "ClockReasonSheet (src/components/shift-sheets.tsx:51-52)", "issue": "reason/detail useState is not reset when the sheet is opened again. Repro: clock in with 'Unavoidable delay' + 'TEST car trouble', then clock out and pick 'Held up in traffic'. The clock-out is saved with detail 'TEST car trouble', and the Approve sheet shows that quote under the clock-out reason. Fix: reset state when open/kind changes, and send detail only for 'Unavoidable delay'.", "testID": "clock-reason-sheet", "priority": "MEDIUM"},
+      {"component": "Shift status label (src/components/shift-sheets.tsx:17)", "issue": "pending_acceptance shows 'Needs your acceptance' to Rosters/admin too (on the worker's shift card). It should say e.g. 'Waiting for worker to accept' for office users.", "testID": "shift-<id>", "priority": "LOW"},
+      {"component": "Worker My shifts", "issue": "The 'Clock in' button shows on every accepted shift, even 20 days out. Tapping it just returns the 2-hours-before error. Show it only within the clock-in window.", "testID": "shift-clockin-<id>", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Funding list/detail, /pm tag requests", "issues": ["Dates display as '1 Jul 2026 to 30 Jun 2027' and '6 Nov 2026', but the user asked for dd-mm-yyyy everywhere (Rostering already uses 06-11-2026)."]},
+      {"screen": "Rostering Report tab", "issues": ["From/To start empty. Consider defaulting to the last 7 or 30 days."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter58_participant_mgmt_funding_rostering.py", "/app/test_reports/pytest/pytest_iter58.xml"],
+  "action_items": [
+    "Reset ClockReasonSheet reason/detail on open, and send/store detail only for 'Unavoidable delay' (frontend + backend check_reason).",
+    "In clock_out, notify admins as well as users with the 'rosters' permission.",
+    "On rate change, re-price shifts not yet completed for that funding (unit_rate/est_cost), or price completion at the funding's current rate.",
+    "Show dates as dd-mm-yyyy on Funding cards, the detail sheet and the /pm tag request cards.",
+    "Optional: let workers decline a pending shift; show a 'waiting for worker' label for office users; hide Clock in until 2h before; de-duplicate on funding import."
+  ],
+  "critical_code_review_comments": [
+    "participant_mgmt.py is 705 lines, over the 700-line guideline. Consider splitting funding, tags and rostering into separate modules.",
+    "approve_times builds the approved start/end on s['date']. For an overnight shift, an approved start after midnight is placed on the wrong day (the duration is still computed, but timestamps and unbudgeted minutes could be off).",
+    "/api/pm/participants returns every participant name to any signed-in user (it is used for tag search). Acceptable, but note the privacy implication.",
+    "Funding template and report downloads put the bearer token in a query string (it can end up in proxy/browser history)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter58_participant_mgmt_funding_rostering.py"],
+  "success_rate": {"backend": "100% (21/21 tests)", "frontend": "~90% (all flows work; 3 UI bugs)"},
+  "seed_data_creation": "Created TEMPORARY TEST_ users (user_TEST_pmw2_iter58 hidden, user_TEST_uiw3 non-hidden, for the UI New-shift/tag tests), TEST_PM Alpha/Beta and TEST_UI Gamma participants with fundings, and shifts. All were deleted afterwards by id. Per E1's request, PM Test Person (par_d59e51b493cb), its funding fund_870dccae0195, all its shifts, its tag requests and related notifications were also deleted. No real participant was touched.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run pytest with '-n 0' (the tests are sequential and stateful; pytest.ini forces xdist -n 2 loadscope, which re-runs the module fixture per worker and causes a DuplicateKeyError). The suite creates and cleans up its own data and needs no seed. Clock-window tests create shifts ~11 min ahead and then edit date/start/end in Mongo. Note: when start==end, span() treats the shift as overnight (+1 day). Hidden users are excluded from /pm/options, so UI New-shift testing needs a non-hidden TEST support worker.",
+  "rca_of_issue": "Stale clock-out detail: ClockReasonSheet keeps local useState across visible toggles because the component stays mounted, so the previous detail is submitted with the next reason, and the backend stores detail unconditionally. Missing Rosters notification: the clock_out query matches only permissions:'rosters', while is_rosters() also treats role=='admin' as Rosters."
+}

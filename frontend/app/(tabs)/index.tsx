@@ -46,6 +46,8 @@ export default function Home() {
       ? { icon: "folder-open-outline", label: "Caseload", to: "/caseload", id: "caseload" }
       : { icon: "sparkles-outline", label: "Ask AI", to: "/assistant", id: "assistant" },
     { icon: "checkbox-outline", label: "Tasks", to: "/tasks", id: "tasks" },
+    ...(user?.role === "admin" || user?.user_type === "support_worker" || user?.user_type === "support_coordinator" || (user as any)?.permissions?.length
+      ? [{ icon: "people-circle-outline" as IconName, label: "Participants", to: "/pm", id: "pm" }] : []),
     { icon: "clipboard-outline", label: "Forms", to: "/forms", id: "forms" },
     { icon: "calendar-outline", label: "Events", to: "/events", id: "events" },
     { icon: "document-text-outline", label: "Policies", to: "/policies", id: "policies" },

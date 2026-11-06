@@ -269,3 +269,11 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Birthday card email: POST /api/participants/{id}/birthday-wall/email {email of a key contact}; 30-day link GET /api/birthday-card/shared/{token}.
 - Timeline filters: ?worker=&date_from=&date_to= on handover-photos; chips + presets + custom DD-MM-YYYY.
 - Expiry calendar: GET /api/certificates/team/calendar?month=YYYY-MM; screen /cert-calendar (linked from /team-certificates).
+
+## Participant Management (iteration 58)
+- Home tile "Participants" -> /pm (Funding, Rostering, Support Team tag approvals for coordinators). Backend: routes/participant_mgmt.py.
+- Permissions: users.permissions ["finance","rosters"] toggled by admins on staff profile (PUT /api/users/{id}/permissions). Admins have both.
+- Funding: Excel template GET /api/funding/template?token=, import POST /api/funding/import (row validation), list/detail, rate change PUT /api/funding/{id}/rate {unit_rate, mode keep_budget|increase_budget}. Collection fundings. Budget depleted by completed shifts (approved clock time x rate; hourly units, else 1 unit/shift); committed = upcoming shifts' estimates.
+- Support Team tags (Team Directory "Participant tags"): request -> coordinator approval -> participant.assigned_ids (same as caseload). Collection team_tag_requests.
+- Rostering: POST /api/shifts (approved team only, funding date range + available budget, no double booking, 30 min gap for different participants, same participant may overlap). >=14 days away auto-accepted else pending_acceptance. Workers never see funding type/cost. Clock in/out within 5 min, else reason (4 options, "Unavoidable delay" needs text) -> awaiting_approval -> Rosters approve times with comment. Perth time, DD-MM-YYYY + 24hr.
+- Report: GET /api/roster/report?date_from&date_to&token= (1-90 days) xlsx Summary + Incidents.

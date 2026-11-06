@@ -11,6 +11,7 @@ import { API_URL, api, authHeaders, getApiToken, openLink } from "@/src/api";
 import { uploadForm } from "@/src/utils/upload";
 import { useAuth } from "@/src/auth";
 import { GroupPickerSheet } from "@/src/components/group-picker";
+import { SupportTeamTags } from "@/src/components/support-team-tags";
 import { MilestoneBadge } from "@/src/components/milestone-badge";
 import { useToast } from "@/src/components/toast";
 import { Avatar, Button, ConfirmSheet, EmptyState, ErrorState, Field, Ionicons, Loading, Pill } from "@/src/components/ui";
@@ -41,6 +42,7 @@ export default function Team() {
   const [imported, setImported] = useState<{ added: any[]; skipped: any[] } | null>(null);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
+  const [tagFor, setTagFor] = useState<any>(null);
 
   const importSheet = async () => {
     const pick = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true,
@@ -210,6 +212,12 @@ export default function Team() {
                   {!!item.missing_certs?.length && <Pill label={`${item.missing_certs.length} cert${item.missing_certs.length > 1 ? "s" : ""} missing`} tone="accent" />}
                   <MilestoneBadge startDate={item.start_date} compact />
                 </View>
+                {item.user_type === "support_worker" && (isAdmin || item.user_id === user?.user_id || user?.user_type === "support_coordinator"
+                  || ((user as any)?.permissions ?? []).includes("rosters")) && (
+                  <Pressable testID={`team-tags-${item.user_id}`} onPress={() => setTagFor(item)} style={[styles.smallBtn, { alignSelf: "flex-start" }]}>
+                    <Text style={styles.smallBtnText}>Participant tags</Text>
+                  </Pressable>
+                )}
                 {isAdmin && (
                   <View style={styles.actions}>
                     <Pressable testID={`team-profile-${item.user_id}`} onPress={() => router.push(`/staff/${item.user_id}`)} style={styles.smallBtn}>
@@ -246,6 +254,7 @@ export default function Team() {
         />
       )}
 
+      <SupportTeamTags member={tagFor} onClose={() => setTagFor(null)} />
       <GroupPickerSheet visible={!!typeFor} title={`User type for ${typeFor?.name ?? ""}`} subtitle="Controls admin tools, forms they see and how they sign in."
         multi={false} selected={typeSel} onChange={setTypeSel} onClose={() => setTypeFor(null)} onSave={saveType} saving={busy}
         emptyLabel="" hideEmpty options={typeOptions} />

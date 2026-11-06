@@ -1,5 +1,7 @@
-import { RefreshControl, ScrollView, Pressable, View } from "react-native";
+import { useState } from "react";
+import { RefreshControl, ScrollView, Pressable, Switch, View } from "react-native";
 import { Text } from "@/src/components/text";
+import { useToast } from "@/src/components/toast";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -72,6 +74,7 @@ export default function StaffProfile() {
       </View>
 
       <DetailsCard key={`d${s.name}${s.email}${s.job_title}`} s={s} onSaved={() => { q.refetch(); qc.invalidateQueries({ queryKey: ["users"] }); }} />
+      <AccessCard s={s} onSaved={() => q.refetch()} />
       <ProbationCard key={`p${s.start_date}${s.probation_end}`} s={s} onSaved={() => q.refetch()} />
       <BirthdayCard key={`b${s.birthday}`} s={s} onSaved={() => q.refetch()} />
       <BuddyCard s={s} onSaved={() => q.refetch()} />
@@ -160,6 +163,38 @@ function Row({ icon, color, title, sub, styles }: { icon: any; color: string; ti
         <Text style={styles.sub}>{sub}</Text>
       </View>
     </View>
+  );
+}
+
+function AccessCard({ s, onSaved }: { s: any; onSaved: () => void }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  const toast = useToast();
+  const [perms, setPerms] = useState<string[]>(s.permissions ?? []);
+  const toggle = async (p: string) => {
+    const next = perms.includes(p) ? perms.filter((x) => x !== p) : [...perms, p];
+    setPerms(next);
+    try {
+      await api(`/users/${s.user_id}/permissions`, { method: "PUT", body: { permissions: next } });
+      toast("Access updated", "success");
+      onSaved();
+    } catch (e: any) {
+      setPerms(perms);
+      toast(e.message, "error");
+    }
+  };
+  return (
+    <Section title="Participant Management access" styles={styles}>
+      {[["finance", "Finance", "Import funding and update unit rates"], ["rosters", "Rosters", "Roster shifts and approve clock times"]].map(([k, label, sub]) => (
+        <View key={k} style={styles.row}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.rowTitle}>{label}</Text>
+            <Text style={styles.sub}>{sub}</Text>
+          </View>
+          <Switch value={perms.includes(k)} onValueChange={() => toggle(k)} trackColor={{ true: colors.brandPrimary }} testID={`profile-perm-${k}`} />
+        </View>
+      ))}
+    </Section>
   );
 }
 
