@@ -1,0 +1,51 @@
+{
+  "summary": "Retest of the two HIGH bugs from iteration 60. Both are FIXED. Backend: the new iter61 suite passes 9/9 and the iter60 regression passes 11/11 (-n 0) with no expectation changes. Bug 1: a manual re-roster (POST /api/shifts with replaces) sets open=false and rerostered on the original. A claim then returns 400 and the failed claim doesn't reopen the shift. /shifts-offers no longer lists it for any user. A second re-roster with replaces returns 400 'already been re-rostered'. This also holds after a claim and for old data (open=true with rerostered set). Bug 2: cancel (DELETE) and decline both set swap.status=withdrawn and send the teammate a 'Swap withdrawn' notification, for both pending_teammate and pending_rosters. No notification is sent when there is no live swap. Offers and approvals exclude these shifts, and respond/decide return 404 because the swap is no longer pending. For old data (shift cancelled or declined while the swap is still pending), respond and decide return 400 and the shift is not brought back. Respond on a shift that has started returns 400. Frontend at 375px: section headings on the Swaps & open shifts tab are readable (#11181C on orange). 'Offer to a teammate' now shows the Ionicons swap-horizontal icon and is 44px tall. Re-roster and 'Post to open shift board' are hidden on an open-board shift and still shown on a declined shift that isn't on the board. The employee sees teammate offers and a claimable open shift, and their own declined shift is not listed. Two minor UI leftovers: SwapStatus shows the raw text 'withdrawn' and still uses the '⇄' glyph. No deprecated Expo packages were seen in the reviewed files.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/shifts (replaces) vs POST /api/shifts/{id}/claim", "issue": "Possible race, found in code review and not reproduced. create_shift checks old.rerostered and only sets it after insert_one, so two re-rosters at the same moment (or a claim and a manual re-roster at the same moment) can both pass the check. A small risk of a duplicate. A fix: claim the old shift atomically with find_one_and_update({shift_id, status:'declined', rerostered:{$in:[None,'']}}) before inserting."},
+      {"endpoint": "POST /api/shifts/{id}/swap/respond, /swap/decide", "issue": "After the fix, cancel and decline withdraw the swap, so these now return 404 ('Swap offer not found'), not 400. They return 400 only for old data where the swap is still pending. This is consistent and safe, but the UI shows 'not found' wording if a stale offer card is tapped."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "SwapStatus (shift-market.tsx:125-129)", "issue": "The 'withdrawn' status has no label, so a cancelled or declined shift shows '⇄ withdrawn'. Add a friendly text, e.g. 'Swap withdrawn' (or hide it).", "testID": "swap-status-<id>", "priority": "LOW"},
+      {"component": "SwapStatus glyph (shift-market.tsx:129)", "issue": "It still uses the '⇄' text glyph, which renders as a tiny odd character in the Nunito font (see screenshot). OfferLink was fixed but this wasn't. Use <Ionicons name='swap-horizontal-outline'>.", "testID": "swap-status-<id>", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/pm/rostering Swaps & open shifts", "issues": ["The headings are fixed. The empty-state texts ('No swap offers right now.', 'No open shifts for your participants.') still use muted #6B5A45 directly on #F7A51D, about 3.3:1, which is below 4.5:1 for 13px text. Use onSurface, or put them in a surface card."]},
+      {"screen": "/pm/rostering Roster", "issues": ["UX gap: once a declined shift is on the open board, Rosters have no UI to re-roster it manually or take it off the board. Re-roster is hidden and there is no 'Remove from board'. If nobody claims it, Rosters are stuck. The backend already supports a manual re-roster of open shifts safely, so consider showing Re-roster (with a confirm) or adding 'Take off board'."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter61_reroster_open_board_and_swap_withdraw.py",
+    "/app/backend/tests/test_iter60_shift_swaps_open_board_reminders_forecast.py",
+    "/app/backend/tests/ui_seed_iter61.py",
+    "/app/test_reports/pytest/pytest_iter61.xml",
+    "/app/test_reports/pytest/pytest_iter61_regression.xml"
+  ],
+  "action_items": [
+    "LOW: SwapStatus: add a label for 'withdrawn' (e.g. 'Swap withdrawn') and replace the '⇄' glyph with Ionicons swap-horizontal-outline.",
+    "LOW: Raise contrast of the empty-state meta text on the orange background in OffersPanel.",
+    "MEDIUM (UX): give Rosters a way to take a shift off the open board or re-roster it manually, because Re-roster is now hidden while open=true.",
+    "OPTIONAL: make the replaces check-and-set in create_shift atomic to close the race between concurrent re-roster and claim."
+  ],
+  "critical_code_review_comments": [
+    "participant_mgmt.create_shift: the replaces validation (rerostered check) runs after the clash check, so re-rostering to the same worker who already has the replacement returns 409 (clash), not 400. Acceptable.",
+    "shift_market.close_swap is imported lazily inside cancel_shift and decline_shift to avoid a circular import. This works, but moving close_swap into a shared module would be cleaner.",
+    "decide_swap with approve=false skips still_live, so Rosters can still reject an old pending swap on a non-live shift. This is harmless.",
+    "The files are within the size limits and every new interactive element has a testID."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter61_reroster_open_board_and_swap_withdraw.py (new)",
+    "/app/backend/tests/ui_seed_iter61.py (new, UI seed and cleanup helper)"
+  ],
+  "success_rate": {"backend": "100% (20/20: iter61 9/9 and iter60 regression 11/11)", "frontend": "100% of the requested checks pass. 2 low-severity SwapStatus display leftovers."},
+  "seed_data_creation": "Temporary TEST_Iter61 and TEST_Iter61UI users (hidden or one visible), sessions, participants, fundings, shifts and notifications were created and all deleted by id afterwards (verified 0 left). No real data was touched. No forecast_links were created this iteration.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run: cd /app/backend && pytest tests/test_iter61_reroster_open_board_and_swap_withdraw.py tests/test_iter60_shift_swaps_open_board_reminders_forecast.py -n 0. For UI: python tests/ui_seed_iter61.py seed (prints shift ids), test, then python tests/ui_seed_iter61.py clean. Web login: localStorage auth_token = JSON string of the token. The server clock in this env reads Nov 2026.",
+  "rca_of_issue": "Both iteration-60 bugs are fixed as recommended. create_shift now rejects shifts that were already re-rostered and sets open=False. claim and offers filter on rerostered. close_swap() withdraws the swap and notifies the teammate on cancel and decline. still_live() guards respond and decide. Offers and approvals filter on status in LIVE."
+}

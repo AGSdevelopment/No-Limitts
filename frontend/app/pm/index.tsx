@@ -47,6 +47,17 @@ export default function ParticipantManagement() {
       <Option icon="calendar-outline" title="Rostering" testID="pm-rostering"
         sub={a.rosters ? `Roster shifts, approve clock times and run reports${a.awaiting_approval ? ` · ${a.awaiting_approval} to approve` : ""}` : "Your shifts, accept and clock in / out"}
         onPress={() => router.push("/pm/rostering")} />
+      <Option icon="time-outline" title={a.finance || a.rosters ? "Timesheets" : "My hours"} testID="pm-timesheets"
+        sub={a.finance || a.rosters ? "Approved hours per worker each week, Excel export" : "Your approved hours each week"}
+        onPress={() => router.push("/pm/timesheets")} />
+      {a.finance && (
+        <Option icon="receipt-outline" title="Invoices" testID="pm-invoices" sub="Create GST-free invoices from completed shifts"
+          onPress={() => router.push("/pm/invoices")} />
+      )}
+      {(a.rosters || a.coordinator) && (
+        <Option icon="home-outline" title="Participant addresses" testID="pm-addresses" sub="Where clock-ins are location checked"
+          onPress={() => router.push("/pm/addresses")} />
+      )}
 
       {a.coordinator && (
         <View style={{ gap: 8 }}>

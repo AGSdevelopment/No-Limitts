@@ -1,0 +1,46 @@
+{
+  "summary": "Iteration 60 covered shift swaps, the open shift board, 1-hour shift reminders and the budget forecast PDF. Backend: 11 pytest tests, 9 passed. The 2 failures are real business-logic bugs in edge cases. (1) If Rosters post a declined shift to the open board and then re-roster it by hand, the shift stays on the board and can still be claimed, which creates a duplicate replacement shift (double-booking and double budget commitment). (2) If a shift with a pending swap is cancelled (and, by the same code path, declined), the offer still shows to the teammate, and accepting it then approving it brings the cancelled shift back as accepted. Everything else passed: teammates list, all swap validations (not own, self, off-team, clash 409, past, duplicate), accept/decline/approve/reject with reassignment and notifications, open/claim rules, reminders (sent once, include goals, set reminded=True), forecast PDF (finance 200, employee 403) and email_forecasts shared links (valid 200, bad token 404). Frontend: all requested UI flows work end to end at 375px. Employee offers a swap via shift-swap-<id> and swap-sheet; teammate takes it; admin approves (shift moves to Worker Two); admin posts a declined shift with shift-open-<id> (toast says 1 team member told); teammate claims it (2 accepted shifts in My shifts, $100 booked on Funding); the funding-forecast link opens a 200 PDF and is hidden from employees. No deprecated Expo packages detected.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/shifts/{id}/claim + GET /api/shifts-offers (with POST /api/shifts replaces=)", "issue": "An open shift that Rosters re-roster by hand keeps open=True. It stays on the board, and a claim returns 200 and creates a second replacement shift. Reproduced: claim=200, 2 active replacement shifts. Root cause: create_shift(replaces) never clears 'open' and never rejects an already-rerostered shift; claim_shift and my_offers filter only on open=True and status=declined, not on rerostered.", "priority": "HIGH"},
+      {"endpoint": "POST /api/shifts/{id}/swap/respond, /swap/decide, GET /api/shifts-offers", "issue": "A swap on a shift that was cancelled (DELETE /api/shifts/{id}) or declined stays live. The teammate still sees the offer; respond (accept) and decide (approve) still work, and decide sets status='accepted', bringing the cancelled shift back. Reproduced: offer still listed=True, status after approve=accepted. Root cause: respond_swap, decide_swap and the offers query never check s.status in (pending_acceptance, accepted), and cancel_shift and decline_shift don't clear the pending swap.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "shift_reminders()", "issue": "Also reminds 'pending_acceptance' (not yet accepted) shifts. The spec said accepted shifts. Confirm this is intended."},
+      {"endpoint": "POST /api/shifts/{id}/open", "issue": "'notified' counts every Support Team member except the decliner, including members who have a clash and so won't see the shift on their board."},
+      {"endpoint": "forecast_links", "issue": "Expired links are never purged (no TTL index or cleanup)."},
+      {"endpoint": "shift_market_loop", "issue": "The meta key is written before email_forecasts runs, so if sending fails partway through, that month's forecast emails are never retried."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Rostering roster card (declined + open)", "issue": "'Re-roster' is still shown on a shift marked 'On the open shift board'. This is the UI path to the duplicate-shift backend bug: hide it or close the board entry on re-roster.", "testID": "shift-open-<id>", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/pm/rostering Swaps & open shifts", "issues": ["Section headers (SHIFTS OFFERED TO YOU, OPEN SHIFTS) and the empty-state 'meta' text use the muted grey colour directly on the orange page background. Contrast is low (about 2:1)."]},
+      {"screen": "/pm/rostering My shifts", "issues": ["The '⇄' glyph in 'Offer to a teammate' and in the swap status renders very small and looks odd. Use an Ionicons swap-horizontal icon instead."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter60_shift_swaps_open_board_reminders_forecast.py", "/app/test_reports/pytest/pytest_iter60.xml"],
+  "action_items": [
+    "Open board: in create_shift, when body.replaces is set, reject old shifts that are already rerostered and set open=False on the old shift. In claim_shift's find_one_and_update and in my_offers, add a filter that rerostered does not exist. In the UI, hide Re-roster while s.open (or warn).",
+    "Swaps: in respond_swap and decide_swap, require s.status in ('pending_acceptance','accepted') and a future start. In my_offers' offers query, filter by status too. In cancel_shift and decline_shift, set swap.status='withdrawn' (or similar) when a swap is pending_teammate or pending_rosters, and notify the teammate.",
+    "Raise contrast for the section and meta text on the orange background in OffersPanel.",
+    "Optional: purge expired forecast_links, and only count members without a clash in the open-shift 'notified' number."
+  ],
+  "critical_code_review_comments": [
+    "shift_market.py: decide_swap overwrites status to 'accepted' without checking the current status, which is the root cause of the shift resurrection.",
+    "shift_market.py: claim_shift relies on create_shift for eligibility (team membership, decliner, clash, budget, started). Verified: off-team and decliner get 400 and open=True is restored.",
+    "teammates() excludes hidden users. This is fine for production, but hidden test workers never appear as swap targets.",
+    "Files are within the size limits (shift_market.py 281 lines). Every interactive element has a testID."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter60_shift_swaps_open_board_reminders_forecast.py"],
+  "success_rate": {"backend": "82% (9/11, 2 failures are real bugs)", "frontend": "100% of the requested flows work. 1 UI issue (Re-roster shown on open shifts) is linked to backend bug #1."},
+  "seed_data_creation": "Temporary TEST_ users, sessions, participants, fundings, shifts and notifications were created in Mongo for both pytest and UI, and all were deleted afterwards (verified 0 left). Calling email_forecasts in-process with send_email monkeypatched created forecast_links for the real admin/finance users; those links were deleted by token (no real emails sent). Calling shift_reminders() directly works on all shifts, exactly as the 5-minute background loop does.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Run pytest tests/test_iter60_shift_swaps_open_board_reminders_forecast.py. The two edge tests (test_open_then_manual_reroster_hides_from_board, test_cancelled_shift_swap_cannot_be_approved) should pass once fixed. For UI: the second worker must be hidden=False to appear in the swap-sheet chips. Web login: localStorage auth_token = JSON string of the token.",
+  "rca_of_issue": "Bug 1: the 'open' flag and the 'rerostered' link are independent. create_shift(replaces) sets rerostered but leaves open=True, and the board and claim only check open and status. Bug 2: the swap sub-document has its own lifecycle and is never reconciled with the shift's status on cancel or decline, and respond and decide don't validate the shift status."
+}

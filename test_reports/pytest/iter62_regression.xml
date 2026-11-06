@@ -1,0 +1,187 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="11" failures="13" skipped="0" tests="51" time="52.941" timestamp="2026-11-06T03:25:53.752697+00:00" hostname="agent-env-d19e7a11-f3e8-4fd0-857f-135bb64d28b4"><testcase classname="tests.test_iter58_participant_mgmt_funding_rostering.TestShifts" name="test_create_validations" time="0.002"><failure message="KeyError: 'alpha'">tests/test_iter58_participant_mgmt_funding_rostering.py:207: in test_create_validations
+    a = S["alpha"]; fut = dmy(now() + timedelta(days=20))
+        ^^^^^^^^^^
+E   KeyError: 'alpha'</failure></testcase><testcase classname="tests.test_iter61_reroster_open_board_and_swap_withdraw.TestSwapWithdraw" name="test_cancel_pending_teammate" time="1.158" /><testcase classname="tests.test_iter58_participant_mgmt_funding_rostering.TestShifts" name="test_auto_accept_and_clash" time="0.000"><failure message="KeyError: 'alpha'">tests/test_iter58_participant_mgmt_funding_rostering.py:220: in test_auto_accept_and_clash
+    a, b = S["alpha"], S["beta"]; fut = dmy(now() + timedelta(days=22))
+           ^^^^^^^^^^
+E   KeyError: 'alpha'</failure></testcase><testcase classname="tests.test_iter58_participant_mgmt_funding_rostering.TestShifts" name="test_pending_within_two_weeks_and_worker_view" time="0.000"><failure message="KeyError: 'alpha'">tests/test_iter58_participant_mgmt_funding_rostering.py:235: in test_pending_within_two_weeks_and_worker_view
+    a = S["alpha"]
+        ^^^^^^^^^^
+E   KeyError: 'alpha'</failure></testcase><testcase classname="tests.test_iter58_participant_mgmt_funding_rostering.TestShifts" name="test_clock_outside_window_and_approval" time="0.000"><failure message="KeyError: 'alpha'">tests/test_iter58_participant_mgmt_funding_rostering.py:253: in test_clock_outside_window_and_approval
+    a = S["alpha"]; st = now() + timedelta(minutes=11); en = st + timedelta(minutes=60)
+        ^^^^^^^^^^
+E   KeyError: 'alpha'</failure></testcase><testcase classname="tests.test_iter58_participant_mgmt_funding_rostering.TestShifts" name="test_clock_inside_window_completes" time="0.000"><failure message="KeyError: 'alpha'">tests/test_iter58_participant_mgmt_funding_rostering.py:283: in test_clock_inside_window_completes
+    a = S["alpha"]; st = now() + timedelta(minutes=12); en = st + timedelta(minutes=60)
+        ^^^^^^^^^^
+E   KeyError: 'alpha'</failure></testcase><testcase classname="tests.test_iter58_participant_mgmt_funding_rostering.TestShifts" name="test_rate_change_modes" time="0.000"><failure message="KeyError: 'alpha'">tests/test_iter58_participant_mgmt_funding_rostering.py:297: in test_rate_change_modes
+    fid = S["alpha"]["funding_id"]
+          ^^^^^^^^^^
+E   KeyError: 'alpha'</failure></testcase><testcase classname="tests.test_iter58_participant_mgmt_funding_rostering.TestShifts" name="test_delete_blocked_with_active_shifts" time="0.000"><failure message="KeyError: 'alpha'">tests/test_iter58_participant_mgmt_funding_rostering.py:311: in test_delete_blocked_with_active_shifts
+    r = requests.delete(f"{API}/funding/{S['alpha']['funding_id']}", headers=ADMIN)
+                                         ^^^^^^^^^^
+E   KeyError: 'alpha'</failure></testcase><testcase classname="tests.test_iter58_participant_mgmt_funding_rostering.TestPermissions" name="test_employee_cannot_set_permissions" time="0.231" /><testcase classname="tests.test_iter58_participant_mgmt_funding_rostering.TestPermissions" name="test_admin_sets_permissions_filters_unknown" time="0.348" /><testcase classname="tests.test_iter58_participant_mgmt_funding_rostering.TestPermissions" name="test_admin_permissions_404" time="0.218" /><testcase classname="tests.test_iter58_participant_mgmt_funding_rostering.TestPermissions" name="test_access" time="0.330" /><testcase classname="tests.test_iter61_reroster_open_board_and_swap_withdraw.TestSwapWithdraw" name="test_cancel_pending_rosters" time="1.373" /><testcase classname="tests.test_iter58_participant_mgmt_funding_rostering.TestPermissions" name="test_worker_blocked_from_office" time="0.297" /><testcase classname="tests.test_iter59_decline_week_budget_casenote.TestDecline" name="test_decline_rules_and_notify" time="1.342"><failure message="AssertionError: {&quot;detail&quot;:&quot;Emp Test declined this shift. Choose someone else.&quot;}&#10;assert 400 == 200&#10; +  where 400 = &lt;Response [400]&gt;.status_code">tests/test_iter59_decline_week_budget_casenote.py:98: in test_decline_rules_and_notify
+    assert r.status_code == 200, r.text
+E   AssertionError: {"detail":"Emp Test declined this shift. Choose someone else."}
+E   assert 400 == 200
+E    +  where 400 = &lt;Response [400]&gt;.status_code</failure></testcase><testcase classname="tests.test_iter61_reroster_open_board_and_swap_withdraw.TestSwapWithdraw" name="test_decline_pending_teammate_and_rosters" time="1.657" /><testcase classname="tests.test_iter59_decline_week_budget_casenote.TestDecline" name="test_accepted_within_14_days_declinable" time="0.128"><failure message="AssertionError: {&quot;detail&quot;:&quot;Emp Test is rostered with TEST_Iter61 fafaa8 11-11-2026 13:00-14:00. Shifts for different participants can't overlap and need 30 minutes between them.&quot;}&#10;assert 409 == 200&#10; +  where 409 = &lt;Response [409]&gt;.status_code">tests/test_iter59_decline_week_budget_casenote.py:103: in test_accepted_within_14_days_declinable
+    s = mk_shift(5, "13:00", "14:00")
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_iter59_decline_week_budget_casenote.py:68: in mk_shift
+    assert r.status_code == 200, r.text
+E   AssertionError: {"detail":"Emp Test is rostered with TEST_Iter61 fafaa8 11-11-2026 13:00-14:00. Shifts for different participants can't overlap and need 30 minutes between them."}
+E   assert 409 == 200
+E    +  where 409 = &lt;Response [409]&gt;.status_code</failure></testcase><testcase classname="tests.test_iter59_decline_week_budget_casenote.TestDecline" name="test_more_than_14_days_rejected" time="0.519" /><testcase classname="tests.test_iter59_decline_week_budget_casenote.TestDecline" name="test_started_shift_rejected" time="0.261" /><testcase classname="tests.test_iter59_decline_week_budget_casenote.TestDecline" name="test_unknown_shift" time="0.182" /><testcase classname="tests.test_iter58_participant_mgmt_funding_rostering.TestFunding" name="test_template_token_query" time="0.471" /><testcase classname="tests.test_iter61_reroster_open_board_and_swap_withdraw.TestSwapWithdraw" name="test_no_withdraw_notification_without_live_swap" time="0.647" /><testcase classname="tests.test_iter58_participant_mgmt_funding_rostering.TestFunding" name="test_import_good_and_bad_rows" time="0.327" /><testcase classname="tests.test_iter58_participant_mgmt_funding_rostering.TestFunding" name="test_import_missing_columns" time="0.301" /><testcase classname="tests.test_iter61_reroster_open_board_and_swap_withdraw.TestSwapWithdraw" name="test_legacy_nonlive_shift_respond_decide_400" time="1.448" /><testcase classname="tests.test_iter58_participant_mgmt_funding_rostering.TestFunding" name="test_detail" time="0.362" /><testcase classname="tests.test_iter59_decline_week_budget_casenote.TestBudgetAlerts" name="test_alert_shape_no_spend" time="0.151" /><testcase classname="tests.test_iter59_decline_week_budget_casenote.TestBudgetAlerts" name="test_runout_then_low_via_approve" time="0.595" /><testcase classname="tests.test_iter59_decline_week_budget_casenote.TestBudgetAlerts" name="test_less_than_7_days_no_runout" time="0.186" /><testcase classname="tests.test_iter61_reroster_open_board_and_swap_withdraw.TestSwapWithdraw" name="test_started_shift_respond_400" time="0.538" /><testcase classname="tests.test_iter59_decline_week_budget_casenote.TestBudgetAlerts" name="test_worker_cannot_list_funding" time="0.191" /><testcase classname="tests.test_iter58_participant_mgmt_funding_rostering.TestTags" name="test_worker_self_request_pending_then_approve" time="0.357"><failure message="assert (400 == 200)&#10; +  where 400 = &lt;Response [400]&gt;.status_code">tests/test_iter58_participant_mgmt_funding_rostering.py:177: in test_worker_self_request_pending_then_approve
+    assert r.status_code == 200 and r.json()["status"] == "pending"
+E   assert (400 == 200)
+E    +  where 400 = &lt;Response [400]&gt;.status_code</failure></testcase><testcase classname="tests.test_iter60_shift_swaps_open_board_reminders_forecast.TestSwaps" name="test_teammates_own_shift_only" time="0.001"><error message="failed on setup with &quot;ValueError: The future belongs to a different loop than the one specified as the loop argument&quot;">tests/test_iter60_shift_swaps_open_board_reminders_forecast.py:60: in seed
+    run(db.users.insert_many([
+tests/test_iter60_shift_swaps_open_board_reminders_forecast.py:27: in run
+    return loop.run_until_complete(c)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/base_events.py:633: in run_until_complete
+    future = tasks.ensure_future(future, loop=self)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/tasks.py:659: in ensure_future
+    return _ensure_future(coro_or_future, loop=loop)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/tasks.py:665: in _ensure_future
+    raise ValueError('The future belongs to a different loop than '
+E   ValueError: The future belongs to a different loop than the one specified as the loop argument</error></testcase><testcase classname="tests.test_iter58_participant_mgmt_funding_rostering.TestTags" name="test_admin_request_auto_approves" time="0.150"><failure message="assert (400 == 200)&#10; +  where 400 = &lt;Response [400]&gt;.status_code">tests/test_iter58_participant_mgmt_funding_rostering.py:190: in test_admin_request_auto_approves
+    assert r.status_code == 200 and r.json()["status"] == "approved"
+E   assert (400 == 200)
+E    +  where 400 = &lt;Response [400]&gt;.status_code</failure></testcase><testcase classname="tests.test_iter60_shift_swaps_open_board_reminders_forecast.TestSwaps" name="test_swap_validation" time="0.000"><error message="failed on setup with &quot;ValueError: The future belongs to a different loop than the one specified as the loop argument&quot;">tests/test_iter60_shift_swaps_open_board_reminders_forecast.py:60: in seed
+    run(db.users.insert_many([
+tests/test_iter60_shift_swaps_open_board_reminders_forecast.py:27: in run
+    return loop.run_until_complete(c)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/base_events.py:633: in run_until_complete
+    future = tasks.ensure_future(future, loop=self)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/tasks.py:659: in ensure_future
+    return _ensure_future(coro_or_future, loop=loop)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/tasks.py:665: in _ensure_future
+    raise ValueError('The future belongs to a different loop than '
+E   ValueError: The future belongs to a different loop than the one specified as the loop argument</error></testcase><testcase classname="tests.test_iter60_shift_swaps_open_board_reminders_forecast.TestSwaps" name="test_full_swap_flow_approved" time="0.000"><error message="failed on setup with &quot;ValueError: The future belongs to a different loop than the one specified as the loop argument&quot;">tests/test_iter60_shift_swaps_open_board_reminders_forecast.py:60: in seed
+    run(db.users.insert_many([
+tests/test_iter60_shift_swaps_open_board_reminders_forecast.py:27: in run
+    return loop.run_until_complete(c)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/base_events.py:633: in run_until_complete
+    future = tasks.ensure_future(future, loop=self)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/tasks.py:659: in ensure_future
+    return _ensure_future(coro_or_future, loop=loop)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/tasks.py:665: in _ensure_future
+    raise ValueError('The future belongs to a different loop than '
+E   ValueError: The future belongs to a different loop than the one specified as the loop argument</error></testcase><testcase classname="tests.test_iter60_shift_swaps_open_board_reminders_forecast.TestSwaps" name="test_swap_declined_and_rejected" time="0.000"><error message="failed on setup with &quot;ValueError: The future belongs to a different loop than the one specified as the loop argument&quot;">tests/test_iter60_shift_swaps_open_board_reminders_forecast.py:60: in seed
+    run(db.users.insert_many([
+tests/test_iter60_shift_swaps_open_board_reminders_forecast.py:27: in run
+    return loop.run_until_complete(c)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/base_events.py:633: in run_until_complete
+    future = tasks.ensure_future(future, loop=self)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/tasks.py:659: in ensure_future
+    return _ensure_future(coro_or_future, loop=loop)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/tasks.py:665: in _ensure_future
+    raise ValueError('The future belongs to a different loop than '
+E   ValueError: The future belongs to a different loop than the one specified as the loop argument</error></testcase><testcase classname="tests.test_iter61_reroster_open_board_and_swap_withdraw.TestOpenBoardReroster" name="test_manual_reroster_closes_board" time="1.451" /><testcase classname="tests.test_iter58_participant_mgmt_funding_rostering.TestTags" name="test_decline_notifies" time="0.145"><failure message="assert (400 == 200)&#10; +  where 400 = &lt;Response [400]&gt;.status_code">tests/test_iter58_participant_mgmt_funding_rostering.py:196: in test_decline_notifies
+    assert r.status_code == 200 and r.json()["status"] == "pending"
+E   assert (400 == 200)
+E    +  where 400 = &lt;Response [400]&gt;.status_code</failure></testcase><testcase classname="tests.test_iter60_shift_swaps_open_board_reminders_forecast.TestForecast" name="test_forecast_pdf_access" time="0.001"><error message="failed on setup with &quot;ValueError: The future belongs to a different loop than the one specified as the loop argument&quot;">tests/test_iter60_shift_swaps_open_board_reminders_forecast.py:60: in seed
+    run(db.users.insert_many([
+tests/test_iter60_shift_swaps_open_board_reminders_forecast.py:27: in run
+    return loop.run_until_complete(c)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/base_events.py:633: in run_until_complete
+    future = tasks.ensure_future(future, loop=self)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/tasks.py:659: in ensure_future
+    return _ensure_future(coro_or_future, loop=loop)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/tasks.py:665: in _ensure_future
+    raise ValueError('The future belongs to a different loop than '
+E   ValueError: The future belongs to a different loop than the one specified as the loop argument</error></testcase><testcase classname="tests.test_iter60_shift_swaps_open_board_reminders_forecast.TestForecast" name="test_forecast_pdf_contains_participant" time="0.000"><error message="failed on setup with &quot;ValueError: The future belongs to a different loop than the one specified as the loop argument&quot;">tests/test_iter60_shift_swaps_open_board_reminders_forecast.py:60: in seed
+    run(db.users.insert_many([
+tests/test_iter60_shift_swaps_open_board_reminders_forecast.py:27: in run
+    return loop.run_until_complete(c)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/base_events.py:633: in run_until_complete
+    future = tasks.ensure_future(future, loop=self)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/tasks.py:659: in ensure_future
+    return _ensure_future(coro_or_future, loop=loop)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/tasks.py:665: in _ensure_future
+    raise ValueError('The future belongs to a different loop than '
+E   ValueError: The future belongs to a different loop than the one specified as the loop argument</error></testcase><testcase classname="tests.test_iter60_shift_swaps_open_board_reminders_forecast.TestForecast" name="test_email_forecasts_shared_link" time="0.000"><error message="failed on setup with &quot;ValueError: The future belongs to a different loop than the one specified as the loop argument&quot;">tests/test_iter60_shift_swaps_open_board_reminders_forecast.py:60: in seed
+    run(db.users.insert_many([
+tests/test_iter60_shift_swaps_open_board_reminders_forecast.py:27: in run
+    return loop.run_until_complete(c)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/base_events.py:633: in run_until_complete
+    future = tasks.ensure_future(future, loop=self)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/tasks.py:659: in ensure_future
+    return _ensure_future(coro_or_future, loop=loop)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/tasks.py:665: in _ensure_future
+    raise ValueError('The future belongs to a different loop than '
+E   ValueError: The future belongs to a different loop than the one specified as the loop argument</error></testcase><testcase classname="tests.test_iter58_participant_mgmt_funding_rostering.TestReport" name="test_report_xlsx" time="0.161"><failure message="assert (0 &gt;= 1)">tests/test_iter58_participant_mgmt_funding_rostering.py:324: in test_report_xlsx
+    assert summ["Clock in/out incidents needing approval"] &gt;= 1 and summ["Unbudgeted time (minutes)"] &gt;= 30
+E   assert (0 &gt;= 1)</failure></testcase><testcase classname="tests.test_iter58_participant_mgmt_funding_rostering.TestReport" name="test_report_limits" time="0.449" /><testcase classname="tests.test_iter60_shift_swaps_open_board_reminders_forecast.TestOpenBoard" name="test_post_and_claim" time="0.001"><error message="failed on setup with &quot;ValueError: The future belongs to a different loop than the one specified as the loop argument&quot;">tests/test_iter60_shift_swaps_open_board_reminders_forecast.py:60: in seed
+    run(db.users.insert_many([
+tests/test_iter60_shift_swaps_open_board_reminders_forecast.py:27: in run
+    return loop.run_until_complete(c)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/base_events.py:633: in run_until_complete
+    future = tasks.ensure_future(future, loop=self)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/tasks.py:659: in ensure_future
+    return _ensure_future(coro_or_future, loop=loop)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/tasks.py:665: in _ensure_future
+    raise ValueError('The future belongs to a different loop than '
+E   ValueError: The future belongs to a different loop than the one specified as the loop argument</error></testcase><testcase classname="tests.test_iter60_shift_swaps_open_board_reminders_forecast.TestOpenBoard" name="test_open_then_manual_reroster_hides_from_board" time="0.000"><error message="failed on setup with &quot;ValueError: The future belongs to a different loop than the one specified as the loop argument&quot;">tests/test_iter60_shift_swaps_open_board_reminders_forecast.py:60: in seed
+    run(db.users.insert_many([
+tests/test_iter60_shift_swaps_open_board_reminders_forecast.py:27: in run
+    return loop.run_until_complete(c)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/base_events.py:633: in run_until_complete
+    future = tasks.ensure_future(future, loop=self)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/tasks.py:659: in ensure_future
+    return _ensure_future(coro_or_future, loop=loop)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/tasks.py:665: in _ensure_future
+    raise ValueError('The future belongs to a different loop than '
+E   ValueError: The future belongs to a different loop than the one specified as the loop argument</error></testcase><testcase classname="tests.test_iter59_decline_week_budget_casenote.TestCaseNoteGate" name="test_clock_out_409_without_case_note" time="42.979" /><testcase classname="tests.test_iter61_reroster_open_board_and_swap_withdraw.TestOpenBoardReroster" name="test_reroster_after_claim_rejected" time="0.892" /><testcase classname="tests.test_iter61_reroster_open_board_and_swap_withdraw.TestOpenBoardReroster" name="test_legacy_open_and_rerostered_hidden_and_unclaimable" time="0.717" /><testcase classname="tests.test_iter60_shift_swaps_open_board_reminders_forecast.TestSwapAfterCancel" name="test_cancelled_shift_swap_cannot_be_approved" time="0.001"><error message="failed on setup with &quot;ValueError: The future belongs to a different loop than the one specified as the loop argument&quot;">tests/test_iter60_shift_swaps_open_board_reminders_forecast.py:60: in seed
+    run(db.users.insert_many([
+tests/test_iter60_shift_swaps_open_board_reminders_forecast.py:27: in run
+    return loop.run_until_complete(c)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/base_events.py:633: in run_until_complete
+    future = tasks.ensure_future(future, loop=self)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/tasks.py:659: in ensure_future
+    return _ensure_future(coro_or_future, loop=loop)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/tasks.py:665: in _ensure_future
+    raise ValueError('The future belongs to a different loop than '
+E   ValueError: The future belongs to a different loop than the one specified as the loop argument</error></testcase><testcase classname="tests.test_iter60_shift_swaps_open_board_reminders_forecast.TestReminders" name="test_reminder_with_goals_once" time="0.000"><error message="failed on setup with &quot;ValueError: The future belongs to a different loop than the one specified as the loop argument&quot;">tests/test_iter60_shift_swaps_open_board_reminders_forecast.py:60: in seed
+    run(db.users.insert_many([
+tests/test_iter60_shift_swaps_open_board_reminders_forecast.py:27: in run
+    return loop.run_until_complete(c)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/base_events.py:633: in run_until_complete
+    future = tasks.ensure_future(future, loop=self)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/tasks.py:659: in ensure_future
+    return _ensure_future(coro_or_future, loop=loop)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/tasks.py:665: in _ensure_future
+    raise ValueError('The future belongs to a different loop than '
+E   ValueError: The future belongs to a different loop than the one specified as the loop argument</error></testcase></testsuite></testsuites>

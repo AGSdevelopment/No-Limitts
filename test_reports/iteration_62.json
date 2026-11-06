@@ -1,0 +1,47 @@
+{
+  "summary": "I tested both the backend and the frontend for: Timesheets (hours only) with Excel export, participant invoices, participant addresses with the clock-in location check, and the regression after splitting participant_mgmt.py. New backend suite test_iter62: 18 passed and 1 skipped (-n 0). The skipped test is the clock-out step, which the Jotform case-note gate blocks for the test worker. I covered that step with a separate in-process check that stubs the case-note gate: a flagged clock-in followed by an in-window clock-out gives awaiting_approval, and an unflagged one gives completed. Regression (-n 0): iter60 11/11, iter61 9/9, iter59 9/10, iter58 18/21. All 4 failures are old test expectations that the iter59 case-note gate and the 'declined worker can't be re-rostered' rule made out of date. None are caused by the refactor. An AST comparison of every function and class in the HEAD version of participant_mgmt.py against the new pm_common, pm_funding and participant_mgmt shows identical code for everything except create_shift, cancel_shift, ClockIn, clock_in, clock_out and roster_report. Those six were changed on purpose: iter60/61 swaps and re-rostering, and this session's location work. So the funding endpoints have no behaviour change. Frontend at 390x844, all flows passed: the /pm options show the right items for each role; Timesheets (custom range, weekly breakdown, 'My hours' for workers, Excel export for office users only); Invoices (check, preview, create NL-000001, mark paid and unpaid, filters, void with confirm, create again after void as NL-000002, details sheet with defaults No Limitts Pty Ltd / 92 606 960 730 / 14 days, save, PDF opens); Addresses (edit and save, real geocoding worked in the pod and showed 'On map'); clock-in pre-permission sheet (Clock in without location gives a flagged toast); location already granted (no sheet, sent at 0 m, not flagged); ApproveSheet shows approve-location for flagged clock-ins and approving works. No deprecated packages found. Seeded data, invoices, invoice_seq and invoice_settings were all removed, so the database is back to how it started.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/invoices/uninvoiced + POST /api/invoices/generate", "issue": "Shifts still awaiting approval in the period are silently left out, and the preview doesn't mention them. If Rosters approve them later, they are only picked up if Finance runs a range that covers those dates again. Suggest returning a pending count in /invoices/uninvoiced and showing it in the inv-preview sheet."},
+      {"endpoint": "GET /api/shifts (shift_view)", "issue": "clock_in.location stores the worker's raw lat/lng, and shift_view returns it to every user who can view the shift. Consider removing lat/lng for users who aren't Rosters or Finance (keep flagged and note)."},
+      {"endpoint": "POST /api/invoices/generate", "issue": "There's no maximum date range, unlike timesheets (93 days) and the roster report (90 days). That's fine for now, but you might add a cap."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "pm/invoices.tsx (deep link as non-finance user)", "issue": "Opening /pm/invoices directly as a support worker shows a spinner for several seconds because react-query retries the 403 before ErrorState appears. Low impact, because the option is hidden for these users. Suggest retry:false for 403 errors.", "testID": "invoices-screen", "priority": "low"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "pm/invoices.tsx", "issues": ["The Cancel buttons in the inv-preview and inv-settings sheets have no testID", "The preview accepts a future 'To' date and shows counts. Generate then fails with a toast. You could check the date during Check instead."]}
+    ],
+    "react_native_issues": [
+      {"component": "expo-router/unstable-native-tabs", "issue": "Metro warns that `expo-router/unstable-native-tabs` is deprecated. Use `expo-router/native-tabs`. Reference: /app/frontend/app/(tabs)/_layout.tsx:3"}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter62_timesheets_invoices_location.py",
+    "/app/backend/tests/ui_seed_iter62.py",
+    "/app/test_reports/pytest/iter62.xml"
+  ],
+  "action_items": [
+    "Update the stale regression tests: in iter58, test_clock_*_completes, the 422 test and test_report_xlsx now get 409 case_note_required from the iter59 gate. In iter59, test_decline_rules_and_notify re-rosters to the same worker, which is now rejected. Either stub has_case_note or change what the tests expect.",
+    "Optional: show a count of shifts awaiting approval in the invoice preview (uninvoiced endpoint)",
+    "Optional: remove the raw lat/lng from clock_in.location in shift_view for users who aren't Rosters or Finance",
+    "Optional: migrate from expo-router/unstable-native-tabs to expo-router/native-tabs (app/(tabs)/_layout.tsx:3)",
+    "Optional: retry:false on 403 in invoices/addresses queries; add testIDs to the sheet Cancel buttons"
+  ],
+  "critical_code_review_comments": [
+    "Refactor check: an AST comparison against HEAD shows no changes to any funding or helper function after moving them to pm_common and pm_funding",
+    "The invoice generate flow claims shifts before inserting the invoice, so the same shift can't be billed twice even if two users generate at the same time. Good.",
+    "pytest.ini forces -n 2 --dist loadscope, which runs module-scoped seed fixtures once per worker. Run the iter58-62 suites with -n 0, otherwise there are cross-worker errors (the first run of iter58-61 under xdist showed 13 failed and 11 errors)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter62_timesheets_invoices_location.py", "/app/backend/tests/ui_seed_iter62.py"],
+  "success_rate": {"backend": "100% of new feature tests (18/18, 1 skipped because of the Jotform gate but covered by the in-process check). Regression 47/51; the 4 failures are stale expectations, not refactor regressions.", "frontend": "100% of the flows tested"},
+  "seed_data_creation": "Temporary TEST_ participants, fundings, shifts, invoices and a TEST worker. All removed by id. The meta keys invoice_seq and invoice_settings were deleted because neither existed before testing.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run the suites with `-n 0`. ui_seed_iter62.py seed|clean creates par_ui62/fund_ui62 with completed shifts about 5 weeks ago (a Monday), an in-window accepted shift and a flagged awaiting_approval shift. With JOTFORM configured, clock-out returns 409 case_note_required for the test worker. To test clock-out, stub routes.roster_extras.has_case_note in-process. Geocoding (photon) works from the pod.",
+  "rca_of_issue": ""
+}

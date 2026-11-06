@@ -86,6 +86,11 @@ export default function Funding() {
               <Ionicons name="download-outline" size={18} color={colors.brandPrimary} />
               <Text style={styles.linkText}>Download the funding template</Text>
             </Pressable>
+            <Pressable onPress={() => openLink(`${API_URL}/funding/forecast/pdf?token=${encodeURIComponent(getApiToken() ?? "")}`)} style={styles.link}
+              accessibilityRole="button" testID="funding-forecast">
+              <Ionicons name="trending-down-outline" size={18} color={colors.brandPrimary} />
+              <Text style={styles.linkText}>Budget forecast PDF (also emailed on the 1st)</Text>
+            </Pressable>
           </View>
         ) : null}
         ListEmptyComponent={<EmptyState icon="wallet-outline" title="No funding yet" subtitle={finance ? "Import the funding template to add budgets." : "Finance hasn't added funding yet."} />}

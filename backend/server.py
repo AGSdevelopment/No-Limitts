@@ -7,9 +7,10 @@ from core import HIDDEN_TEST_USERS, P, ROOT_DIR, SEED_USERS, client, db, logger,
 from storage import init_storage
 from routes import (auth, users, notifications, certificates, chat, updates, policies, compliance, events, tasks,
                     dashboard, drive, teams, calendar, forms, socials, cpd, ai, digest, profile, places, pathway, directory, referral_map,
-                    celebrations, caseload, caseload_extras, participant_mgmt, roster_extras, privacy)
+                    celebrations, caseload, caseload_extras, participant_mgmt, pm_funding, pm_timesheets, pm_invoices, roster_extras, shift_market, privacy)
 from routes.caseload_extras import caseload_extras_loop
 from routes.roster_extras import budget_alert_loop
+from routes.shift_market import shift_market_loop
 from routes.celebrations import celebration_reminder_loop
 from routes.caseload import case_note_reminder_loop, handover_alert_loop
 from routes.compliance import starter_reminder_loop
@@ -37,7 +38,7 @@ async def health():
 
 for module in (auth, users, notifications, certificates, chat, updates, policies, compliance, events, tasks,
                dashboard, drive, teams, calendar, forms, socials, cpd, ai, digest, profile, places, pathway, directory, referral_map,
-               celebrations, caseload, caseload_extras, participant_mgmt, roster_extras, privacy):
+               celebrations, caseload, caseload_extras, participant_mgmt, pm_funding, pm_timesheets, pm_invoices, roster_extras, shift_market, privacy):
     app.include_router(module.router)
 
 
@@ -312,6 +313,7 @@ async def startup():
     asyncio.create_task(case_note_reminder_loop())
     asyncio.create_task(caseload_extras_loop())
     asyncio.create_task(budget_alert_loop())
+    asyncio.create_task(shift_market_loop())
 
 
 @app.on_event("shutdown")

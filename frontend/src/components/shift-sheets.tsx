@@ -101,6 +101,7 @@ export function ApproveSheet({ shift, onClose, onDone }: { shift: any; onClose: 
         <ScrollView style={{ maxHeight: 480 }} contentContainerStyle={{ gap: 8 }} keyboardShouldPersistTaps="handled">
           <Text style={styles.body}>Clocked in {s.clock_in?.time ?? "-"}{s.clock_in?.reason ? ` · ${s.clock_in.reason}` : ""}</Text>
           {!!s.clock_in?.detail && <Text style={styles.meta}>“{s.clock_in.detail}”</Text>}
+          {!!s.clock_in?.location?.flagged && <Text style={styles.warn} testID="approve-location">📍 {s.clock_in.location.note}</Text>}
           <Text style={styles.body}>Clocked out {s.clock_out?.time ?? "-"}{s.clock_out?.reason ? ` · ${s.clock_out.reason}` : ""}</Text>
           {!!s.clock_out?.detail && <Text style={styles.meta}>“{s.clock_out.detail}”</Text>}
           <View style={{ flexDirection: "row", gap: 8 }}>
@@ -246,6 +247,7 @@ export function CaseNoteGate({ shift, onClose, onWrite, onRetry, busy }: {
 const useStyles = makeStyles((c) => ({
   body: { fontSize: 14, color: c.onSurface, lineHeight: 20 },
   meta: { fontSize: 13, color: c.muted, lineHeight: 18 },
+  warn: { fontSize: 13, color: c.warningText, fontWeight: "700", lineHeight: 18 },
   small: { fontSize: 12, fontWeight: "700", color: c.brandPrimary },
   label: { fontSize: 12, fontWeight: "700", color: c.muted, textTransform: "uppercase", marginTop: 4 },
   chips: { flexDirection: "row", gap: 8, flexWrap: "wrap" },

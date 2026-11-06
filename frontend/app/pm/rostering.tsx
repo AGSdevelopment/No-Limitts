@@ -1,5 +1,5 @@
 // Rostering: Rosters roster shifts, approve clock exceptions and download the report; Support Workers accept and clock in / out.
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { FlatList, Pressable, RefreshControl, ScrollView, View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -12,9 +12,11 @@ import { Button, Chip, EmptyState, Field, Ionicons, Loading, Pill, dmyToIso } fr
 import { ApproveSheet, CaseNoteGate, DeclineSheet, NewShiftSheet, ReasonSheet, STATUS, ShiftDetailSheet, when } from "@/src/components/shift-sheets";
 import { CaseFormsSheet } from "@/src/components/participant-sheets";
 import { WeekRoster } from "@/src/components/week-roster";
+import { OfferLink, OffersPanel, SwapSheet, SwapStatus } from "@/src/components/shift-market";
+import { Fix, useClockLocation } from "@/src/components/clock-location";
 import { makeStyles, useTheme } from "@/src/theme";
 
-type Tab = "roster" | "week" | "approvals" | "report" | "mine";
+type Tab = "roster" | "week" | "approvals" | "offers" | "report" | "mine";
 
 // Clock in opens 2 hours before the shift (Perth time, UTC+8 with no daylight saving) until it finishes
 function clockable(s: any) {
@@ -57,6 +59,9 @@ export default function Rostering() {
   const [gate, setGate] = useState<any>(null);
   const [notesFor, setNotesFor] = useState<string | null>(null);
   const [reroster, setReroster] = useState<any>(null);
+  const [swapping, setSwapping] = useState<any>(null);
+  const { getFix, sheet: locationSheet } = useClockLocation();
+  const fixRef = useRef<{ id: string; fix: Fix | null } | null>(null);
 
   if (acc.isLoading) return <Loading />;
   const shifts = (q.data ?? []).filter((s) => (mine && rosters ? s.worker_id === user?.user_id : true))
@@ -65,10 +70,18 @@ export default function Rostering() {
   const act = async (s: any, path: string, body?: any) => {
     setBusy(s.shift_id);
     try {
-      const r = await api<any>(`/shifts/${s.shift_id}/${path}`, { method: "POST", body: body ?? {} });
+      let payload = body ?? {};
+      if (path === "clock-in") {
+        // Read the location once per clock-in attempt; the reason retry reuses it so no second prompt opens over the reason sheet
+        if (!body?.reason || fixRef.current?.id !== s.shift_id) fixRef.current = { id: s.shift_id, fix: await getFix() };
+        const f = fixRef.current.fix;
+        if (f) payload = { ...payload, lat: f.lat, lng: f.lng, accuracy: f.accuracy };
+      }
+      const r = await api<any>(`/shifts/${s.shift_id}/${path}`, { method: "POST", body: payload });
       setReason(null);
       setGate(null);
-      toast(path === "accept" ? "Shift accepted" : r.status === "awaiting_approval" ? "Clocked out. Rosters will approve your times." : path === "clock-in" ? "Clocked in" : "Clocked out", "success");
+      if (r.clock_in?.location?.flagged) toast(`Clocked in. ${r.clock_in.location.note}, so Rosters will review your times.`, "info");
+      else toast(path === "accept" ? "Shift accepted" : r.status === "awaiting_approval" ? "Clocked out. Rosters will approve your times." : path === "clock-in" ? "Clocked in" : "Clocked out", "success");
       q.refetch();
     } catch (e: any) {
       if (e instanceof ApiError && e.message === "outside_window") setReason({ s, kind: path === "clock-in" ? "in" : "out" });
@@ -102,8 +115,19 @@ export default function Rostering() {
       {rosters && <Chip label={`Approvals${acc.data?.awaiting_approval ? ` (${acc.data.awaiting_approval})` : ""}`} selected={active === "approvals"} onPress={() => setTab("approvals")} testID="roster-tab-approvals" />}
       {(rosters || acc.data?.finance) && <Chip label="Report" selected={active === "report"} onPress={() => setTab("report")} testID="roster-tab-report" />}
       {rosters && acc.data?.worker && <Chip label="My shifts" selected={mine} onPress={() => setTab("mine")} testID="roster-tab-mine" />}
+      {!rosters && <Chip label="My shifts" selected={mine} onPress={() => setTab("mine")} testID="roster-tab-mine" />}
+      <Chip label="Swaps & open shifts" selected={active === "offers"} onPress={() => setTab("offers")} testID="roster-tab-offers" />
     </View>
   );
+
+  if (active === "offers") {
+    return (
+      <ScrollView style={styles.root} contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: insets.bottom + 24 }} testID="roster-offers">
+        {tabs}
+        <OffersPanel onChanged={() => { q.refetch(); acc.refetch(); }} />
+      </ScrollView>
+    );
+  }
 
   if (active === "week") {
     return (
@@ -164,6 +188,7 @@ export default function Rostering() {
               {s.clock_in ? ` · in ${s.clock_in.time}` : ""}{s.clock_out ? ` · out ${s.clock_out.time}` : ""}
               {s.approved_minutes != null ? ` · ${s.approved_minutes} min approved` : ""}
             </Text>
+            {s.clock_in?.location?.flagged && !mine && <Text style={[styles.meta, { color: colors.warningText, fontWeight: "700" }]}>📍 {s.clock_in.location.note}</Text>}
             {mine && s.status === "pending_acceptance" && (
               <Button label="Accept shift" icon="checkmark" loading={busy === s.shift_id} onPress={() => act(s, "accept")} testID={`shift-accept-${s.shift_id}`} />
             )}
@@ -173,6 +198,23 @@ export default function Rostering() {
             {mine && s.status === "in_progress" && (
               <Button label="Clock out" icon="log-out-outline" loading={busy === s.shift_id} onPress={() => act(s, "clock-out")} testID={`shift-clockout-${s.shift_id}`} />
             )}
+            <SwapStatus s={s} />
+            {mine && ["pending_acceptance", "accepted"].includes(s.status) && !["pending_teammate", "pending_rosters"].includes(s.swap?.status)
+              && new Date(`${s.date}T${s.start}:00+08:00`).getTime() > Date.now() && (
+              <OfferLink onPress={() => setSwapping(s)} testID={`shift-swap-${s.shift_id}`} />
+            )}
+            {active === "roster" && s.status === "declined" && !s.rerostered && !s.open && (
+              <Button label="Post to open shift board" icon="megaphone-outline" variant="secondary" onPress={async () => {
+                try {
+                  const r = await api<any>(`/shifts/${s.shift_id}/open`, { method: "POST" });
+                  toast(`Posted. ${r.notified} Support Team member${r.notified === 1 ? "" : "s"} told.`, "success");
+                  q.refetch();
+                } catch (e: any) {
+                  toast(e.message, "error");
+                }
+              }} testID={`shift-open-${s.shift_id}`} />
+            )}
+            {s.open && <Text style={[styles.meta, { color: colors.brandPrimary, fontWeight: "700" }]}>On the open shift board</Text>}
             {mine && declinable(s) && (
               <Pressable onPress={() => setDeclining(s)} style={styles.link} testID={`shift-decline-${s.shift_id}`}>
                 <Ionicons name="close-circle-outline" size={16} color={colors.errorText} />
@@ -202,10 +244,12 @@ export default function Rostering() {
       <NewShiftSheet open={adding || !!reroster} prefill={reroster} onClose={() => { setAdding(false); setReroster(null); }}
         onDone={() => { setAdding(false); setReroster(null); q.refetch(); }} />
       <DeclineSheet shift={declining} onClose={() => setDeclining(null)} onDone={() => { setDeclining(null); q.refetch(); }} />
+      <SwapSheet shift={swapping} onClose={() => setSwapping(null)} onDone={() => { setSwapping(null); q.refetch(); }} />
       <CaseNoteGate shift={gate?.s} busy={!!busy} onClose={() => setGate(null)}
         onWrite={() => { setNotesFor(gate.s.participant_name); }}
         onRetry={() => gate && act(gate.s, "clock-out", gate.body)} />
       <CaseFormsSheet participant={notesFor} worker onClose={() => setNotesFor(null)} />
+      {locationSheet}
       <ReasonSheet open={!!reason} kind={reason?.kind ?? "in"} busy={!!busy} onClose={() => setReason(null)}
         onSubmit={(r, d) => reason && act(reason.s, reason.kind === "in" ? "clock-in" : "clock-out", { reason: r, detail: r === "Unavoidable delay" ? d : "" })} />
     </>

@@ -7,7 +7,9 @@ from pydantic import BaseModel
 
 from core import P, current_user, db, dmy, logger, notify, now_iso
 from routes import caseload as cl
-from routes.participant_mgmt import AUTO_ACCEPT_DAYS, funding_usage, now_perth, span
+from routes.participant_mgmt import AUTO_ACCEPT_DAYS
+from routes.pm_common import now_perth, span
+from routes.pm_funding import funding_usage
 
 router = APIRouter(prefix="/api")
 
@@ -34,6 +36,8 @@ async def decline_shift(shift_id: str, body: DeclineIn, user=Depends(current_use
     if len(reason) < 3:
         raise HTTPException(400, "Tell Rosters why you can't do this shift")
     await db.shifts.update_one({"shift_id": shift_id}, {"$set": {"status": "declined", "decline_reason": reason[:300], "declined_at": now_iso()}})
+    from routes.shift_market import close_swap
+    await close_swap(s, f"{s['worker_name']} declined the shift")
     rosters = [u["user_id"] async for u in db.users.find({"$or": [{"permissions": "rosters"}, {"role": "admin"}], "hidden": {"$ne": True}},
                                                          {"_id": 0, "user_id": 1})]
     await notify(rosters, "shift", f"Shift declined: {s['participant_name']} {dmy(s['date'])} {s['start']}-{s['end']}",

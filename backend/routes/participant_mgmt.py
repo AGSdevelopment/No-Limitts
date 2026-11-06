@@ -1,66 +1,29 @@
-"""Participant Management: Funding (Finance) and Rostering (Rosters), clock in/out, Support Team tags and the exceptions report.
-All dates and times are Perth (AWST). Shifts deplete funding by the approved clock-in to clock-out time."""
+"""Participant Management: Rostering (Rosters), clock in/out, Support Team tags and the exceptions report.
+All dates and times are Perth (AWST). Shifts deplete funding by the approved clock-in to clock-out time.
+Funding lives in pm_funding.py; shared permission and time helpers in pm_common.py."""
 import io
-import re
+import math
 import secrets
 from datetime import date, datetime, timedelta
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
 
-from core import DIGEST_TZ, P, bearer, current_user, db, dmy, notify, now_iso, user_from_token
-from routes.caseload import display_name, participant_key, welcome_workers
+from core import P, current_user, db, dmy, notify, now_iso
+from routes.caseload import welcome_workers
+from routes.pm_common import (fmt_hm, hhmm_ok, is_coordinator, is_finance, is_rosters, local_dt, money, now_perth, parse_dmy,
+                              rosters_user, span, token_user)
+from routes.pm_funding import funding_out, funding_usage
 
 router = APIRouter(prefix="/api")
 
-MGMT_TYPES = ["NDIA", "Self", "Plan", "MyAged Care", "Private", "Insurance", "Charitable"]
 HOURLY = ("hour", "hours", "hr", "hrs", "hourly")
 TOLERANCE_MIN = 5
 GAP_MIN = 30
 AUTO_ACCEPT_DAYS = 14
 REASONS = ["Started late so finished late", "Held up in traffic", "Prior shift ran over", "Unavoidable delay"]
-TEMPLATE_COLS = ["Participant name", "Participant email", "Funding management type", "Units", "Unit type", "$ per unit",
-                 "Service start date", "Service end date", "Invoice payer name", "Invoice payer company", "Invoice payer email",
-                 "Invoice payer phone", "Invoice payer ABN", "Representative name", "Representative email",
-                 "Representative phone", "Representative relationship"]
-
-
-# ---- Permissions ----
-
-def perms(u: dict) -> set:
-    return set(u.get("permissions") or [])
-
-
-def is_finance(u: dict) -> bool:
-    return u.get("role") == "admin" or "finance" in perms(u)
-
-
-def is_rosters(u: dict) -> bool:
-    return u.get("role") == "admin" or "rosters" in perms(u)
-
-
-def is_coordinator(u: dict) -> bool:
-    return u.get("role") == "admin" or u.get("user_type") == "support_coordinator"
-
-
-async def finance_user(user=Depends(current_user)):
-    if not is_finance(user):
-        raise HTTPException(403, "For Finance users")
-    return user
-
-
-async def rosters_user(user=Depends(current_user)):
-    if not is_rosters(user):
-        raise HTTPException(403, "For Rosters users")
-    return user
-
-
-async def office_user(user=Depends(current_user)):
-    if not (is_finance(user) or is_rosters(user)):
-        raise HTTPException(403, "For Finance and Rosters users")
-    return user
 
 
 class PermsIn(BaseModel):
@@ -84,248 +47,6 @@ async def pm_access(user=Depends(current_user)):
     awaiting = await db.shifts.count_documents({"status": "awaiting_approval"}) if is_rosters(user) else 0
     return {"finance": is_finance(user), "rosters": is_rosters(user), "coordinator": is_coordinator(user),
             "worker": user.get("user_type") == "support_worker", "pending_tags": pending, "awaiting_approval": awaiting}
-
-
-# ---- Time helpers (Perth) ----
-
-def parse_dmy(v) -> Optional[str]:
-    if isinstance(v, datetime):
-        return v.date().isoformat()
-    if isinstance(v, date):
-        return v.isoformat()
-    s = str(v or "").strip()
-    for fmt in ("%d-%m-%Y", "%d/%m/%Y", "%Y-%m-%d"):
-        try:
-            return datetime.strptime(s[:10], fmt).date().isoformat()
-        except ValueError:
-            pass
-    return None
-
-
-def hhmm_ok(t: str) -> bool:
-    return bool(re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", t or ""))
-
-
-def local_dt(d: str, t: str) -> datetime:
-    return datetime.strptime(f"{d} {t}", "%Y-%m-%d %H:%M").replace(tzinfo=DIGEST_TZ)
-
-
-def span(s: dict):
-    start = local_dt(s["date"], s["start"])
-    end = local_dt(s["date"], s["end"])
-    if end <= start:  # overnight shift finishes the next day
-        end += timedelta(days=1)
-    return start, end
-
-
-def now_perth() -> datetime:
-    return datetime.now(DIGEST_TZ)
-
-
-def fmt_hm(dt: datetime) -> str:
-    return dt.astimezone(DIGEST_TZ).strftime("%H:%M")
-
-
-# ---- Funding ----
-
-def money(v) -> float:
-    return round(float(v or 0), 2)
-
-
-async def funding_usage(fids: list) -> dict:
-    out = {f: {"spent": 0.0, "units_used": 0.0, "committed": 0.0} for f in fids}
-    async for s in db.shifts.find({"funding_id": {"$in": fids}, "status": {"$nin": ["cancelled", "declined"]}}, P):
-        u = out[s["funding_id"]]
-        if s["status"] == "completed":
-            u["spent"] += s.get("cost") or 0
-            u["units_used"] += s.get("units") or 0
-        else:
-            u["committed"] += s.get("est_cost") or 0
-    return {k: {kk: round(vv, 2) for kk, vv in v.items()} for k, v in out.items()}
-
-
-def funding_out(f: dict, use: dict, show_money: bool = True) -> dict:
-    remaining = round(f["budget"] - use["spent"], 2)
-    units_left = round(f["units"] - use["units_used"], 2)
-    out = {**f, **use, "remaining": remaining, "units_left": units_left,
-           "available": round(remaining - use["committed"], 2), "active": f["start_date"] <= now_perth().date().isoformat() <= f["end_date"]}
-    from routes.roster_extras import projection
-    out["alert"] = projection(f, use)
-    return out if show_money else {k: out[k] for k in ("funding_id", "participant_id", "management_type", "unit_type", "start_date", "end_date")}
-
-
-async def token_user(request: Request, token: Optional[str]) -> dict:
-    user = await user_from_token(bearer(request) or token)
-    if not user:
-        raise HTTPException(401, "Please sign in again")
-    return user
-
-
-@router.get("/funding/template")
-async def funding_template(request: Request, token: Optional[str] = None):
-    if not is_finance(await token_user(request, token)):
-        raise HTTPException(403, "For Finance users")
-    from openpyxl import Workbook
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Funding"
-    ws.append(TEMPLATE_COLS)
-    ws.append(["Jane Citizen", "jane@example.com", "NDIA", 120, "Hour", 67.56, "01-07-2026", "30-06-2027", "", "Plan Partners Pty Ltd",
-               "invoices@planpartners.example", "08 9000 0000", "12 345 678 901", "John Citizen", "john@example.com", "0400 000 000", "Father"])
-    notes = wb.create_sheet("How to fill in")
-    for line in ["One row per funding line. A participant can have several rows (e.g. different funding types).",
-                 f"Funding management type must be one of: {', '.join(MGMT_TYPES)}.",
-                 "Unit type: Hour (shifts deplete by approved hours) or another unit such as Each / Shift (1 unit per shift).",
-                 "Dates as DD-MM-YYYY. Budget = Units x $ per unit.",
-                 "Invoice payer: give a name or company name, an email and phone. ABN where applicable.",
-                 "Representative: required when the invoice payer is not the participant's representative. "
-                 "If the participant represents themselves, enter their own details."]:
-        notes.append([line])
-    for col, w in zip("ABCDEFGHIJKLMNOPQ", [20, 24, 20, 8, 10, 10, 14, 14, 18, 24, 26, 14, 16, 18, 22, 14, 16]):
-        ws.column_dimensions[col].width = w
-    buf = io.BytesIO()
-    wb.save(buf)
-    return Response(content=buf.getvalue(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    headers={"Content-Disposition": 'attachment; filename="Funding_import_template.xlsx"'})
-
-
-def cell(row: dict, k: str) -> str:
-    v = row.get(k.lower())
-    return "" if v is None else str(v).strip()
-
-
-async def ensure_participant(name: str, email: str, user: dict) -> dict:
-    key = participant_key(name)
-    p = await db.participants.find_one({"key": key}, P)
-    if not p:
-        p = {"participant_id": f"par_{secrets.token_hex(6)}", "name": display_name(name), "key": key, "assigned_ids": [],
-             "created_by": user.get("name") or "", "created_at": now_iso()}
-        await db.participants.insert_one(dict(p))
-    if email and p.get("email") != email:
-        await db.participants.update_one({"key": key}, {"$set": {"email": email}})
-    return p
-
-
-@router.post("/funding/import")
-async def import_funding(file: UploadFile = File(...), user=Depends(finance_user)):
-    from openpyxl import load_workbook
-    try:
-        ws = load_workbook(io.BytesIO(await file.read()), data_only=True).worksheets[0]
-    except Exception:
-        raise HTTPException(400, "Upload the Funding template as an Excel (.xlsx) file")
-    rows = list(ws.iter_rows(values_only=True))
-    if not rows:
-        raise HTTPException(400, "The spreadsheet is empty")
-    head = [str(h or "").strip().lower() for h in rows[0]]
-    missing = [c for c in TEMPLATE_COLS[:13] if c.lower() not in head]
-    if missing:
-        raise HTTPException(400, f"Missing columns: {', '.join(missing)}. Download the template and try again.")
-    added, skipped = [], []
-    for n, values in enumerate(rows[1:], start=2):
-        r = dict(zip(head, values))
-        if not any(v not in (None, "") for v in values):
-            continue
-        name, errs = cell(r, "Participant name"), []
-        mt = next((m for m in MGMT_TYPES if m.lower() == cell(r, "Funding management type").lower()), None)
-        try:
-            units, rate = float(cell(r, "Units")), float(cell(r, "$ per unit").replace("$", "").replace(",", ""))
-            if units <= 0 or rate <= 0:
-                raise ValueError
-        except ValueError:
-            units = rate = 0
-            errs.append("units and $ per unit must be numbers above 0")
-        sd, ed = parse_dmy(r.get("service start date")), parse_dmy(r.get("service end date"))
-        payer = {"name": cell(r, "Invoice payer name"), "company": cell(r, "Invoice payer company"),
-                 "email": cell(r, "Invoice payer email").lower(), "phone": cell(r, "Invoice payer phone"), "abn": cell(r, "Invoice payer ABN")}
-        rep = {"name": cell(r, "Representative name"), "email": cell(r, "Representative email").lower(),
-               "phone": cell(r, "Representative phone"), "relationship": cell(r, "Representative relationship")}
-        if len(name) < 2:
-            errs.append("participant name is missing")
-        if not mt:
-            errs.append(f"funding management type must be one of {', '.join(MGMT_TYPES)}")
-        if not cell(r, "Unit type"):
-            errs.append("unit type is missing")
-        if not sd or not ed or sd > ed:
-            errs.append("service start and end dates are needed (DD-MM-YYYY, start before end)")
-        if not (payer["name"] or payer["company"]) or "@" not in payer["email"] or not payer["phone"]:
-            errs.append("invoice payer name or company, email and phone are required")
-        if payer["abn"] and not re.fullmatch(r"\d{11}", re.sub(r"\s", "", payer["abn"])):
-            errs.append("ABN must be 11 digits")
-        payer_is_rep = not rep["name"]
-        if not payer_is_rep and ("@" not in rep["email"] or not rep["phone"]):
-            errs.append("representative needs an email and phone")
-        if errs:
-            skipped.append({"row": n, "name": name or "-", "reason": "; ".join(errs)})
-            continue
-        p = await ensure_participant(name, cell(r, "Participant email").lower(), user)
-        if await db.fundings.find_one({"participant_id": p["participant_id"], "management_type": mt, "start_date": sd, "end_date": ed,
-                                       "unit_type": cell(r, "Unit type")}):
-            skipped.append({"row": n, "name": name, "reason": "this funding line was already imported (same type and dates)"})
-            continue
-        f = {"funding_id": f"fund_{secrets.token_hex(6)}", "participant_id": p["participant_id"], "participant_name": p["name"],
-             "participant_email": cell(r, "Participant email").lower(), "management_type": mt, "units": units,
-             "unit_type": cell(r, "Unit type"), "unit_rate": rate, "budget": money(units * rate), "start_date": sd, "end_date": ed,
-             "payer": payer, "representative": payer if payer_is_rep else rep, "payer_is_representative": payer_is_rep,
-             "rate_history": [], "created_by": user.get("name") or "", "created_at": now_iso()}
-        await db.fundings.insert_one(dict(f))
-        added.append({"row": n, "name": p["name"], "management_type": mt, "budget": f["budget"]})
-    return {"added": added, "skipped": skipped}
-
-
-@router.get("/funding")
-async def list_funding(participant_id: Optional[str] = None, user=Depends(office_user)):
-    q = {"participant_id": participant_id} if participant_id else {}
-    funds = await db.fundings.find(q, P).sort([("participant_name", 1), ("start_date", 1)]).to_list(5000)
-    use = await funding_usage([f["funding_id"] for f in funds])
-    return [funding_out(f, use[f["funding_id"]]) for f in funds]
-
-
-@router.get("/funding/{funding_id}")
-async def get_funding(funding_id: str, user=Depends(office_user)):
-    f = await db.fundings.find_one({"funding_id": funding_id}, P)
-    if not f:
-        raise HTTPException(404, "Funding not found")
-    return funding_out(f, (await funding_usage([funding_id]))[funding_id])
-
-
-class RateIn(BaseModel):
-    unit_rate: float
-    mode: str  # keep_budget | increase_budget
-
-
-@router.put("/funding/{funding_id}/rate")
-async def change_rate(funding_id: str, body: RateIn, user=Depends(finance_user)):
-    """NDIS / Aged Care price change. Keep the total budget (fewer units left), or grow the budget so the remaining units stay."""
-    f = await db.fundings.find_one({"funding_id": funding_id}, P)
-    if not f:
-        raise HTTPException(404, "Funding not found")
-    if body.unit_rate <= 0 or body.mode not in ("keep_budget", "increase_budget"):
-        raise HTTPException(400, "Enter a new rate above 0 and choose how the budget changes")
-    if now_perth().date().isoformat() > f["end_date"]:
-        raise HTTPException(400, "This funding's service period has ended")
-    use = (await funding_usage([funding_id]))[funding_id]
-    remaining, units_left = f["budget"] - use["spent"], f["units"] - use["units_used"]
-    if body.mode == "keep_budget":
-        budget, units = f["budget"], round(use["units_used"] + max(remaining, 0) / body.unit_rate, 2)
-    else:
-        budget, units = money(use["spent"] + max(units_left, 0) * body.unit_rate), f["units"]
-    hist = {"from_rate": f["unit_rate"], "to_rate": body.unit_rate, "mode": body.mode, "from_budget": f["budget"], "to_budget": budget,
-            "effective": now_perth().date().isoformat(), "by": user.get("name") or "", "at": now_iso()}
-    await db.fundings.update_one({"funding_id": funding_id}, {"$set": {"unit_rate": body.unit_rate, "budget": budget, "units": units},
-                                                            "$push": {"rate_history": hist}})
-    # Shifts not yet completed are re-priced at the new rate
-    async for s in db.shifts.find({"funding_id": funding_id, "status": {"$nin": ["completed", "cancelled", "declined"]}}, P):
-        await db.shifts.update_one({"shift_id": s["shift_id"]}, {"$set": {"unit_rate": body.unit_rate,
-                                                                         "est_cost": money(s["est_units"] * body.unit_rate)}})
-    return await get_funding(funding_id, user)
-
-
-@router.delete("/funding/{funding_id}")
-async def delete_funding(funding_id: str, user=Depends(finance_user)):
-    if await db.shifts.count_documents({"funding_id": funding_id, "status": {"$nin": ["cancelled", "declined"]}}):
-        raise HTTPException(400, "Shifts are rostered against this funding. Cancel them first.")
-    await db.fundings.delete_one({"funding_id": funding_id})
-    return {"ok": True}
 
 
 # ---- Support Team tags (Team Directory) ----
@@ -445,6 +166,8 @@ def shift_view(s: dict, user: dict, profile: Optional[dict] = None) -> dict:
     out = {k: v for k, v in s.items() if k not in ("est_cost", "cost", "funding_type", "unit_rate")}
     if is_rosters(user) or is_finance(user):
         out.update({"funding_type": s.get("funding_type"), "est_cost": s.get("est_cost"), "cost": s.get("cost")})
+    elif (out.get("clock_in") or {}).get("location"):  # exact coordinates are for Rosters / Finance only
+        out["clock_in"] = {**out["clock_in"], "location": {k: v for k, v in out["clock_in"]["location"].items() if k not in ("lat", "lng")}}
     if profile is not None:
         out["plan"] = {k: (profile.get(k) or "") for k in ("goals", "support_needs", "communication", "health_alerts")}
     return out
@@ -482,6 +205,8 @@ async def create_shift(body: ShiftIn, user=Depends(rosters_user)):
         old = await db.shifts.find_one({"shift_id": body.replaces, "status": "declined"}, P)
         if not old or old["participant_id"] != p["participant_id"]:
             raise HTTPException(400, "The declined shift you're re-rostering wasn't found for this participant")
+        if old.get("rerostered"):
+            raise HTTPException(400, "This declined shift has already been re-rostered")
         if old["worker_id"] == body.worker_id:
             raise HTTPException(400, f"{w['name']} declined this shift. Choose someone else.")
     auto = a >= now_perth() + timedelta(days=AUTO_ACCEPT_DAYS)
@@ -492,7 +217,7 @@ async def create_shift(body: ShiftIn, user=Depends(rosters_user)):
            "created_by": user.get("name") or "", "created_at": now_iso()}
     await db.shifts.insert_one(dict(doc))
     if body.replaces:
-        await db.shifts.update_one({"shift_id": body.replaces, "status": "declined"}, {"$set": {"rerostered": doc["shift_id"]}})
+        await db.shifts.update_one({"shift_id": body.replaces, "status": "declined"}, {"$set": {"rerostered": doc["shift_id"], "open": False}})
     when = f"{dmy(d)} {body.start}-{body.end}"
     await notify([w["user_id"]], "shift", f"New shift: {p['name']} {when}",
                  "It's been added to your roster." if auto else "Please accept it in the app (it's within the next 2 weeks).", "/pm/rostering")
@@ -549,6 +274,8 @@ async def cancel_shift(shift_id: str, user=Depends(rosters_user)):
     if not s or s["status"] in ("completed", "cancelled") or s.get("clock_in"):
         raise HTTPException(400, "Only shifts that haven't started can be cancelled")
     await db.shifts.update_one({"shift_id": shift_id}, {"$set": {"status": "cancelled", "cancelled_by": user.get("name") or "", "cancelled_at": now_iso()}})
+    from routes.shift_market import close_swap
+    await close_swap(s, "the shift was cancelled")
     await notify([s["worker_id"]], "shift", f"Shift cancelled: {s['participant_name']} {dmy(s['date'])} {s['start']}-{s['end']}",
                  "This shift has been removed from your roster.", "/pm/rostering")
     return {"ok": True}
@@ -557,6 +284,69 @@ async def cancel_shift(shift_id: str, user=Depends(rosters_user)):
 class ClockIn(BaseModel):
     reason: str = ""
     detail: str = ""
+    lat: Optional[float] = None  # phone location at clock-in (optional: no location means Rosters review the times)
+    lng: Optional[float] = None
+    accuracy: Optional[float] = None
+
+
+# ---- Clock-in location check ----
+
+LOCATION_RADIUS_M = 300
+
+
+def metres(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    r1, r2 = math.radians(lat1), math.radians(lat2)
+    a = math.sin((r2 - r1) / 2) ** 2 + math.cos(r1) * math.cos(r2) * math.sin(math.radians(lng2 - lng1) / 2) ** 2
+    return 6371000 * 2 * math.asin(math.sqrt(a))
+
+
+async def location_check(s: dict, body: ClockIn) -> dict:
+    """Compare the phone's location with the participant's address. Far away or not shared = flagged for Rosters (never blocked)."""
+    p = await db.participants.find_one({"participant_id": s["participant_id"]}, {"_id": 0, "address": 1, "geo": 1}) or {}
+    g = p.get("geo") or {}
+    if g.get("lat") is None:
+        return {"checked": False}
+    if body.lat is None or body.lng is None:
+        return {"checked": True, "flagged": True, "note": "Location wasn't shared at clock-in"}
+    d = round(metres(body.lat, body.lng, g["lat"], g["lng"]))
+    acc = round(min(max(body.accuracy or 0, 0), 200))
+    far = d - acc > LOCATION_RADIUS_M
+    away = f"{d / 1000:.1f} km" if d >= 1000 else f"{d} m"
+    return {"checked": True, "flagged": far, "distance_m": d, "accuracy_m": acc, "lat": body.lat, "lng": body.lng,
+            "note": f"Clocked in {away} from {p.get('address') or 'the participant address'}" if far else ""}
+
+
+class AddressIn(BaseModel):
+    address: str
+
+
+def can_set_address(u: dict) -> bool:
+    return is_rosters(u) or is_coordinator(u)
+
+
+@router.get("/pm/addresses")
+async def addresses(user=Depends(current_user)):
+    if not can_set_address(user):
+        raise HTTPException(403, "For Rosters and Service Coordinators")
+    return [{"participant_id": p["participant_id"], "name": p["name"], "address": p.get("address") or "",
+             "found": (p.get("geo") or {}).get("lat") is not None}
+            async for p in db.participants.find({}, {"_id": 0, "participant_id": 1, "name": 1, "address": 1, "geo": 1}).sort("name", 1)]
+
+
+@router.put("/participants/{participant_id}/address")
+async def set_address(participant_id: str, body: AddressIn, user=Depends(current_user)):
+    if not can_set_address(user):
+        raise HTTPException(403, "For Rosters and Service Coordinators")
+    if not await db.participants.find_one({"participant_id": participant_id}, {"_id": 1}):
+        raise HTTPException(404, "Participant not found")
+    text = " ".join(body.address.split())[:300]
+    geo = None
+    if text:
+        from routes.referral_map import geocode
+        g = await geocode(text)
+        geo = {"lat": g["lat"], "lng": g["lng"]} if g else None
+    await db.participants.update_one({"participant_id": participant_id}, {"$set": {"address": text, "geo": geo, "updated_at": now_iso()}})
+    return {"address": text, "found": geo is not None}
 
 
 def check_reason(body: ClockIn) -> dict:
@@ -588,7 +378,8 @@ async def clock_in(shift_id: str, body: ClockIn, user=Depends(current_user)):
     if now < start - timedelta(hours=2) or now > end:
         raise HTTPException(400, "You can clock in from 2 hours before the shift until it finishes")
     off = abs((now - start).total_seconds()) > TOLERANCE_MIN * 60
-    entry = {"at": now.isoformat(), "time": fmt_hm(now), "outside_window": off, **(check_reason(body) if off else {})}
+    entry = {"at": now.isoformat(), "time": fmt_hm(now), "outside_window": off, **(check_reason(body) if off else {}),
+             "location": await location_check(s, body)}
     await db.shifts.update_one({"shift_id": shift_id}, {"$set": {"clock_in": entry, "status": "in_progress"}})
     return {"status": "in_progress", "clock_in": entry}
 
@@ -606,12 +397,14 @@ async def clock_out(shift_id: str, body: ClockIn, user=Depends(current_user)):
     off = abs((now - end).total_seconds()) > TOLERANCE_MIN * 60
     entry = {"at": now.isoformat(), "time": fmt_hm(now), "outside_window": off, **(check_reason(body) if off else {})}
     upd = {"clock_out": entry}
-    if off or s["clock_in"]["outside_window"]:
+    loc = s["clock_in"].get("location") or {}
+    if off or s["clock_in"]["outside_window"] or loc.get("flagged"):
         upd["status"] = "awaiting_approval"
         rosters = [u["user_id"] async for u in db.users.find({"$or": [{"permissions": "rosters"}, {"role": "admin"}], "hidden": {"$ne": True}},
                                                              {"_id": 0, "user_id": 1})]
         await notify(rosters, "shift", f"Clock times to approve: {s['worker_name']}",
-                     f"{s['participant_name']} {dmy(s['date'])}: rostered {s['start']}-{s['end']}, clocked {s['clock_in']['time']}-{entry['time']}.",
+                     f"{s['participant_name']} {dmy(s['date'])}: rostered {s['start']}-{s['end']}, clocked {s['clock_in']['time']}-{entry['time']}."
+                     + (f" {loc['note']}." if loc.get("flagged") else ""),
                      "/pm/rostering")
     else:
         upd.update(complete(s, datetime.fromisoformat(s["clock_in"]["at"]), now))
@@ -670,7 +463,8 @@ async def roster_report(request: Request, date_from: str, date_to: str, token: O
     from openpyxl.styles import Font
     shifts = await db.shifts.find({"date": {"$gte": lo, "$lte": hi}, "status": {"$in": ["completed", "awaiting_approval"]}}, P).sort(
         [("date", 1), ("start", 1)]).to_list(10000)
-    flagged = [s for s in shifts if (s.get("clock_in") or {}).get("outside_window") or (s.get("clock_out") or {}).get("outside_window")]
+    flagged = [s for s in shifts if (s.get("clock_in") or {}).get("outside_window") or (s.get("clock_out") or {}).get("outside_window")
+               or ((s.get("clock_in") or {}).get("location") or {}).get("flagged")]
     unbudgeted = sum(s.get("unbudgeted_minutes") or 0 for s in shifts)
     wb = Workbook()
     ws = wb.active
@@ -696,13 +490,14 @@ async def roster_report(request: Request, date_from: str, date_to: str, token: O
     det = wb.create_sheet("Incidents")
     det.append(["Date", "Support Worker", "Participant", "Funding type", "Rostered start", "Rostered finish", "Clock in", "Clock out",
                 "Clock-in reason", "Clock-out reason", "Detail", "Status", "Approved start", "Approved finish", "Approved by",
-                "Rosters comment", "Unbudgeted minutes"])
+                "Rosters comment", "Unbudgeted minutes", "Location check"])
     for s in flagged:
         ci, co, ap = s.get("clock_in") or {}, s.get("clock_out") or {}, s.get("approval") or {}
         det.append([dmy(s["date"]), s["worker_name"], s["participant_name"], s.get("funding_type", ""), s["start"], s["end"],
                     ci.get("time", ""), co.get("time", ""), ci.get("reason", ""), co.get("reason", ""),
                     "; ".join(x for x in (ci.get("detail"), co.get("detail")) if x), "Approved" if s["status"] == "completed" else "Awaiting approval",
-                    s.get("approved_start", ""), s.get("approved_end", ""), ap.get("by", ""), ap.get("comment", ""), s.get("unbudgeted_minutes") or 0])
+                    s.get("approved_start", ""), s.get("approved_end", ""), ap.get("by", ""), ap.get("comment", ""), s.get("unbudgeted_minutes") or 0,
+                    (ci.get("location") or {}).get("note", "")])
     ws.column_dimensions["A"].width = 40
     buf = io.BytesIO()
     wb.save(buf)
