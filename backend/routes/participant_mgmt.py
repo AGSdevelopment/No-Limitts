@@ -149,6 +149,8 @@ def funding_out(f: dict, use: dict, show_money: bool = True) -> dict:
     units_left = round(f["units"] - use["units_used"], 2)
     out = {**f, **use, "remaining": remaining, "units_left": units_left,
            "available": round(remaining - use["committed"], 2), "active": f["start_date"] <= now_perth().date().isoformat() <= f["end_date"]}
+    from routes.roster_extras import projection
+    out["alert"] = projection(f, use)
     return out if show_money else {k: out[k] for k in ("funding_id", "participant_id", "management_type", "unit_type", "start_date", "end_date")}
 
 
@@ -411,6 +413,7 @@ class ShiftIn(BaseModel):
     start: str  # HH:MM 24hr
     end: str
     notes: str = ""
+    replaces: str = ""  # declined shift this one re-rosters
 
 
 def est_units(f: dict, minutes: float) -> float:
@@ -475,6 +478,12 @@ async def create_shift(body: ShiftIn, user=Depends(rosters_user)):
     why = await clash(body.worker_id, s)
     if why:
         raise HTTPException(409, why)
+    if body.replaces:
+        old = await db.shifts.find_one({"shift_id": body.replaces, "status": "declined"}, P)
+        if not old or old["participant_id"] != p["participant_id"]:
+            raise HTTPException(400, "The declined shift you're re-rostering wasn't found for this participant")
+        if old["worker_id"] == body.worker_id:
+            raise HTTPException(400, f"{w['name']} declined this shift. Choose someone else.")
     auto = a >= now_perth() + timedelta(days=AUTO_ACCEPT_DAYS)
     doc = {"shift_id": f"shf_{secrets.token_hex(6)}", **s, "participant_name": p["name"], "funding_id": f["funding_id"],
            "funding_type": f["management_type"], "unit_rate": f["unit_rate"], "worker_id": w["user_id"], "worker_name": w["name"],
@@ -482,6 +491,8 @@ async def create_shift(body: ShiftIn, user=Depends(rosters_user)):
            "status": "accepted" if auto else "pending_acceptance", "auto_accepted": auto,
            "created_by": user.get("name") or "", "created_at": now_iso()}
     await db.shifts.insert_one(dict(doc))
+    if body.replaces:
+        await db.shifts.update_one({"shift_id": body.replaces, "status": "declined"}, {"$set": {"rerostered": doc["shift_id"]}})
     when = f"{dmy(d)} {body.start}-{body.end}"
     await notify([w["user_id"]], "shift", f"New shift: {p['name']} {when}",
                  "It's been added to your roster." if auto else "Please accept it in the app (it's within the next 2 weeks).", "/pm/rostering")
@@ -589,6 +600,9 @@ async def clock_out(shift_id: str, body: ClockIn, user=Depends(current_user)):
         raise HTTPException(400, "Clock in first")
     _, end = span(s)
     now = now_perth()
+    from routes.roster_extras import has_case_note  # local import: roster_extras imports this module
+    if not await has_case_note(s, user):
+        raise HTTPException(409, "case_note_required")
     off = abs((now - end).total_seconds()) > TOLERANCE_MIN * 60
     entry = {"at": now.isoformat(), "time": fmt_hm(now), "outside_window": off, **(check_reason(body) if off else {})}
     upd = {"clock_out": entry}
@@ -602,6 +616,9 @@ async def clock_out(shift_id: str, body: ClockIn, user=Depends(current_user)):
     else:
         upd.update(complete(s, datetime.fromisoformat(s["clock_in"]["at"]), now))
     await db.shifts.update_one({"shift_id": shift_id}, {"$set": upd})
+    if upd["status"] == "completed":
+        from routes.roster_extras import check_budget
+        await check_budget(s["funding_id"])
     return {"status": upd["status"], "clock_out": entry}
 
 
@@ -632,6 +649,8 @@ async def approve_times(shift_id: str, body: ApproveIn, user=Depends(rosters_use
         "by": user.get("name") or "", "at": now_iso(), "comment": body.comment.strip()[:500]}}})
     await notify([s["worker_id"]], "shift", f"Clock times approved: {s['participant_name']} {dmy(s['date'])}",
                  f"Approved {body.start}-{body.end}." + (f" {body.comment.strip()}" if body.comment.strip() else ""), "/pm/rostering")
+    from routes.roster_extras import check_budget
+    await check_budget(s["funding_id"])
     return {**res, "over_budget": over}
 
 

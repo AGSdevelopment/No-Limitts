@@ -1,0 +1,43 @@
+{
+  "summary": "Tested the 4 new rostering features against the public URL. Backend: new pytest suite test_iter59 passes 10/10. Covered: decline (worker-only, 14-day window, already-started shift, reason of 3+ chars, notifications go to admins/rosters and skip hidden users, frees committed funding, replaces->rerostered link), the clock-out case note gate (409 'case_note_required' comes before any status change, including the outside-window path), and budget alerts (alert shape, runout only after 7+ days, low <20%, check_budget runs from the approve flow, sends one alert per type, alerts_sent is set). Frontend at 390x844: admin Roster tab shows the decline reason and the Re-roster button, which opens a prefilled 'Re-roster shift' sheet without the declining worker. Week tab works (grid, prev/next, chip opens the detail sheet, declined shifts hidden). Worker sees the decline link only on shifts within 14 days. The decline sheet validates input, submits, shows a toast and updates the card. Clock-out shows the case-note-gate; Write opens case-forms-sheet; Retry hits 409 again and the gate stays open. Funding card shows funding-alert pills ('Low: 15% left', 'Runs out ~11-11-2026'). No page errors. All test data is cleaned up, including the ZZ Decline Check participant, funding, shifts and notifications.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/shifts (replaces)", "issue": "The backend doesn't check that the re-rostered worker differs from the worker who declined, or that 'replaces' belongs to the same participant. Only the frontend filters the chips. The old ZZ data shows a shift re-rostered to the same declining worker via the API."},
+      {"endpoint": "POST /api/shifts/{id}/clock-out", "issue": "has_case_note clears the caseload cache and re-fetches every Jotform row on each clock-out, which took about 8.4s in the test. It also lets the worker through (returns True) on any Jotform error. That may be intended, but it is a silent bypass."},
+      {"endpoint": "check_budget", "issue": "alerts_sent is never reset, so a funding that is topped up or re-rated and later drops low again won't alert Finance a second time."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Shift card status label", "issue": "The STATUS map in shift-sheets.tsx has no 'declined' entry, so the card shows the raw lowercase 'declined' above 'Declined: “reason”'. This is shown to both admins and workers.", "testID": "shift-<id>", "priority": "low"},
+      {"component": "Re-roster sheet", "issue": "When the declining worker is the only Support Team member, the team chips list is empty and no message appears, because the 'No approved Support Team yet' text only shows when p.team.length===0. Rosters see a blank section and a disabled Roster button. (In the test both test users are hidden and excluded by /pm/options, so the message did appear.)", "testID": "new-shift-sheet", "priority": "low"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Week tab", "issues": ["The worker name column scrolls away horizontally, so after swiping to Thu–Sun on mobile you can't tell whose row it is. Consider a sticky first column.", "There is no highlight for today's column.", "The label format '02-11 to 08-11-2026' is a bit inconsistent."]},
+      {"screen": "Roster tab", "issues": ["A declined shift that has already been re-rostered gives no 'Re-rostered' indicator. The button just disappears."]},
+      {"screen": "My shifts (worker)", "issues": ["Shifts more than 14 days out show no hint that changes must go through Rosters."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter59_decline_week_budget_casenote.py", "/app/test_reports/pytest/pytest_iter59.xml"],
+  "action_items": [
+    "Add 'declined' (and optionally 'Re-rostered') to the STATUS labels in shift-sheets.tsx.",
+    "Re-roster sheet: show a message when the filtered team is empty (only the declining worker is on the team).",
+    "Backend: reject replaces= when the worker_id equals the declined shift's worker or the participant differs (optional hardening).",
+    "Update test_iter58 clock-out tests (test_clock_outside_window_and_approval, test_clock_inside_window_completes, test_report_xlsx). They now get 409 case_note_required by design; mock has_case_note or seed the approval directly. test_pending_within_two_weeks failed only because of the ZZ Decline Check clash, which is now deleted.",
+    "Consider not busting the whole Jotform cache on every clock-out (it takes about 8s)."
+  ],
+  "critical_code_review_comments": [
+    "The decline endpoint reuses AUTO_ACCEPT_DAYS for the 14-day window. The frontend declinable() uses the same rule. Consistent.",
+    "The case-forms sheet lists every Day-to-Day form (Conflict of Interest, Contractor EOI, Event Attendance Register). Any 'day' kind submission naming the participant satisfies the gate, not only a real case note.",
+    "Notifications from decline and budget alerts skip hidden users, so the test admin (user_testadmin01, hidden) never receives them. Real admins do."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter59_decline_week_budget_casenote.py"],
+  "success_rate": {"backend": "100% (10/10 new tests); iter58 regression 17/21 (4 failures are expected behaviour change or test data clash)", "frontend": "100% of requested flows; re-roster submit from the UI wasn't tested because no non-hidden worker is on the test team (covered by the API test)"},
+  "seed_data_creation": "Test participants, fundings and shifts were inserted directly into Mongo (TEST_Iter59*, par_t59*, fund_t59*) and removed afterwards. The ZZ Decline Check participant, funding, shifts and notifications were deleted as requested.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run the backend tests with -n 0. Server date is around Nov 2026. Test users are hidden=True, so /pm/options team lists exclude them and notifications skip them. The clock-out gate calls Jotform live (about 8s). To test a successful clock-out you would need a real Jotform Day-to-Day submission or a monkeypatched has_case_note."
+}

@@ -15,7 +15,7 @@ export const $ = (n: number) => `$${(n ?? 0).toLocaleString("en-AU", { minimumFr
 export const when = (s: any) => `${isoToDmy(s.date)} · ${s.start}–${s.end}`;
 export const STATUS: Record<string, string> = {
   pending_acceptance: "Needs your acceptance", accepted: "Accepted", in_progress: "Clocked in",
-  awaiting_approval: "Clock times awaiting approval", completed: "Completed", cancelled: "Cancelled",
+  awaiting_approval: "Clock times awaiting approval", completed: "Completed", cancelled: "Cancelled", declined: "Declined",
 };
 const PLAN = [["goals", "Goals"], ["support_needs", "Needs"], ["communication", "Preferences & communication"], ["health_alerts", "Health alerts"]];
 
@@ -120,7 +120,9 @@ export function ApproveSheet({ shift, onClose, onDone }: { shift: any; onClose: 
   );
 }
 
-export function NewShiftSheet({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone: () => void }) {
+export function NewShiftSheet({ open, onClose, onDone, prefill }: {
+  open: boolean; onClose: () => void; onDone: () => void; prefill?: any;
+}) {
   const styles = useStyles();
   const toast = useToast();
   const q = useQuery<any[]>({ queryKey: ["pm-options"], queryFn: () => api("/pm/options"), enabled: open });
@@ -129,11 +131,18 @@ export function NewShiftSheet({ open, onClose, onDone }: { open: boolean; onClos
   const [wid, setWid] = useState("");
   const [form, setForm] = useState({ date: "", start: "", end: "", notes: "" });
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!open || !prefill) return;
+    setPid(prefill.participant_id);
+    setFid(prefill.funding_id);
+    setWid("");
+    setForm({ date: isoToDmy(prefill.date), start: prefill.start, end: prefill.end, notes: prefill.notes ?? "" });
+  }, [open, prefill]);
   const p = q.data?.find((x) => x.participant_id === pid);
   const save = async () => {
     setBusy(true);
     try {
-      const s = await api<any>("/shifts", { method: "POST", body: { participant_id: pid, funding_id: fid, worker_id: wid, ...form } });
+      const s = await api<any>("/shifts", { method: "POST", body: { participant_id: pid, funding_id: fid, worker_id: wid, ...form, replaces: prefill?.shift_id ?? "" } });
       toast(s.status === "accepted" ? "Shift rostered (auto-accepted, 2+ weeks away)" : "Shift rostered. The worker needs to accept it.", "success");
       setForm({ date: "", start: "", end: "", notes: "" });
       onDone();
@@ -144,7 +153,8 @@ export function NewShiftSheet({ open, onClose, onDone }: { open: boolean; onClos
     }
   };
   return (
-    <Sheet visible={open} onClose={() => !busy && onClose()} title="New shift" sub="Only approved Support Team members and funded lines can be rostered." testID="new-shift-sheet">
+    <Sheet visible={open} onClose={() => !busy && onClose()} title={prefill ? "Re-roster shift" : "New shift"}
+      sub={prefill ? `${prefill.worker_name} declined: “${prefill.decline_reason ?? ""}”. Pick someone else from the Support Team.` : "Only approved Support Team members and funded lines can be rostered."} testID="new-shift-sheet">
       {q.isLoading ? <Loading /> : (
         <ScrollView style={{ maxHeight: 520 }} contentContainerStyle={{ gap: 8 }} keyboardShouldPersistTaps="handled">
           <Text style={styles.label}>Participant</Text>
@@ -167,11 +177,13 @@ export function NewShiftSheet({ open, onClose, onDone }: { open: boolean; onClos
               ))}
               <Text style={styles.label}>Support Team member</Text>
               <View style={styles.chips}>
-                {p.team.map((w: any) => (
+                {p.team.filter((w: any) => w.user_id !== prefill?.worker_id).map((w: any) => (
                   <Chip key={w.user_id} label={w.name} selected={wid === w.user_id} onPress={() => setWid(w.user_id)} testID={`new-shift-w-${w.user_id}`} />
                 ))}
               </View>
-              {!p.team.length && <Text style={styles.meta}>No approved Support Team yet. Tag staff in Team Directory.</Text>}
+              {!p.team.filter((w: any) => w.user_id !== prefill?.worker_id).length && (
+                <Text style={styles.meta}>{prefill ? "No one else is on this participant's Support Team yet. Tag staff in Team Directory." : "No approved Support Team yet. Tag staff in Team Directory."}</Text>
+              )}
             </>
           )}
           <Field label="Date (DD-MM-YYYY)" value={form.date} onChangeText={(v) => setForm({ ...form, date: v })} placeholder="DD-MM-YYYY" testID="new-shift-date" />
@@ -185,6 +197,48 @@ export function NewShiftSheet({ open, onClose, onDone }: { open: boolean; onClos
           <Button label="Cancel" variant="ghost" onPress={onClose} />
         </ScrollView>
       )}
+    </Sheet>
+  );
+}
+
+export function DeclineSheet({ shift, onClose, onDone }: { shift: any; onClose: () => void; onDone: () => void }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  const toast = useToast();
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (shift) setText(""); }, [shift]);
+  const save = async () => {
+    setBusy(true);
+    try {
+      await api(`/shifts/${shift.shift_id}/decline`, { method: "POST", body: { reason: text } });
+      toast("Shift declined. Rosters have been told.", "success");
+      onDone();
+    } catch (e: any) {
+      toast(e.message, "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Sheet visible={!!shift} onClose={() => !busy && onClose()} title="Decline this shift?" sub={shift ? `${shift.participant_name} · ${when(shift)}` : ""} testID="decline-sheet">
+      <TextInput value={text} onChangeText={setText} placeholder="Why can't you do this shift?" placeholderTextColor={colors.muted}
+        multiline maxLength={300} style={styles.input} testID="decline-reason" />
+      <Button label="Decline shift" variant="danger" loading={busy} disabled={busy || text.trim().length < 3} onPress={save} testID="decline-submit" />
+      <Button label="Keep shift" variant="ghost" onPress={onClose} />
+    </Sheet>
+  );
+}
+
+export function CaseNoteGate({ shift, onClose, onWrite, onRetry, busy }: {
+  shift: any; onClose: () => void; onWrite: () => void; onRetry: () => void; busy?: boolean;
+}) {
+  return (
+    <Sheet visible={!!shift} onClose={onClose} title="Complete your case note first"
+      sub={shift ? `Submit today's case note for ${shift.participant_name} before you clock out.` : ""} testID="case-note-gate">
+      <Button label="Write case note" icon="create-outline" onPress={onWrite} testID="case-note-gate-write" />
+      <Button label="I've submitted it, clock out" icon="log-out-outline" variant="secondary" loading={busy} onPress={onRetry} testID="case-note-gate-retry" />
+      <Button label="Not now" variant="ghost" onPress={onClose} />
     </Sheet>
   );
 }

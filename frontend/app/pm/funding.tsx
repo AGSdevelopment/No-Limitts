@@ -101,6 +101,12 @@ export default function Funding() {
               <View style={styles.bar}><View style={[styles.fill, { width: `${pct * 100}%` }]} /></View>
               <Text style={styles.body}>{$(f.remaining)} left of {$(f.budget)} · {f.units_left} of {f.units} units</Text>
               {f.committed > 0 && <Text style={styles.meta}>{$(f.committed)} booked in upcoming shifts</Text>}
+              {(f.alert?.low || f.alert?.runout) && (
+                <View style={styles.row} testID={`funding-alert-${f.funding_id}`}>
+                  {f.alert.low && <Pill label={`Low: ${f.alert.pct_left}% left`} tone="accent" />}
+                  {!!f.alert.runout && <Pill label={`Runs out ~${isoToDmy(f.alert.runout)}`} tone="accent" />}
+                </View>
+              )}
             </Pressable>
           );
         }}

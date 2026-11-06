@@ -1,6 +1,6 @@
 // Rostering: Rosters roster shifts, approve clock exceptions and download the report; Support Workers accept and clock in / out.
 import { useState } from "react";
-import { FlatList, Pressable, RefreshControl, View } from "react-native";
+import { FlatList, Pressable, RefreshControl, ScrollView, View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -9,10 +9,12 @@ import { Text } from "@/src/components/text";
 import { useAuth } from "@/src/auth";
 import { useToast } from "@/src/components/toast";
 import { Button, Chip, EmptyState, Field, Ionicons, Loading, Pill, dmyToIso } from "@/src/components/ui";
-import { ApproveSheet, NewShiftSheet, ReasonSheet, STATUS, ShiftDetailSheet, when } from "@/src/components/shift-sheets";
+import { ApproveSheet, CaseNoteGate, DeclineSheet, NewShiftSheet, ReasonSheet, STATUS, ShiftDetailSheet, when } from "@/src/components/shift-sheets";
+import { CaseFormsSheet } from "@/src/components/participant-sheets";
+import { WeekRoster } from "@/src/components/week-roster";
 import { makeStyles, useTheme } from "@/src/theme";
 
-type Tab = "roster" | "approvals" | "report" | "mine";
+type Tab = "roster" | "week" | "approvals" | "report" | "mine";
 
 // Clock in opens 2 hours before the shift (Perth time, UTC+8 with no daylight saving) until it finishes
 function clockable(s: any) {
@@ -21,6 +23,13 @@ function clockable(s: any) {
   if (end <= start) end += 86400000;
   const now = Date.now();
   return now >= start - 2 * 3600000 && now <= end;
+}
+
+// Workers can decline shifts starting within the next 14 days (and not yet started)
+function declinable(s: any) {
+  const start = new Date(`${s.date}T${s.start}:00+08:00`).getTime();
+  const now = Date.now();
+  return ["pending_acceptance", "accepted"].includes(s.status) && start > now && start <= now + 14 * 86400000;
 }
 
 export default function Rostering() {
@@ -44,6 +53,10 @@ export default function Rostering() {
   const [reason, setReason] = useState<{ s: any; kind: "in" | "out" } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [range, setRange] = useState({ from: "", to: "" });
+  const [declining, setDeclining] = useState<any>(null);
+  const [gate, setGate] = useState<any>(null);
+  const [notesFor, setNotesFor] = useState<string | null>(null);
+  const [reroster, setReroster] = useState<any>(null);
 
   if (acc.isLoading) return <Loading />;
   const shifts = (q.data ?? []).filter((s) => (mine && rosters ? s.worker_id === user?.user_id : true))
@@ -54,10 +67,12 @@ export default function Rostering() {
     try {
       const r = await api<any>(`/shifts/${s.shift_id}/${path}`, { method: "POST", body: body ?? {} });
       setReason(null);
+      setGate(null);
       toast(path === "accept" ? "Shift accepted" : r.status === "awaiting_approval" ? "Clocked out. Rosters will approve your times." : path === "clock-in" ? "Clocked in" : "Clocked out", "success");
       q.refetch();
     } catch (e: any) {
       if (e instanceof ApiError && e.message === "outside_window") setReason({ s, kind: path === "clock-in" ? "in" : "out" });
+      else if (e instanceof ApiError && e.message === "case_note_required") { setReason(null); setGate({ s, body }); }
       else toast(e.message, "error");
     } finally {
       setBusy(null);
@@ -83,11 +98,24 @@ export default function Rostering() {
   const tabs = (
     <View style={styles.chips}>
       {rosters && <Chip label="Roster" selected={active === "roster"} onPress={() => setTab("roster")} testID="roster-tab-roster" />}
+      {rosters && <Chip label="Week" selected={active === "week"} onPress={() => setTab("week")} testID="roster-tab-week" />}
       {rosters && <Chip label={`Approvals${acc.data?.awaiting_approval ? ` (${acc.data.awaiting_approval})` : ""}`} selected={active === "approvals"} onPress={() => setTab("approvals")} testID="roster-tab-approvals" />}
       {(rosters || acc.data?.finance) && <Chip label="Report" selected={active === "report"} onPress={() => setTab("report")} testID="roster-tab-report" />}
       {rosters && acc.data?.worker && <Chip label="My shifts" selected={mine} onPress={() => setTab("mine")} testID="roster-tab-mine" />}
     </View>
   );
+
+  if (active === "week") {
+    return (
+      <>
+        <ScrollView style={styles.root} contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: insets.bottom + 24 }} testID="roster-week">
+          {tabs}
+          <WeekRoster onOpen={setDetail} />
+        </ScrollView>
+        <ShiftDetailSheet shiftId={detail} onClose={() => setDetail(null)} />
+      </>
+    );
+  }
 
   if (active === "report") {
     return (
@@ -145,6 +173,18 @@ export default function Rostering() {
             {mine && s.status === "in_progress" && (
               <Button label="Clock out" icon="log-out-outline" loading={busy === s.shift_id} onPress={() => act(s, "clock-out")} testID={`shift-clockout-${s.shift_id}`} />
             )}
+            {mine && declinable(s) && (
+              <Pressable onPress={() => setDeclining(s)} style={styles.link} testID={`shift-decline-${s.shift_id}`}>
+                <Ionicons name="close-circle-outline" size={16} color={colors.errorText} />
+                <Text style={[styles.meta, { color: colors.errorText, fontWeight: "700" }]}>Can&apos;t do it? Decline</Text>
+              </Pressable>
+            )}
+            {s.status === "declined" && (
+              <Text style={[styles.meta, { color: colors.errorText }]}>{s.rerostered ? "Re-rostered · " : ""}Reason: “{s.decline_reason ?? ""}”</Text>
+            )}
+            {active === "roster" && s.status === "declined" && !s.rerostered && (
+              <Button label="Re-roster" icon="repeat-outline" onPress={() => setReroster(s)} testID={`shift-reroster-${s.shift_id}`} />
+            )}
             {active === "approvals" && (
               <Button label="Review times" icon="time-outline" onPress={() => setApprove(s)} testID={`shift-review-${s.shift_id}`} />
             )}
@@ -159,7 +199,13 @@ export default function Rostering() {
       />
       <ShiftDetailSheet shiftId={detail} onClose={() => setDetail(null)} />
       <ApproveSheet shift={approve} onClose={() => setApprove(null)} onDone={() => { setApprove(null); q.refetch(); acc.refetch(); }} />
-      <NewShiftSheet open={adding} onClose={() => setAdding(false)} onDone={() => { setAdding(false); q.refetch(); }} />
+      <NewShiftSheet open={adding || !!reroster} prefill={reroster} onClose={() => { setAdding(false); setReroster(null); }}
+        onDone={() => { setAdding(false); setReroster(null); q.refetch(); }} />
+      <DeclineSheet shift={declining} onClose={() => setDeclining(null)} onDone={() => { setDeclining(null); q.refetch(); }} />
+      <CaseNoteGate shift={gate?.s} busy={!!busy} onClose={() => setGate(null)}
+        onWrite={() => { setNotesFor(gate.s.participant_name); }}
+        onRetry={() => gate && act(gate.s, "clock-out", gate.body)} />
+      <CaseFormsSheet participant={notesFor} worker onClose={() => setNotesFor(null)} />
       <ReasonSheet open={!!reason} kind={reason?.kind ?? "in"} busy={!!busy} onClose={() => setReason(null)}
         onSubmit={(r, d) => reason && act(reason.s, reason.kind === "in" ? "clock-in" : "clock-out", { reason: r, detail: r === "Unavoidable delay" ? d : "" })} />
     </>
