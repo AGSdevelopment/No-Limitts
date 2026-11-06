@@ -17,7 +17,7 @@ type Listing = { root_id: string; root_name: string; folder_id: string; items: I
 type Crumb = { id: string; name: string };
 type Space = "therapist" | "participant";
 const SPACES: { key: Space; label: string; icon: IconName }[] = [
-  { key: "therapist", label: "Therapist", icon: "medkit-outline" },
+  { key: "therapist", label: "Support Worker", icon: "medkit-outline" },
   { key: "participant", label: "Participants", icon: "people-outline" },
 ];
 
@@ -53,6 +53,8 @@ export default function CompanyDrive() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const qc = useQueryClient();
+  const pmAccess = useQuery<any>({ queryKey: ["pm-access"], queryFn: () => api("/pm/access") });
+  const canReports = isAdmin || ["admin", "hr", "support_coordinator"].includes(user?.user_type ?? "") || !!pmAccess.data?.finance;
 
   const q = useQuery<Listing>({
     queryKey: ["drive-shared", space, folder, query],
@@ -108,6 +110,12 @@ export default function CompanyDrive() {
         <Ionicons name="star-outline" size={18} color={colors.brandPrimary} />
         <Text style={styles.spaceText} numberOfLines={1}>No Limitts favourites</Text>
       </Pressable>
+      {canReports && (
+        <Pressable testID="drive-reports-button" onPress={() => router.push("/reports")} style={[styles.spaceBtn, { flex: 1 }]}>
+          <Ionicons name="bar-chart-outline" size={18} color={colors.brandPrimary} />
+          <Text style={styles.spaceText} numberOfLines={1}>Reports</Text>
+        </Pressable>
+      )}
     </View>
     </>
   );

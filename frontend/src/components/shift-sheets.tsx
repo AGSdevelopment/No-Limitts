@@ -44,7 +44,7 @@ export function ShiftDetailSheet({ shiftId, onClose }: { shiftId: string | null;
     <Sheet visible={!!shiftId} onClose={onClose} title={s?.participant_name ?? "Shift"} sub={s ? `${when(s)} · ${s.worker_name}` : ""} testID="shift-detail-sheet">
       {!s ? <Loading /> : (
         <ScrollView style={{ maxHeight: 460 }} contentContainerStyle={{ gap: 8 }}>
-          {!!s.funding_type && <Text style={styles.meta}>Funding: {s.funding_type}{s.est_cost != null ? ` · est. ${$(s.est_cost)}` : ""}</Text>}
+          {!!s.funding_type && <Text style={styles.meta}>Funding: {s.funding_type}{s.support_item_number ? ` · ${s.support_item_number}` : ""}{s.est_cost != null ? ` · est. ${$(s.est_cost)}` : ""}</Text>}
           {!!s.notes && <Text style={styles.body}>{s.notes}</Text>}
           <DirectionsLink address={s.address} testID="shift-detail-directions" />
           <Text style={styles.label}>Support Plan summary</Text>
@@ -190,7 +190,8 @@ export function NewShiftSheet({ open, onClose, onDone, prefill }: {
               {p.funding.map((f: any) => (
                 <Pressable key={f.funding_id} onPress={() => setFid(f.funding_id)} style={[styles.reason, fid === f.funding_id && styles.reasonOn]}
                   testID={`new-shift-f-${f.funding_id}`}>
-                  <Text style={[styles.body, { fontWeight: "700" }]}>{f.management_type} · {f.unit_type} @ {$(f.unit_rate)}</Text>
+                  <Text style={[styles.body, { fontWeight: "700" }]}>{f.support_item_number ? `${f.support_item_number} · ` : ""}{f.management_type} · {f.unit_type} @ {$(f.unit_rate)}</Text>
+                  {!!f.support_item_name && <Text style={styles.meta} numberOfLines={2}>{f.support_item_name}</Text>}
                   <Text style={styles.meta}>{$(f.available)} available · {isoToDmy(f.start_date)} to {isoToDmy(f.end_date)}</Text>
                 </Pressable>
               ))}

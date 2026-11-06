@@ -44,6 +44,8 @@ export default function Caseload() {
   const [pickingHour, setPickingHour] = useState(false);
   const [daysOffOpen, setDaysOffOpen] = useState(false);
   const settings = useQuery<any>({ queryKey: ["caseload-settings"], queryFn: () => api("/caseload/settings"), enabled: allowed && user?.role === "admin" });
+  const pmAccess = useQuery<any>({ queryKey: ["pm-access"], queryFn: () => api("/pm/access"), enabled: !!user });
+  const showMyShifts = user?.user_type === "support_worker" || !!pmAccess.data?.has_shifts;
   const saveHour = async (hour: number) => {
     try {
       await api("/caseload/settings", { method: "PUT", body: { hour } });
@@ -167,6 +169,9 @@ export default function Caseload() {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.brandPrimary} />}
       ListHeaderComponent={
         <View style={{ gap: 10 }}>
+          {showMyShifts && (
+            <Button label="My Shifts" icon="calendar-outline" variant="secondary" onPress={() => router.push("/pm/rostering?tab=mine")} testID="caseload-my-shifts" />
+          )}
           {!worker && (
             <Pressable onPress={() => openLink(CASE_NOTE_FORM)} style={styles.newNote} testID="caseload-new-note">
               <Ionicons name="create-outline" size={20} color={colors.onBrandPrimary} />

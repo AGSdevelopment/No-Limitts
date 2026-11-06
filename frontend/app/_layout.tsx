@@ -63,6 +63,10 @@ function RootStack() {
         <Stack.Screen name="pm/addresses" options={{ ...header, title: "Participant addresses" }} />
         <Stack.Screen name="pathway" options={{ ...header, title: "My therapist pathway" }} />
         <Stack.Screen name="tasks" options={{ ...header, title: "Tasks" }} />
+        <Stack.Screen name="participant-groups/index" options={{ ...header, title: "Participant Groups" }} />
+        <Stack.Screen name="participant-groups/[id]" options={{ ...header, title: "Group" }} />
+        <Stack.Screen name="participant-groups/compliance" options={{ ...header, title: "Group task tracker" }} />
+        <Stack.Screen name="reports" options={{ ...header, title: "Reports" }} />
         <Stack.Screen name="notifications" options={{ ...header, title: "Notifications" }} />
         <Stack.Screen name="team" options={{ ...header, title: "Team directory" }} />
         <Stack.Screen name="assistant" options={{ ...header, title: "Ask AI" }} />

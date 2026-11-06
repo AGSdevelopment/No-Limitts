@@ -4,13 +4,16 @@ from pydantic import BaseModel
 import re
 from core import P, admin_user, current_user, db, logger, new_id, notify, now_iso, spawn
 import ms_services as ms
+from routes.pm_common import is_coordinator
 
 router = APIRouter(prefix="/api")
 
 
 async def conv_for_user(conv_id: str, user: dict):
     conv = await db.conversations.find_one({"conversation_id": conv_id}, P)
-    if not conv or (conv["type"] == "dm" and user["user_id"] not in conv["member_ids"]):
+    member = conv and user["user_id"] in conv["member_ids"]
+    # Participant group chats: members, plus Service Coordinators / Admins who manage the groups
+    if not conv or (conv["type"] == "dm" and not member) or (conv["type"] == "group" and not member and not is_coordinator(user)):
         raise HTTPException(404, "Conversation not found")
     return conv
 
@@ -118,9 +121,10 @@ async def send_message(conv_id: str, body: MessageIn, user=Depends(current_user)
             spawn(ms.post_to_teams(hook, f"**{user['name']}** in #{conv['name']} (No Limitts):\n\n{text[:4000]}"))
         except Exception as e:
             logger.error(f"Teams webhook unusable for {conv_id}: {e}")
-    if conv["type"] == "dm":
+    if conv["type"] in ("dm", "group"):
         others = [m for m in conv["member_ids"] if m != user["user_id"]]
-        await notify(others, "message", f"New message from {user['name']}", text[:120], f"/chat/{conv_id}")
+        title = f"New message from {user['name']}" if conv["type"] == "dm" else f"{user['name']} in {conv['name']}"
+        await notify(others, "message", title, text[:120], f"/chat/{conv_id}")
     return msg
 
 

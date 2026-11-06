@@ -1,0 +1,45 @@
+{
+  "summary": "Iter64 tested My Shifts (all dates), the funding support item (template/import/PUT item/new shift copy/invoice line), Participant Groups (create/members/chat/announce/tasks/compliance/delete) and Reports files, on both the backend (pytest, 20 tests) and the frontend (Playwright, 390x844, admin, employee, admin2 and a TEST support-worker session). Backend: 19/20 pass. The one failure is a real gap: an admin can tick another member's group task through PATCH /api/tasks/{id}. Frontend: every requested flow works (caseload-my-shifts, past-shifts divider, week By worker/By participant plus chips and prev/next, funding Current/History plus the 22-column table plus support item save, support item on new-shift funding choices, 'Support Worker' in Drive, the Reports button and screen with upload/filter/delete, groups create/announce/task/add/remove/chat/delete, the tracker, the compliance link, the chat Groups segment, and member ack with 'You've done this'). Found 1 more backend gap and 3 small frontend issues (see action_items). No deprecated Expo packages detected.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PATCH /api/tasks/{task_id}", "issue": "For role=admin the query is {$or:[private!=True, assignee=me]}. Group tasks are private:false, so any admin can tick another member's group action/acknowledge task. This breaks 'every member must action/acknowledge themselves' and makes the Compliance tracking unreliable. Reproduced: an admin PATCH on a member's task returned 200. Ref: backend/routes/tasks.py:176-179"},
+      {"endpoint": "GET /api/conversations/{conv_id}/messages (participant group chat)", "issue": "The group conversation member_ids = members + manager_ids, and manager_ids only holds the creator. Other coordinators and admins can open the group and announce or give tasks, but they get a 404 on its chat. Verified with test_session_admin2: GET /participant-groups/{id} returned 200 while its chat messages returned 404. Ref: backend/routes/participant_groups.py:35,95"},
+      {"endpoint": "GET /api/participant-groups, GET /api/participant-groups/{id}", "issue": "Every read calls sync(), which writes conversations.update_one, then runs task_progress per group. That is an N+1 query plus a write on each GET. Fine now, but slow with many groups."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Rostering tabs", "issue": "The 'My shifts' chip shows for rosters users only when acc.worker (support_worker) is true. An admin or rostering user who has shifts (has_shifts) reaches My shifts from Caseload, but once they switch to Week or Roster there is no chip to get back. Use (acc.data?.worker || acc.data?.has_shifts). Ref: frontend/app/pm/rostering.tsx:130", "testID": "roster-tab-mine", "priority": "medium"},
+      {"component": "Group detail delete", "issue": "After deleting a group opened by direct link or deep link (notifications link to /participant-groups/{id}), router.back() does nothing and the user stays on the deleted group page. Use router.canGoBack() ? router.back() : router.replace('/participant-groups'). Ref: frontend/app/participant-groups/[id].tsx:155", "testID": "group-delete", "priority": "low"},
+      {"component": "Reports screen (unauthorised)", "issue": "A plain support worker opening /reports directly saw only the 'Reports' title after 4s, with no lock or empty state (react-query seems to retry the 403). Gate early with a lock EmptyState, or set retry:false on 403.", "testID": "reports-screen", "priority": "low"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Company Drive", "issues": ["The Suppliers and Templates tiles use a different style (white fill, icon above a small label) from the other tiles (outlined, icon inline). The grid looks inconsistent."]},
+      {"screen": "Group detail", "issues": ["Removing a member (group-remove-{id}) acts immediately with no confirmation. Consider a confirm step or an undo toast."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter64_myshifts_supportitem_groups_reports.py", "/app/backend/tests/ui_seed_iter64.py", "/app/test_reports/pytest/pytest_iter64.xml"],
+  "action_items": [
+    "tasks.py PATCH: for tasks with participant_group_id, only the assignee may change the status, including admins (add q['assignee_id']=user_id when the task is a group task).",
+    "participant_groups.py: include all coordinators/admins who manage the group in the conversation member_ids, or let is_coordinator users read the group conversation in chat.conv_for_user, so non-creator coordinators can open the group chat.",
+    "rostering.tsx:130: show the My shifts chip for rosters users when acc.data.has_shifts is true, not only for support_worker.",
+    "participant-groups/[id].tsx:155: fall back to router.replace('/participant-groups') when there is no back history.",
+    "reports.tsx: show an access-denied state straight away for users without access (skip the retry on 403).",
+    "Optional: 'Therapist' still appears in app/pathway.tsx:29 ('For Emerging Therapists') and app/staff/[id].tsx:207 ('Therapist pathway'). Confirm these are intentionally kept, since this is the staff group name."
+  ],
+  "critical_code_review_comments": [
+    "Import dedupe uses support_item_number $in [value, None]. A row without an item, re-imported after an item was set on the existing line, will import as a duplicate line (existing='X', new='' → no match). This is an edge case.",
+    "members_of() leaves out hidden users, so hidden staff (e.g. executives or test accounts on a Support Team) silently never become group members.",
+    "The Reports open endpoint takes the session token as a query param (?token=), the same pattern as other exports. Tokens can end up in proxy logs and browser history."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter64_myshifts_supportitem_groups_reports.py", "/app/backend/tests/ui_seed_iter64.py"],
+  "success_rate": {"backend": "95% (19/20)", "frontend": "100% of requested flows working; 3 minor UX issues"},
+  "seed_data_creation": "Pytest seeds its own TEST_T64 users, sessions, participant, funding and shifts, and cleans them up. UI seed: python /app/backend/tests/ui_seed_iter64.py seed|clean (TEST_UI64 participant assigned to admin plus TEST worker, a current funding with a support item, an expired funding, admin shifts past/this week/future). All cleaned; verified 0 leftovers.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run pytest with -p no:randomly -p no:xdist (xdist duplicates the module seed per worker), and export EXPO_BACKEND_URL from EXPO_PUBLIC_BACKEND_URL in frontend/.env. test_admin_cannot_tick_member_task should pass once tasks.py is fixed. Preview date is Nov 2026. Sheets on web: use dispatch_event('click') for buttons inside sheets that scroll (funding-item-save). The group delete confirm label is 'Delete group'.",
+  "rca_of_issue": "Admin tick: tasks.update_task gives admins access to any non-private task, and group tasks are inserted with private:false. Group chat 404: sync() sets member_ids from members plus manager_ids, and manager_ids is only [creator] at create time; is_coordinator users are not added."
+}

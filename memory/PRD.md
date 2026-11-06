@@ -289,5 +289,14 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 ## Iteration 63 (Jun 2026)
 - Shift directions: shifts (list + detail) include participant `address`; workers see address + "Get directions" (Google Maps) on My shifts and shift detail.
 - Overdue invoice alerts: GET /api/invoices/overdue (per payer totals); daily 8am Perth in-app notification + email to Finance/admins (`overdue_loop` in pm_invoices.py, meta key overdue_invoices_YYYY-MM-DD); invoices list shows Overdue pill and summary banner.
+
+## Iteration 64 (Jun 2026)
+- My Shifts button on Caseload (support workers or anyone with shifts; pm/access `has_shifts`) → /pm/rostering?tab=mine; My shifts uses /shifts?mine=true (all dates), upcoming first then "Past shifts".
+- Week roster: By worker / By participant toggle + participant picker (All or one).
+- Funding: support_item_number/name (template cols + PUT /funding/{id}/item, copied to un-invoiced shifts, on invoices + new shift picker); Funding screen = Current/History chips (end_date vs Perth today) and horizontal table of all template fields.
+- "Therapist" labels renamed to "Support Worker" (Company Drive, feed, digest, directory); internal key `therapist` unchanged.
+- Participant Groups (routes/participant_groups.py, /participant-groups): one per participant, members = Support Team (assigned_ids) + coordinator extra_ids − excluded_ids; group chat conversation type "group" (Chat → Groups tab); announcements; group tasks (kind action|acknowledge) create per-member tasks (participant_group_id); tracker /participant-groups/compliance (linked from Compliance + Reports). Sync loop every 10 min.
+- Reports (routes/reports.py, /reports, Company Drive → Reports button): admin/hr/support_coordinator/finance; built-in report links + private uploaded report files (object storage, categories).
+
 - Email to payer: POST /api/invoices/{id}/email sends a private 60-day PDF link (/api/invoices/shared/{token}) via Emergent email to the funding payer email; records `emailed` + history.
 

@@ -18,7 +18,7 @@ MGMT_TYPES = ["NDIA", "Self", "Plan", "MyAged Care", "Private", "Insurance", "Ch
 TEMPLATE_COLS = ["Participant name", "Participant email", "Funding management type", "Units", "Unit type", "$ per unit",
                  "Service start date", "Service end date", "Invoice payer name", "Invoice payer company", "Invoice payer email",
                  "Invoice payer phone", "Invoice payer ABN", "Representative name", "Representative email",
-                 "Representative phone", "Representative relationship"]
+                 "Representative phone", "Representative relationship", "Support item number", "Support item name"]
 
 
 async def funding_usage(fids: list) -> dict:
@@ -54,7 +54,8 @@ async def funding_template(request: Request, token: Optional[str] = None):
     ws.title = "Funding"
     ws.append(TEMPLATE_COLS)
     ws.append(["Jane Citizen", "jane@example.com", "NDIA", 120, "Hour", 67.56, "01-07-2026", "30-06-2027", "", "Plan Partners Pty Ltd",
-               "invoices@planpartners.example", "08 9000 0000", "12 345 678 901", "John Citizen", "john@example.com", "0400 000 000", "Father"])
+               "invoices@planpartners.example", "08 9000 0000", "12 345 678 901", "John Citizen", "john@example.com", "0400 000 000", "Father",
+               "01_011_0107_1_1", "Assistance With Self-Care Activities - Standard - Weekday Daytime"])
     notes = wb.create_sheet("How to fill in")
     for line in ["One row per funding line. A participant can have several rows (e.g. different funding types).",
                  f"Funding management type must be one of: {', '.join(MGMT_TYPES)}.",
@@ -62,9 +63,11 @@ async def funding_template(request: Request, token: Optional[str] = None):
                  "Dates as DD-MM-YYYY. Budget = Units x $ per unit.",
                  "Invoice payer: give a name or company name, an email and phone. ABN where applicable.",
                  "Representative: required when the invoice payer is not the participant's representative. "
-                 "If the participant represents themselves, enter their own details."]:
+                 "If the participant represents themselves, enter their own details.",
+                 "Support item number / name (optional): the NDIS or Aged Care price guide item this funding pays for. "
+                 "It's shown when rostering and printed on invoices."]:
         notes.append([line])
-    for col, w in zip("ABCDEFGHIJKLMNOPQ", [20, 24, 20, 8, 10, 10, 14, 14, 18, 24, 26, 14, 16, 18, 22, 14, 16]):
+    for col, w in zip("ABCDEFGHIJKLMNOPQRS", [20, 24, 20, 8, 10, 10, 14, 14, 18, 24, 26, 14, 16, 18, 22, 14, 16, 18, 40]):
         ws.column_dimensions[col].width = w
     buf = io.BytesIO()
     wb.save(buf)
@@ -141,14 +144,15 @@ async def import_funding(file: UploadFile = File(...), user=Depends(finance_user
             skipped.append({"row": n, "name": name or "-", "reason": "; ".join(errs)})
             continue
         p = await ensure_participant(name, cell(r, "Participant email").lower(), user)
+        item = {"support_item_number": cell(r, "Support item number")[:40], "support_item_name": cell(r, "Support item name")[:200]}
         if await db.fundings.find_one({"participant_id": p["participant_id"], "management_type": mt, "start_date": sd, "end_date": ed,
-                                       "unit_type": cell(r, "Unit type")}):
+                                       "unit_type": cell(r, "Unit type"), "support_item_number": {"$in": [item["support_item_number"], None]}}):
             skipped.append({"row": n, "name": name, "reason": "this funding line was already imported (same type and dates)"})
             continue
         f = {"funding_id": f"fund_{secrets.token_hex(6)}", "participant_id": p["participant_id"], "participant_name": p["name"],
              "participant_email": cell(r, "Participant email").lower(), "management_type": mt, "units": units,
              "unit_type": cell(r, "Unit type"), "unit_rate": rate, "budget": money(units * rate), "start_date": sd, "end_date": ed,
-             "payer": payer, "representative": payer if payer_is_rep else rep, "payer_is_representative": payer_is_rep,
+             **item, "payer": payer, "representative": payer if payer_is_rep else rep, "payer_is_representative": payer_is_rep,
              "rate_history": [], "created_by": user.get("name") or "", "created_at": now_iso()}
         await db.fundings.insert_one(dict(f))
         added.append({"row": n, "name": p["name"], "management_type": mt, "budget": f["budget"]})
@@ -200,6 +204,22 @@ async def change_rate(funding_id: str, body: RateIn, user=Depends(finance_user))
     async for s in db.shifts.find({"funding_id": funding_id, "status": {"$nin": ["completed", "cancelled", "declined"]}}, P):
         await db.shifts.update_one({"shift_id": s["shift_id"]}, {"$set": {"unit_rate": body.unit_rate,
                                                                          "est_cost": money(s["est_units"] * body.unit_rate)}})
+    return await get_funding(funding_id, user)
+
+
+class ItemIn(BaseModel):
+    support_item_number: str = ""
+    support_item_name: str = ""
+
+
+@router.put("/funding/{funding_id}/item")
+async def set_item(funding_id: str, body: ItemIn, user=Depends(finance_user)):
+    """Support item (price guide line) this funding pays for; copied onto shifts not yet invoiced."""
+    item = {"support_item_number": body.support_item_number.strip()[:40], "support_item_name": body.support_item_name.strip()[:200]}
+    res = await db.fundings.update_one({"funding_id": funding_id}, {"$set": item})
+    if not res.matched_count:
+        raise HTTPException(404, "Funding not found")
+    await db.shifts.update_many({"funding_id": funding_id, "invoice_id": {"$in": [None, ""]}}, {"$set": item})
     return await get_funding(funding_id, user)
 
 

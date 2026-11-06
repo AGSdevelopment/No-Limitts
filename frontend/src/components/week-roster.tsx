@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { api } from "@/src/api";
 import { Text } from "@/src/components/text";
-import { Ionicons, Loading } from "@/src/components/ui";
+import { Chip, Ionicons, Loading } from "@/src/components/ui";
 import { makeStyles, useTheme } from "@/src/theme";
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -22,11 +22,19 @@ export function WeekRoster({ onOpen }: { onOpen: (shiftId: string) => void }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const [start, setStart] = useState(() => monday(new Date()));
+  const [mode, setMode] = useState<"worker" | "participant">("worker");
+  const [pid, setPid] = useState("");
   const days = Array.from({ length: 7 }, (_, i) => new Date(start.getFullYear(), start.getMonth(), start.getDate() + i));
   const from = iso(days[0]), to = iso(days[6]);
   const q = useQuery<any[]>({ queryKey: ["week-roster", from], queryFn: () => api(`/shifts?date_from=${from}&date_to=${to}`) });
-  const shifts = (q.data ?? []).filter((s) => !["cancelled", "declined"].includes(s.status));
-  const workers = [...new Map(shifts.map((s) => [s.worker_id, s.worker_name])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  const people = useQuery<any[]>({ queryKey: ["pm-participants"], queryFn: () => api("/pm/participants"), enabled: mode === "participant" });
+  const shifts = (q.data ?? []).filter((s) => !["cancelled", "declined"].includes(s.status)).filter((s) => mode === "worker" || !pid || s.participant_id === pid);
+  const byP = mode === "participant";
+  const rowsOf = (s: any) => (byP ? [s.participant_id, s.participant_name] : [s.worker_id, s.worker_name]);
+  const pidName = (people.data ?? []).find((p) => p.participant_id === pid)?.name;
+  const rows: [string, string][] = [...new Map(shifts.map((s) => rowsOf(s) as [string, string])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  if (byP && pid && !rows.length && pidName) rows.push([pid, pidName]);
+  const workers = rows;
   const shift = (n: number) => setStart(new Date(start.getFullYear(), start.getMonth(), start.getDate() + n * 7));
   const tone = (st: string) => (st === "pending_acceptance" ? colors.warningSoft : st === "awaiting_approval" ? colors.errorSoft : st === "completed" ? colors.successSoft : colors.brandTertiary);
 
@@ -41,12 +49,24 @@ export function WeekRoster({ onOpen }: { onOpen: (shiftId: string) => void }) {
           <Ionicons name="chevron-forward" size={22} color={colors.onSurface} />
         </Pressable>
       </View>
-      <Text style={styles.meta}>{shifts.length} shift{shifts.length === 1 ? "" : "s"} · {workers.length} worker{workers.length === 1 ? "" : "s"} · amber = needs acceptance, red = times to approve, green = done</Text>
+      <View style={styles.chips}>
+        <Chip label="By worker" selected={!byP} onPress={() => setMode("worker")} testID="week-mode-worker" />
+        <Chip label="By participant" selected={byP} onPress={() => setMode("participant")} testID="week-mode-participant" />
+      </View>
+      {byP && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+          <Chip label="All participants" selected={!pid} onPress={() => setPid("")} testID="week-p-all" />
+          {(people.data ?? []).map((p) => (
+            <Chip key={p.participant_id} label={p.name} selected={pid === p.participant_id} onPress={() => setPid(p.participant_id)} testID={`week-p-${p.participant_id}`} />
+          ))}
+        </ScrollView>
+      )}
+      <Text style={styles.meta}>{shifts.length} shift{shifts.length === 1 ? "" : "s"} · {workers.length} {byP ? "participant" : "worker"}{workers.length === 1 ? "" : "s"} · amber = needs acceptance, red = times to approve, green = done</Text>
       {q.isLoading ? <Loading /> : !workers.length ? <Text style={styles.meta}>No shifts rostered this week.</Text> : (
         <ScrollView horizontal showsHorizontalScrollIndicator>
           <View>
             <View style={styles.row}>
-              <View style={[styles.nameCell, styles.head]}><Text style={styles.headText}>Worker</Text></View>
+              <View style={[styles.nameCell, styles.head]}><Text style={styles.headText}>{byP ? "Participant" : "Worker"}</Text></View>
               {days.map((d, i) => (
                 <View key={i} style={[styles.dayCell, styles.head]}>
                   <Text style={styles.headText}>{DAYS[i]} {pad(d.getDate())}</Text>
@@ -58,11 +78,11 @@ export function WeekRoster({ onOpen }: { onOpen: (shiftId: string) => void }) {
                 <View style={styles.nameCell}><Text style={styles.name} numberOfLines={2}>{name}</Text></View>
                 {days.map((d, i) => (
                   <View key={i} style={styles.dayCell}>
-                    {shifts.filter((s) => s.worker_id === wid && s.date === iso(d)).map((s) => (
+                    {shifts.filter((s) => rowsOf(s)[0] === wid && s.date === iso(d)).map((s) => (
                       <Pressable key={s.shift_id} onPress={() => onOpen(s.shift_id)} style={[styles.chip, { backgroundColor: tone(s.status) }]}
                         testID={`week-shift-${s.shift_id}`}>
                         <Text style={styles.chipTime}>{s.start}–{s.end}</Text>
-                        <Text style={styles.chipName} numberOfLines={1}>{s.participant_name}</Text>
+                        <Text style={styles.chipName} numberOfLines={1}>{byP ? s.worker_name : s.participant_name}</Text>
                       </Pressable>
                     ))}
                   </View>
@@ -78,6 +98,7 @@ export function WeekRoster({ onOpen }: { onOpen: (shiftId: string) => void }) {
 
 const useStyles = makeStyles((c) => ({
   nav: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  chips: { flexDirection: "row", gap: 8, flexWrap: "nowrap" },
   navBtn: { width: 48, height: 48, alignItems: "center", justifyContent: "center", borderRadius: 24, backgroundColor: c.surface },
   title: { fontSize: 16, fontWeight: "800", color: c.onSurface },
   meta: { fontSize: 13, color: c.muted, lineHeight: 18 },

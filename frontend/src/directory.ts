@@ -2,7 +2,7 @@ import type { IconName } from "@/src/components/ui";
 
 export type DirSpace = "therapist" | "participant";
 
-export const SPACE_LABEL: Record<DirSpace, string> = { therapist: "Therapist", participant: "Participants" };
+export const SPACE_LABEL: Record<DirSpace, string> = { therapist: "Support Worker", participant: "Participants" };
 
 export const CATEGORIES: Record<DirSpace, string[]> = {
   therapist: ["Suppliers", "Templates"],

@@ -287,7 +287,7 @@ export default function Home() {
                       <View style={{ flex: 1 }}>
                         <Text style={styles.resTitle} numberOfLines={1}>{e.name}</Text>
                         <Text style={styles.resSub} numberOfLines={1}>
-                          {e.space === "therapist" ? "Therapist" : "Participants"} · {e.category} · {timeAgo(e.created_at)}{e.file_count ? ` · ${e.file_count} file${e.file_count > 1 ? "s" : ""}` : ""}
+                          {e.space === "therapist" ? "Support Worker" : "Participants"} · {e.category} · {timeAgo(e.created_at)}{e.file_count ? ` · ${e.file_count} file${e.file_count > 1 ? "s" : ""}` : ""}
                         </Text>
                       </View>
                       <Pill label="New" tone="accent" />

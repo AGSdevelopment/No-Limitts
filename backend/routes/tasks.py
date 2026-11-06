@@ -173,8 +173,9 @@ async def update_task(task_id: str, body: TaskPatch, user=Depends(current_user))
     if body.status not in ("open", "done"):
         raise HTTPException(400, "Invalid status")
     q = {"task_id": task_id}
-    if user["role"] != "admin":
-        q["assignee_id"] = user["user_id"]
+    t = await db.tasks.find_one(q, {"_id": 0, "participant_group_id": 1})
+    if user["role"] != "admin" or (t and t.get("participant_group_id")):
+        q["assignee_id"] = user["user_id"]  # group tasks: every member actions / acknowledges their own
     else:
         q["$or"] = [{"private": {"$ne": True}}, {"assignee_id": user["user_id"]}]
     res = await db.tasks.update_one(q, {"$set": {"status": body.status,

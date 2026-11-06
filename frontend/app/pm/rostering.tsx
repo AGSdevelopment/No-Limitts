@@ -2,6 +2,7 @@
 import { useRef, useState } from "react";
 import { FlatList, Pressable, RefreshControl, ScrollView, View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
+import { useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ApiError, API_URL, api, getApiToken, openLink } from "@/src/api";
@@ -27,6 +28,12 @@ function clockable(s: any) {
   return now >= start - 2 * 3600000 && now <= end;
 }
 
+function shiftEnd(s: any) {
+  const start = new Date(`${s.date}T${s.start}:00+08:00`).getTime();
+  const end = new Date(`${s.date}T${s.end}:00+08:00`).getTime();
+  return end <= start ? end + 86400000 : end;
+}
+
 // Workers can decline shifts starting within the next 14 days (and not yet started)
 function declinable(s: any) {
   const start = new Date(`${s.date}T${s.start}:00+08:00`).getTime();
@@ -41,13 +48,14 @@ export default function Rostering() {
   const toast = useToast();
   const acc = useQuery<any>({ queryKey: ["pm-access"], queryFn: () => api("/pm/access") });
   const { user } = useAuth();
-  const [tab, setTab] = useState<Tab | null>(null);
+  const params = useLocalSearchParams<{ tab?: string }>();
+  const [tab, setTab] = useState<Tab | null>(params.tab === "mine" ? "mine" : null);
   const rosters = !!acc.data?.rosters;
   const active: Tab = tab ?? (rosters ? "roster" : "mine");
   const mine = active === "mine";
   const q = useQuery<any[]>({
     queryKey: ["shifts", active], enabled: !!acc.data && active !== "report",
-    queryFn: () => api(active === "approvals" ? "/shifts?status=awaiting_approval" : "/shifts"),
+    queryFn: () => api(active === "approvals" ? "/shifts?status=awaiting_approval" : mine ? "/shifts?mine=true" : "/shifts"),
   });
   const [detail, setDetail] = useState<string | null>(null);
   const [approve, setApprove] = useState<any>(null);
@@ -64,8 +72,13 @@ export default function Rostering() {
   const fixRef = useRef<{ id: string; fix: Fix | null } | null>(null);
 
   if (acc.isLoading) return <Loading />;
-  const shifts = (q.data ?? []).filter((s) => (mine && rosters ? s.worker_id === user?.user_id : true))
+  const visible = (q.data ?? []).filter((s) => (mine && rosters ? s.worker_id === user?.user_id : true))
     .filter((s) => s.status !== "cancelled");
+  // My Shifts: upcoming (soonest first), then past shifts (most recent first) under a divider
+  const isPast = (s: any) => s.status !== "in_progress" && shiftEnd(s) < Date.now();
+  const upcoming = visible.filter((s) => !isPast(s));
+  const past = visible.filter(isPast).reverse();
+  const shifts: any[] = mine ? [...upcoming, ...(past.length ? [{ shift_id: "__past", divider: true }, ...past] : [])] : visible;
 
   const act = async (s: any, path: string, body?: any) => {
     setBusy(s.shift_id);
@@ -114,7 +127,7 @@ export default function Rostering() {
       {rosters && <Chip label="Week" selected={active === "week"} onPress={() => setTab("week")} testID="roster-tab-week" />}
       {rosters && <Chip label={`Approvals${acc.data?.awaiting_approval ? ` (${acc.data.awaiting_approval})` : ""}`} selected={active === "approvals"} onPress={() => setTab("approvals")} testID="roster-tab-approvals" />}
       {(rosters || acc.data?.finance) && <Chip label="Report" selected={active === "report"} onPress={() => setTab("report")} testID="roster-tab-report" />}
-      {rosters && acc.data?.worker && <Chip label="My shifts" selected={mine} onPress={() => setTab("mine")} testID="roster-tab-mine" />}
+      {rosters && (acc.data?.worker || acc.data?.has_shifts) && <Chip label="My shifts" selected={mine} onPress={() => setTab("mine")} testID="roster-tab-mine" />}
       {!rosters && <Chip label="My shifts" selected={mine} onPress={() => setTab("mine")} testID="roster-tab-mine" />}
       <Chip label="Swaps & open shifts" selected={active === "offers"} onPress={() => setTab("offers")} testID="roster-tab-offers" />
     </View>
@@ -176,7 +189,9 @@ export default function Rostering() {
           <EmptyState icon="calendar-outline" title={active === "approvals" ? "Nothing to approve" : "No shifts"}
             subtitle={active === "approvals" ? "Clock times outside the 5-minute window show here." : mine ? "Your rostered shifts will show here." : "Tap New shift to roster someone."} />
         )}
-        renderItem={({ item: s }) => (
+        renderItem={({ item: s }) => s.divider ? (
+          <Text style={styles.divider} testID="my-shifts-past">Past shifts</Text>
+        ) : (
           <Pressable onPress={() => setDetail(s.shift_id)} style={styles.card} testID={`shift-${s.shift_id}`}>
             <View style={styles.row}>
               <Text style={[styles.title, { flex: 1 }]}>{mine ? s.participant_name : `${s.worker_name} → ${s.participant_name}`}</Text>
@@ -266,4 +281,5 @@ const useStyles = makeStyles((c) => ({
   body: { fontSize: 14, color: c.onSurface },
   meta: { fontSize: 13, color: c.muted, lineHeight: 18 },
   link: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 44, alignSelf: "flex-start" },
+  divider: { fontSize: 13, fontWeight: "700", color: c.muted, textTransform: "uppercase", marginTop: 12 },
 }));

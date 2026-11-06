@@ -348,7 +348,7 @@ async def shared_file(file_id: str, request: Request, token: Optional[str] = Non
 
 
 async def upload_to_spaces(cert: dict, data: bytes, spaces: list, user: dict) -> dict:
-    """Copy an uploaded file into Therapist / Participants Resources. Returns space -> 'added' | reason."""
+    """Copy an uploaded file into Support Worker / Participants Resources. Returns space -> 'added' | reason."""
     out = {}
     roots = await current_roots()
     for space in spaces:

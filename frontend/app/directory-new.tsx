@@ -17,7 +17,7 @@ import { LocalFile, uploadForm } from "@/src/utils/upload";
 
 type Target = DirSpace | "favourite";
 const TARGETS: { key: Target; label: string }[] = [
-  { key: "therapist", label: "Therapist" },
+  { key: "therapist", label: "Support Worker" },
   { key: "participant", label: "Participant" },
   { key: "favourite", label: "No Limitts Favourite" },
 ];

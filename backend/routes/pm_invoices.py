@@ -81,7 +81,9 @@ async def next_number() -> str:
 
 def line_for(s: dict) -> dict:
     a, b = approved(s)
-    return {"shift_id": s["shift_id"], "date": s["date"], "description": f"{s.get('funding_type') or ''} support {a}-{b} · {s['worker_name']}".strip(),
+    item = " ".join(x for x in (s.get("support_item_number"), s.get("support_item_name")) if x)
+    desc = f"{item or (s.get('funding_type') or '') + ' support'} · {a}-{b} · {s['worker_name']}".strip()
+    return {"shift_id": s["shift_id"], "date": s["date"], "description": desc,
             "units": s.get("units") or 0, "unit_type": "hours" if s.get("hourly") else "units", "rate": s.get("unit_rate") or 0,
             "amount": money(s.get("cost"))}
 

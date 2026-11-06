@@ -109,7 +109,7 @@ async def build_resource_digest() -> dict:
 
 
 def resource_digest_html(name: str, data: dict) -> str:
-    space = {"therapist": "Therapist", "participant": "Participants"}
+    space = {"therapist": "Support Worker", "participant": "Participants"}
     def card(title, sub, note=""):
         return (f"<div style='margin:0 0 10px;padding:12px 14px;background:#EFE8F5;border-radius:12px'>"
                 f"<b style='color:#673E8D'>{escape(title)}</b><br><span style='color:#6b7280;font-size:13px'>{escape(sub)}</span>"

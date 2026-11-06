@@ -45,8 +45,9 @@ async def set_permissions(user_id: str, body: PermsIn, user=Depends(current_user
 async def pm_access(user=Depends(current_user)):
     pending = await db.team_tag_requests.count_documents({"status": "pending"}) if is_coordinator(user) else 0
     awaiting = await db.shifts.count_documents({"status": "awaiting_approval"}) if is_rosters(user) else 0
+    has_shifts = bool(await db.shifts.find_one({"worker_id": user["user_id"], "status": {"$ne": "cancelled"}}, {"_id": 1}))
     return {"finance": is_finance(user), "rosters": is_rosters(user), "coordinator": is_coordinator(user),
-            "worker": user.get("user_type") == "support_worker", "pending_tags": pending, "awaiting_approval": awaiting}
+            "worker": user.get("user_type") == "support_worker", "has_shifts": has_shifts, "pending_tags": pending, "awaiting_approval": awaiting}
 
 
 # ---- Support Team tags (Team Directory) ----
@@ -212,6 +213,7 @@ async def create_shift(body: ShiftIn, user=Depends(rosters_user)):
     auto = a >= now_perth() + timedelta(days=AUTO_ACCEPT_DAYS)
     doc = {"shift_id": f"shf_{secrets.token_hex(6)}", **s, "participant_name": p["name"], "funding_id": f["funding_id"],
            "funding_type": f["management_type"], "unit_rate": f["unit_rate"], "worker_id": w["user_id"], "worker_name": w["name"],
+           "support_item_number": f.get("support_item_number") or "", "support_item_name": f.get("support_item_name") or "",
            "minutes": mins, "est_units": units, "hourly": f["unit_type"].strip().lower() in HOURLY, "est_cost": est, "notes": body.notes.strip()[:500],
            "status": "accepted" if auto else "pending_acceptance", "auto_accepted": auto,
            "created_by": user.get("name") or "", "created_at": now_iso()}
@@ -226,9 +228,10 @@ async def create_shift(body: ShiftIn, user=Depends(rosters_user)):
 
 @router.get("/shifts")
 async def list_shifts(date_from: Optional[str] = None, date_to: Optional[str] = None, participant_id: Optional[str] = None,
-                      worker_id: Optional[str] = None, status: Optional[str] = None, user=Depends(current_user)):
+                      worker_id: Optional[str] = None, status: Optional[str] = None, mine: bool = False, user=Depends(current_user)):
+    """mine=true: every shift the signed-in person is rostered on, any date (My Shifts)."""
     q: dict = {}
-    if not is_rosters(user):
+    if mine or not is_rosters(user):
         q["worker_id"] = user["user_id"]
     elif worker_id:
         q["worker_id"] = worker_id
@@ -239,7 +242,7 @@ async def list_shifts(date_from: Optional[str] = None, date_to: Optional[str] = 
     lo = parse_dmy(date_from) or (now_perth().date() - timedelta(days=7)).isoformat()
     hi = parse_dmy(date_to) or (now_perth().date() + timedelta(days=60)).isoformat()
     q["date"] = {"$gte": lo, "$lte": hi}
-    if status == "awaiting_approval":
+    if status == "awaiting_approval" or mine:
         q.pop("date")
     shifts = await db.shifts.find(q, P).sort([("date", 1), ("start", 1)]).to_list(2000)
     addr = {p["participant_id"]: p.get("address") or "" async for p in db.participants.find(

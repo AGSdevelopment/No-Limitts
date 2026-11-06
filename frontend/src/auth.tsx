@@ -21,7 +21,7 @@ export type User = {
   executive?: boolean;
   job_title?: string;
   start_date?: string | null;
-  user_type?: "executive" | "admin" | "support_office" | "support_worker";
+  user_type?: "executive" | "admin" | "support_office" | "support_worker" | "hr" | "support_coordinator";
   must_change_password?: boolean;
 };
 

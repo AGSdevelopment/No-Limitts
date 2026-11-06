@@ -106,7 +106,7 @@ async def latest_reviews(user=Depends(current_user)):
 
 @router.get("/directory/highlights")
 async def highlights(user=Depends(current_user)):
-    """New Templates (Therapist) and Resources (Participants) from the last 14 days, for the Home screen."""
+    """New Templates (Support Worker) and Resources (Participants) from the last 14 days, for the Home screen."""
     since = (datetime.now(timezone.utc) - timedelta(days=14)).isoformat()
     q = {"$or": [{"space": s, "category": c} for s, c in HIGHLIGHT], "created_at": {"$gte": since}}
     docs = await db.directory.find(q, {"_id": 0, "entry_id": 1, "space": 1, "category": 1, "name": 1, "note": 1,

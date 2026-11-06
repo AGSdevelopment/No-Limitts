@@ -63,6 +63,11 @@ export default function Tasks() {
           ),
         }}
       />
+      <Pressable onPress={() => router.push("/participant-groups")} style={styles.groupsLink} testID="tasks-participant-groups" accessibilityRole="button">
+        <Ionicons name="people-outline" size={18} color={colors.brandPrimary} />
+        <Text style={styles.groupsText}>Participant Groups</Text>
+        <Ionicons name="chevron-forward" size={16} color={colors.brandPrimary} />
+      </Pressable>
       {isAdmin && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipRow} contentContainerStyle={styles.chipContent}>
           <Chip label="My tasks" selected={scope === "mine"} onPress={() => setScope("mine")} testID="tasks-scope-mine" />
@@ -102,6 +107,11 @@ export default function Tasks() {
                 />
                 <View style={{ flex: 1, gap: 2 }}>
                   <Text style={[styles.title, done && styles.doneText]}>{item.title}</Text>
+                  {!!item.participant_group_name && (
+                    <Text style={styles.collab} testID={`task-group-${item.task_id}`}>
+                      {item.kind === "acknowledge" ? "Please acknowledge" : "Action required"} · {item.participant_group_name}{done ? " · done ✓" : " · tap to tick off"}
+                    </Text>
+                  )}
                   {!!item.description && <Text style={styles.desc} numberOfLines={2}>{item.description}</Text>}
                   {isGroup && <GroupProgress item={item} />}
                   {item.collaborators?.length > 0 && !isGroup && (
@@ -182,6 +192,8 @@ function GroupProgress({ item }: { item: any }) {
 const useStyles = makeStyles((c) => ({
   root: { flex: 1, backgroundColor: c.background },
   chipRow: { flexGrow: 0, height: 56, backgroundColor: c.surface },
+  groupsLink: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 48, paddingHorizontal: 16, backgroundColor: c.brandTertiary },
+  groupsText: { flex: 1, fontSize: 15, fontWeight: "700", color: c.brandPrimary },
   chipContent: { paddingHorizontal: 16, gap: 8, alignItems: "center" },
   row: { flexDirection: "row", alignItems: "flex-start", gap: 12, backgroundColor: c.surface, borderRadius: 14, padding: 14, minHeight: 56 },
   title: { fontSize: 16, fontWeight: "600", color: c.onSurface },

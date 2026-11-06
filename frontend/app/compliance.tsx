@@ -98,6 +98,10 @@ export default function Compliance() {
         <Ionicons name="time-outline" size={16} color={colors.brandPrimary} />
         <Text style={styles.historyText}>Reminder history</Text>
       </Pressable>
+      <Pressable onPress={() => router.push("/participant-groups/compliance")} style={styles.historyLink} testID="compliance-group-tasks-link">
+        <Ionicons name="people-outline" size={16} color={colors.brandPrimary} />
+        <Text style={styles.historyText}>Participant group tasks</Text>
+      </Pressable>
       <View style={styles.searchBox}>
         <Ionicons name="search" size={18} color={colors.muted} />
         <TextInput value={search} onChangeText={setSearch} placeholder="Search staff" placeholderTextColor={colors.muted} style={styles.searchInput} testID="compliance-search" />

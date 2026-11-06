@@ -18,7 +18,7 @@ export default function ChatList() {
   const insets = useSafeAreaInsets();
   const styles = useStyles();
   const { colors } = useTheme();
-  const [seg, setSeg] = useState<"channel" | "dm">("channel");
+  const [seg, setSeg] = useState<"channel" | "group" | "dm">("channel");
   const q = useQuery<any[]>({ queryKey: ["conversations"], queryFn: () => api("/conversations"), refetchInterval: 5000 });
   const list = (q.data ?? []).filter((c) => c.type === seg);
   const unread = (t: string) => (q.data ?? []).filter((c) => c.type === t).reduce((s, c) => s + c.unread, 0);
@@ -34,7 +34,7 @@ export default function ChatList() {
       </TabHeader>
       <View style={styles.segWrap}>
         <View style={styles.seg}>
-          {(["channel", "dm"] as const).map((s) => (
+          {(["channel", "group", "dm"] as const).map((s) => (
             <Pressable
               key={s}
               testID={`chat-segment-${s}`}
@@ -44,7 +44,7 @@ export default function ChatList() {
               }}
               style={[styles.segItem, seg === s && styles.segActive]}
             >
-              <Text style={[styles.segText, seg === s && styles.segTextActive]}>{s === "channel" ? "Channels" : "Direct messages"}</Text>
+              <Text style={[styles.segText, seg === s && styles.segTextActive]}>{s === "channel" ? "Channels" : s === "group" ? "Groups" : "Direct"}</Text>
               {unread(s) > 0 && <View style={styles.dot} />}
             </Pressable>
           ))}
@@ -63,8 +63,8 @@ export default function ChatList() {
           ListEmptyComponent={
             <EmptyState
               icon="chatbubbles-outline"
-              title={seg === "dm" ? "No conversations yet" : "No channels yet"}
-              subtitle="Start a conversation with a colleague."
+              title={seg === "dm" ? "No conversations yet" : seg === "group" ? "No participant groups yet" : "No channels yet"}
+              subtitle={seg === "group" ? "Participant Support Team groups appear here once a coordinator adds you." : "Start a conversation with a colleague."}
               actionLabel={seg === "dm" ? "New message" : undefined}
               onAction={() => router.push("/new-chat")}
             />
@@ -75,7 +75,7 @@ export default function ChatList() {
               onPress={() => router.push({ pathname: "/chat/[id]", params: { id: item.conversation_id, name: item.type === "channel" ? `#${item.name}` : item.name } })}
               style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surfaceSecondary }]}
             >
-              {item.type === "channel" ? (
+              {item.type !== "dm" ? (
                 <View style={styles.hash}>
                   <Ionicons name="people" size={20} color={colors.onBrandTertiary} />
                 </View>

@@ -19,7 +19,7 @@ type Picked = { uri: string; name: string; mimeType?: string };
 const DMY_HINT = "DD-MM-YYYY";
 const CPD_TYPES = ["Course", "Webinar", "Case Study", "Resource link"];
 const SPACES = [
-  { key: "therapist", label: "Therapist Resources" },
+  { key: "therapist", label: "Support Worker Resources" },
   { key: "participant", label: "Participant Resources" },
 ];
 
