@@ -119,7 +119,7 @@ export default function ParticipantProfile() {
         </View>
       </View>
 
-      {!editing && <BirthdayWall participantId={d.participant_id} name={d.name} />}
+      {!editing && <BirthdayWall participantId={d.participant_id} name={d.name} canEmail={d.can_edit} contacts={p.contacts} />}
       {!editing && user?.user_type !== "support_worker" && (
         <Button label="Handover photo timeline" icon="images-outline" variant="secondary"
           onPress={() => router.push(`/handover-photos/${d.participant_id}`)} testID="participant-photo-timeline" />

@@ -159,8 +159,9 @@ def norm_title(t: str) -> str:
 def renewal_of(cert: dict, owner_certs: list) -> Optional[dict]:
     """A newer upload of the same certificate (matching title) with a later expiry date."""
     a = norm_title(cert["title"])
-    ordered = sorted(owner_certs, key=lambda x: x.get("created_at") or "", reverse=True)
-    ordered = [c for c in ordered if c.get("renews") == cert["cert_id"]] + [c for c in ordered if c.get("renews") != cert["cert_id"]]
+    # explicit "renews" links first (newest), then the earliest later upload with a matching title (the next renewal in the chain)
+    ordered = sorted([c for c in owner_certs if c.get("renews") == cert["cert_id"]], key=lambda x: x.get("created_at") or "", reverse=True)
+    ordered += sorted([c for c in owner_certs if c.get("renews") != cert["cert_id"]], key=lambda x: x.get("created_at") or "")
     for c in ordered:
         if c.get("renews") == cert["cert_id"]:
             return {"cert_id": c["cert_id"], "title": c["title"], "expiry_date": c["expiry_date"], "uploaded_at": c.get("created_at") or ""}
@@ -189,6 +190,65 @@ async def thank_nudgers(owner: dict):
         await notify(to, "certificate", f"✓ {owner['name']} renewed {orig['title']}",
                      f"Thanks for the nudge! The new certificate expires {dmy(ren['expiry_date'])}.", "/team-certificates")
         await db.cert_nudges.update_many({"cert_id": cert_id}, {"$set": {"thanked": True}})
+
+
+RENEWAL_BADGES = [(5, "🏆", "Compliance Champion"), (3, "⭐", "Always Ready"), (1, "✅", "On Time")]
+
+
+def renewal_record(certs: list) -> dict:
+    """On-time renewals: a renewal uploaded on or before the old certificate's expiry date. Streak counts back from the latest."""
+    results = []
+    for old in certs:
+        ren = renewal_of(old, [c for c in certs if not c.get("is_deleted")] + [c for c in certs if c.get("is_deleted") and c.get("renews")])
+        if ren:
+            day = datetime.fromisoformat(ren["uploaded_at"]).astimezone(DIGEST_TZ).date().isoformat() if "T" in ren["uploaded_at"] else ren["uploaded_at"][:10]
+            results.append((ren["uploaded_at"], day <= old["expiry_date"]))
+    results.sort(reverse=True)
+    on_time = sum(ok for _, ok in results)
+    streak = 0
+    for _, ok in results:
+        if not ok:
+            break
+        streak += 1
+    badge = next(({"emoji": e, "label": lbl} for n, e, lbl in RENEWAL_BADGES if streak >= n), None)
+    return {"on_time": on_time, "renewals": len(results), "streak": streak, "badge": badge}
+
+
+@router.get("/certificates/renewal-board")
+async def renewal_board(user=Depends(current_user)):
+    """Leaderboard of on-time certificate renewals, with badges for renewal streaks."""
+    by_owner: dict = {}
+    async for c in db.certificates.find({}, P):
+        by_owner.setdefault(c["owner_id"], []).append(c)
+    rows = []
+    async for u in db.users.find({"user_id": {"$in": list(by_owner)}, "hidden": {"$ne": True}},
+                                 {"_id": 0, "user_id": 1, "name": 1, "picture": 1}):
+        rec = renewal_record(by_owner[u["user_id"]])
+        if rec["renewals"]:
+            rows.append({"user_id": u["user_id"], "name": u["name"], "picture": u.get("picture"), **rec, "me": u["user_id"] == user["user_id"]})
+    rows.sort(key=lambda r: (-r["streak"], -r["on_time"], r["name"].lower()))
+    return {"rows": rows[:50], "badges": [{"streak": n, "emoji": e, "label": lbl} for n, e, lbl in reversed(RENEWAL_BADGES)]}
+
+
+@router.get("/certificates/team/calendar")
+async def expiry_calendar(month: Optional[str] = None, user=Depends(current_user)):
+    """Every team certificate expiring in a month (default this month), for the coordinators' calendar."""
+    if not sees_team_certs(user):
+        raise HTTPException(403, "For Service Coordinators, HR and Admins")
+    month = month or datetime.now(DIGEST_TZ).strftime("%Y-%m")
+    if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", month):
+        raise HTTPException(400, "Choose a month like 2026-05")
+    hidden = {u["user_id"] async for u in db.users.find({"hidden": True}, {"_id": 0, "user_id": 1})}
+    certs = [with_status(c) for c in await db.certificates.find(
+        {"is_deleted": False, "expiry_date": {"$regex": f"^{month}"}}, P).to_list(5000) if c["owner_id"] not in hidden]
+    owners = {u["user_id"]: u["name"] async for u in db.users.find({"user_id": {"$in": list({c["owner_id"] for c in certs})}},
+                                                                  {"_id": 0, "user_id": 1, "name": 1})}
+    everyone = await db.certificates.find({"owner_id": {"$in": list(owners)}, "is_deleted": False}, P).to_list(10000)
+    out = [{**c, "owner_name": owners[c["owner_id"]],
+            "renewed": renewal_of(c, [x for x in everyone if x["owner_id"] == c["owner_id"]])}
+           for c in certs if c["owner_id"] in owners]
+    out.sort(key=lambda c: (c["expiry_date"], c["owner_name"].lower()))
+    return {"month": month, "certificates": out}
 
 
 @router.get("/certificates/team/renewals")

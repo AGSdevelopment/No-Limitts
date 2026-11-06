@@ -53,7 +53,8 @@ function RootStack() {
         <Stack.Screen name="places" options={{ ...header, title: "No Limitts favourites" }} />
         <Stack.Screen name="directory" options={{ ...header, title: "Company Drive" }} />
         <Stack.Screen name="directory-new" options={{ ...header, title: "Add to Company Drive", presentation: "modal" }} />
-        <Stack.Screen name="leaderboard" options={{ ...header, title: "Event participation" }} />
+        <Stack.Screen name="leaderboard" options={{ ...header, title: "Leaderboard" }} />
+        <Stack.Screen name="cert-calendar" options={{ ...header, title: "Expiry calendar" }} />
         <Stack.Screen name="pathway" options={{ ...header, title: "My therapist pathway" }} />
         <Stack.Screen name="tasks" options={{ ...header, title: "Tasks" }} />
         <Stack.Screen name="notifications" options={{ ...header, title: "Notifications" }} />

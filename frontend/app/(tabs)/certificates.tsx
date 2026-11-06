@@ -69,6 +69,7 @@ export default function Certificates() {
           refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => q.refetch()} tintColor={colors.brandPrimary} />}
           ListHeaderComponent={
             certs.length > 0 ? (
+              <View style={{ gap: 8 }}>
               <View style={styles.summary} testID="cert-summary">
                 {(
                   [
@@ -82,6 +83,12 @@ export default function Certificates() {
                     <Text style={styles.summaryLabel}>{label}</Text>
                   </View>
                 ))}
+              </View>
+              <Pressable onPress={() => router.push("/leaderboard?tab=renewals")} style={styles.renewBtn} accessibilityRole="button"
+                testID="cert-renewal-leaderboard">
+                <Ionicons name="trophy-outline" size={16} color={colors.brandPrimary} />
+                <Text style={styles.renewText}>Renew on time to earn a Leaderboard badge</Text>
+              </Pressable>
               </View>
             ) : null
           }

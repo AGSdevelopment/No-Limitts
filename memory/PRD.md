@@ -265,3 +265,7 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Renewal thank-you: on certificate upload, thank_nudgers notifies whoever nudged once renewal detected (cert_nudges.thanked).
 - Renew from reminder: nudge notification links /upload-certificate?renew=<cert_id>; upload sends `renews` -> explicit renewal link. "Upload renewal" on own expiring/expired certs.
 - Handover photo timeline: GET /api/participants/{id}/handover-photos (coordinators/HR/admin), screen /handover-photos/[id], button on participant profile.
+- Renewal streak badges: GET /api/certificates/renewal-board (on-time = renewal uploaded on/before old expiry; streak badges 1 ✅ On Time, 3 ⭐ Always Ready, 5 🏆 Compliance Champion); "On-time renewals" tab on /leaderboard (?tab=renewals), badge emoji on case note streak rows.
+- Birthday card email: POST /api/participants/{id}/birthday-wall/email {email of a key contact}; 30-day link GET /api/birthday-card/shared/{token}.
+- Timeline filters: ?worker=&date_from=&date_to= on handover-photos; chips + presets + custom DD-MM-YYYY.
+- Expiry calendar: GET /api/certificates/team/calendar?month=YYYY-MM; screen /cert-calendar (linked from /team-certificates).

@@ -390,7 +390,7 @@ async def email_report_now(month: Optional[str] = None, user=Depends(current_use
         raise HTTPException(400, "There's no email address on your profile")
     m = valid_month(month)
     if not await email_report(user, m):
-        raise HTTPException(502, "Couldn't send the email right now. Please try again.")
+        raise HTTPException(503, "Couldn't send the email right now. Please try again in a minute.")
     return {"sent_to": user["email"], "month": m}
 
 
@@ -473,13 +473,32 @@ async def birthday_card_pdf(participant_id: str, request: Request, token: Option
 
 # ---- Handover photo timeline (Coordinators, HR and Admins) ----
 
+def iso_or_400(v: Optional[str], label: str) -> Optional[str]:
+    if not v:
+        return None
+    try:
+        return date.fromisoformat(v).isoformat()
+    except ValueError:
+        raise HTTPException(400, f"Choose a valid {label} date")
+
+
 @router.get("/participants/{participant_id}/handover-photos")
-async def handover_photo_timeline(participant_id: str, user=Depends(current_user)):
+async def handover_photo_timeline(participant_id: str, worker: Optional[str] = None, date_from: Optional[str] = None,
+                                  date_to: Optional[str] = None, user=Depends(current_user)):
     check_access(user)
     p = await db.participants.find_one({"participant_id": participant_id}, {"_id": 0})
     if not p:
         raise HTTPException(404, "Participant not found")
-    photos = await db.handover_photos.find({"participant": p["key"]}, {"_id": 0}).sort("at", -1).to_list(2000)
+    lo, hi = iso_or_400(date_from, "start"), iso_or_400(date_to, "end")
+    if lo and hi and lo > hi:
+        raise HTTPException(400, "The start date must be before the end date")
+    every = await db.handover_photos.find({"participant": p["key"]}, {"_id": 0}).sort("at", -1).to_list(2000)
+    workers = sorted({ph["by_id"]: ph["by_name"] for ph in every}.items(), key=lambda w: w[1].lower())
+
+    def local_day(ph):
+        return datetime.fromisoformat(ph["at"]).astimezone(DIGEST_TZ).date().isoformat()
+    photos = [ph for ph in every if (not worker or ph["by_id"] == worker)
+              and (not lo or local_day(ph) >= lo) and (not hi or local_day(ph) <= hi)]
     rows = {r["id"]: r for r in (await load_rows() if configured() else []) if r["id"]}
     groups: dict = {}
     for ph in photos:
@@ -491,4 +510,58 @@ async def handover_photo_timeline(participant_id: str, user=Depends(current_user
         out.append({**g, "date": r.get("date") or g["photos"][-1]["at"][:10], "author": r.get("email") or "",
                     "source": r.get("source") or "Shift handover"})
     out.sort(key=lambda g: (g["date"], g["photos"][0]["at"]), reverse=True)
-    return {"name": p["name"], "total": len(photos), "handovers": out}
+    return {"name": p["name"], "total": len(photos), "all_total": len(every), "handovers": out,
+            "workers": [{"user_id": i, "name": n} for i, n in workers]}
+
+
+# ---- Email the birthday card to a family contact (Coordinators and Admins) ----
+
+class CardEmailIn(BaseModel):
+    email: str
+
+
+@router.post("/participants/{participant_id}/birthday-wall/email")
+async def email_birthday_card(participant_id: str, body: CardEmailIn, user=Depends(current_user)):
+    if not can_manage(user):
+        raise HTTPException(403, "Only Coordinators and Admins can email the birthday card")
+    p = await wall_participant(participant_id, user)
+    win = wall_window(p)
+    if not win:
+        raise HTTPException(400, "The birthday card opens 7 days before their birthday")
+    to = body.email.strip().lower()
+    contact = next((c for c in (p.get("profile") or {}).get("contacts", []) if (c.get("email") or "").strip().lower() == to and to), None)
+    if not contact:
+        raise HTTPException(400, "Choose one of the participant's key contacts with an email address")
+    if not await db.birthday_messages.count_documents({"participant_id": participant_id, "date": win["date"]}):
+        raise HTTPException(400, "Nobody has signed the card yet")
+    token = secrets.token_urlsafe(24)
+    await db.birthday_card_links.insert_one({"token": token, "participant_id": participant_id, "date": win["date"], "turns": win["turns"],
+                                             "sent_to": to, "by_id": user["user_id"], "created_at": now_iso(),
+                                             "expires_at": (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()})
+    first = p["name"].split(" ")[0]
+    link = f"{(os.environ.get('PUBLIC_BACKEND_URL') or '').rstrip('/')}/api/birthday-card/shared/{token}"
+    html = (f'<table role="presentation" width="100%"><tr><td style="padding:24px;font-family:Arial,sans-serif;color:#11181C">'
+            f'<p>Hi {escape((contact.get("name") or "there").split(" ")[0])},</p>'
+            f'<p>The No Limitts team has signed a birthday card for <strong>{escape(first)}</strong> 🎂 and we wanted to share it with you.</p>'
+            f'<p><a href="{escape(link)}" style="display:inline-block;background:#f7a51d;color:#ffffff;padding:12px 20px;'
+            f'border-radius:10px;text-decoration:none;font-weight:bold">Open {escape(first)}&#39;s birthday card</a></p>'
+            f'<p style="font-size:13px;color:#555">You can print it out or show it to {escape(first)} on screen. The link works for 30 days.</p>'
+            f'<p>Warm wishes,<br>{escape(user.get("name") or "The No Limitts team")}<br>No Limitts</p></td></tr></table>')
+    if not await send_email(to=to, subject=f"A birthday card for {first} from the No Limitts team", html=html):
+        await db.birthday_card_links.delete_one({"token": token})
+        raise HTTPException(503, "Couldn't send the email right now. Please try again in a minute.")
+    await db.birthday_card_links.update_one({"token": token}, {"$set": {"sent": True}})
+    return {"sent_to": to, "name": contact.get("name") or ""}
+
+
+@router.get("/birthday-card/shared/{token}")
+async def shared_birthday_card(token: str):
+    link = await db.birthday_card_links.find_one({"token": token}, {"_id": 0})
+    if not link or link["expires_at"] < datetime.now(timezone.utc).isoformat():
+        raise HTTPException(404, "This birthday card link has expired")
+    p = await db.participants.find_one({"participant_id": link["participant_id"]}, {"_id": 0, "name": 1})
+    if not p:
+        raise HTTPException(404, "This birthday card is no longer available")
+    msgs = await db.birthday_messages.find({"participant_id": link["participant_id"], "date": link["date"]}, {"_id": 0}).sort("at", 1).to_list(500)
+    pdf = await run_in_threadpool(build_card_pdf, p["name"].split(" ")[0], link["turns"], msgs)
+    return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": 'inline; filename="Birthday_card.pdf"'})

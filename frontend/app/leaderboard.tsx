@@ -21,18 +21,67 @@ export default function Leaderboard() {
   const eventsAllowed = user?.role === "admin" || user?.staff_group === "support_office";
   const streaksAllowed = user?.role === "admin" || ["support_worker", "support_coordinator", "hr"].includes(user?.user_type ?? "");
   const params = useLocalSearchParams<{ tab?: string }>();
-  const [tab, setTab] = useState<"events" | "streaks">(params.tab === "streaks" || !eventsAllowed ? "streaks" : "events");
+  const [tab, setTab] = useState<"events" | "streaks" | "renewals">(
+    params.tab === "renewals" ? "renewals" : params.tab === "streaks" || !eventsAllowed ? "streaks" : "events");
   const q = useQuery<any>({ queryKey: ["leaderboard", period], queryFn: () => api(`/events/leaderboard?period=${period}`), enabled: eventsAllowed && tab === "events" });
   const sq = useQuery<any>({ queryKey: ["streak-board"], queryFn: () => api("/caseload/streaks"), enabled: streaksAllowed && tab === "streaks" });
+  const rq = useQuery<any>({ queryKey: ["renewal-board"], queryFn: () => api("/certificates/renewal-board"), enabled: tab !== "events" });
+  const badges: Record<string, { emoji: string; label: string }> = {};
+  for (const r of rq.data?.rows ?? []) if (r.badge) badges[r.user_id] = r.badge;
 
   if (!eventsAllowed && !streaksAllowed) return <EmptyState icon="lock-closed-outline" title="Not available for your role" />;
 
-  const tabs = eventsAllowed && streaksAllowed && (
-    <View style={styles.chips}>
-      <Chip label="Team events" selected={tab === "events"} onPress={() => setTab("events")} testID="leaderboard-tab-events" />
-      <Chip label="Case note streaks" selected={tab === "streaks"} onPress={() => setTab("streaks")} testID="leaderboard-tab-streaks" />
+  const tabs = (
+    <View style={[styles.chips, { flexWrap: "wrap" }]}>
+      {eventsAllowed && <Chip label="Team events" selected={tab === "events"} onPress={() => setTab("events")} testID="leaderboard-tab-events" />}
+      {streaksAllowed && <Chip label="Case note streaks" selected={tab === "streaks"} onPress={() => setTab("streaks")} testID="leaderboard-tab-streaks" />}
+      <Chip label="On-time renewals" selected={tab === "renewals"} onPress={() => setTab("renewals")} testID="leaderboard-tab-renewals" />
     </View>
   );
+
+  if (tab === "renewals") {
+    return (
+      <FlatList
+        style={styles.root}
+        data={rq.data?.rows ?? []}
+        keyExtractor={(r) => r.user_id}
+        contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: insets.bottom + 24, flexGrow: 1 }}
+        refreshControl={<RefreshControl refreshing={rq.isRefetching} onRefresh={() => rq.refetch()} tintColor={colors.brandPrimary} />}
+        testID="renewal-board-screen"
+        ListHeaderComponent={
+          <View style={{ gap: 10, marginBottom: 4 }}>
+            {tabs}
+            <Text style={styles.sub}>Staff who upload their renewed certificate before the old one expires. Keep the streak going to earn a badge:</Text>
+            <View style={[styles.chips, { flexWrap: "wrap" }]}>
+              {(rq.data?.badges ?? []).map((b: any) => (
+                <View key={b.label} style={styles.badgeKey}>
+                  <Text style={styles.badgeKeyText}>{b.emoji} {b.label} · {b.streak}+</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        }
+        ListEmptyComponent={
+          rq.isLoading ? <Loading /> : rq.isError ? <ErrorState message="Couldn't load renewals." onRetry={() => rq.refetch()} /> : <EmptyState icon="ribbon-outline" title="No renewals yet" subtitle="Renew a certificate before it expires to get on the board." />
+        }
+        renderItem={({ item, index }) => (
+          <View style={[styles.card, index < 3 && item.streak > 0 && styles.top, item.me && styles.me]} testID={`renewal-row-${item.user_id}`}>
+            <Text style={styles.rank}>{item.streak > 0 ? MEDALS[index] ?? `${index + 1}` : "–"}</Text>
+            <Avatar name={item.name} picture={item.picture} size={40} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.name}>{item.name}{item.me ? " (you)" : ""}</Text>
+              <Text style={styles.sub}>{item.on_time} of {item.renewals} renewed on time</Text>
+              {!!item.badge && <Text style={styles.badge} testID={`renewal-badge-${item.user_id}`}>{item.badge.emoji} {item.badge.label}</Text>}
+            </View>
+            <View style={styles.score}>
+              <Text style={styles.scoreNum}>{item.streak}</Text>
+              <Text style={styles.scoreLabel}>in a row</Text>
+            </View>
+          </View>
+        )}
+      />
+    );
+  }
 
   if (tab === "streaks") {
     return (
@@ -57,7 +106,7 @@ export default function Leaderboard() {
             <Text style={styles.rank}>{item.current > 0 ? MEDALS[index] ?? `${index + 1}` : "–"}</Text>
             <Avatar name={item.name} picture={item.picture} size={40} />
             <View style={{ flex: 1 }}>
-              <Text style={styles.name}>{item.name}{item.me ? " (you)" : ""}</Text>
+              <Text style={styles.name}>{item.name}{item.me ? " (you)" : ""}{badges[item.user_id] ? ` ${badges[item.user_id].emoji}` : ""}</Text>
               <Text style={styles.sub}>Best {item.best} day{item.best === 1 ? "" : "s"}{item.today_done ? " · today done" : ""}</Text>
             </View>
             <View style={styles.score}>
@@ -123,4 +172,7 @@ const useStyles = makeStyles((c) => ({
   score: { alignItems: "center", minWidth: 48 },
   scoreNum: { fontSize: 22, fontWeight: "800", color: c.brandPrimary },
   scoreLabel: { fontSize: 11, color: c.muted },
+  badge: { fontSize: 12, fontWeight: "700", color: c.brandPrimary, marginTop: 2 },
+  badgeKey: { backgroundColor: c.surface, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 6 },
+  badgeKeyText: { fontSize: 12, fontWeight: "600", color: c.onSurface },
 }));

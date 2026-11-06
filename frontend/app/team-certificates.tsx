@@ -3,6 +3,7 @@ import { useState } from "react";
 import { FlatList, Pressable, RefreshControl, View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 
 import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
@@ -24,6 +25,7 @@ export default function TeamCertificates() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const router = useRouter();
   const allowed = user?.role === "admin" || ["hr", "support_coordinator"].includes(user?.user_type ?? "");
   const q = useQuery<any>({ queryKey: ["team-certificates"], queryFn: () => api("/certificates/team"), enabled: allowed });
   const [filter, setFilter] = useState<(typeof FILTERS)[number]["key"]>("all");
@@ -80,6 +82,16 @@ export default function TeamCertificates() {
       ListHeaderComponent={
         <View style={{ gap: 10 }}>
           <Text style={styles.meta}>Training certificates across the team that expire in the next {q.data.warning_days} days, or already have. Staff get reminders too.</Text>
+          <View style={styles.chips}>
+            <Pressable onPress={() => router.push("/cert-calendar")} style={styles.nudge} accessibilityRole="button" testID="team-certs-calendar">
+              <Ionicons name="calendar-outline" size={16} color={colors.brandPrimary} />
+              <Text style={styles.nudgeText}>Expiry calendar</Text>
+            </Pressable>
+            <Pressable onPress={() => router.push("/leaderboard?tab=renewals")} style={styles.nudge} accessibilityRole="button" testID="team-certs-leaderboard">
+              <Ionicons name="trophy-outline" size={16} color={colors.brandPrimary} />
+              <Text style={styles.nudgeText}>On-time renewals</Text>
+            </Pressable>
+          </View>
           <View style={styles.chips}>
             {FILTERS.map((f) => {
               const n = f.key === "all" ? all.length : f.key === "renewals" ? renewals.length : all.filter((c) => c.status === f.key).length;

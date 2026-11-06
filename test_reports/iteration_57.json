@@ -1,0 +1,53 @@
+{
+  "summary": "Iteration 57 tested 4 new features end-to-end: Renewal Streak board, Birthday Card Email with shared link, Handover Photo Timeline filters, and the Team Expiry Calendar. Backend: 25 of 25 pytest tests passed (1 skipped because no participant without a DOB exists). The first runs hit an external email-provider 429 rate limit, and the backend's 502 for that was replaced by a Cloudflare HTML page. Frontend (375x667): all requested flows work. The leaderboard renewals tab works as both employee and admin, with the badge, '1 of 2 renewed on time' and streak 1. The tab is reachable from cert-renewal-leaderboard and team-certs-leaderboard via ?tab=renewals. The calendar's month navigation, day select/deselect, empty-day text, legend, renewed info and worker lock all work. All timeline worker and range chips plus custom DD-MM-YYYY dates give correct counts. The birthday email sheet works: sign, then Email card to family, then pick the contact gives 200, a success toast and closes the sheet; the shared link returns a 260KB PDF; the no-contacts state shows. One real bug: streak math is wrong for renewals matched by title only (no renews link).",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "GET /api/certificates/renewal-board", "issue": "renewal_of() fuzzy title matching (no 'renews' link) picks the NEWEST matching cert, not the next one. With 3 uploads of 'First Aid' (A exp 2024-06-01, B uploaded 2024-05-20, C uploaded 2025-05-20), A is mapped to C, so it counts as late. Board shows on_time=1/2, streak 1; should be 2/2, streak 2. Every worker who renews via normal upload (not renew-from-reminder) gets under-counted streaks. Fix: in renewal_record use the earliest later-created matching cert, or skip certs already claimed as the renewal of a nearer predecessor.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "POST /api/participants/{id}/birthday-wall/email", "issue": "When the provider fails (seen: 429 rate_limited) the backend raises HTTP 502. The Cloudflare ingress replaces origin 502 bodies with its HTML error page, so api() can't read 'detail' and the toast says 'Something went wrong'. Use 503 (or 424) so the message gets through."},
+      {"endpoint": "POST /api/participants/{id}/birthday-wall/email", "issue": "The birthday_card_links doc is inserted before send_email. On a failed send it is left with sent unset, and GET /birthday-card/shared/{token} doesn't check 'sent', so orphan but valid links pile up. Delete the doc on failure, or insert it only after a successful send."},
+      {"endpoint": "renewal_record on-time check", "issue": "Compares the UTC date of uploaded_at[:10] with expiry_date (a Perth local date). An upload between 00:00 and 08:00 Perth the day after expiry still counts as on time. Convert to DIGEST_TZ first."},
+      {"endpoint": "GET /api/participants/{id}/handover-photos", "issue": "date_from > date_to isn't rejected; it silently returns 0. Optional: 400 'Start date must be before end date'."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Handover timeline custom dates", "issue": "An invalid or partial From/To (e.g. '99-99') shows no validation hint. The query is disabled and placeholderData keeps the previous results on screen, which suggests the filter was applied.", "testID": "timeline-to", "priority": "LOW"},
+      {"component": "Expiry calendar list", "issue": "Certs that already expired this month still say 'Expires 5 Nov 2026'; they should say 'Expired ...'.", "testID": "cert-calendar-item-<id>", "priority": "LOW"}
+    ],
+    "integration_issues": [
+      {"flow": "Birthday card email failure", "issue": "A provider failure gives a generic 'Something went wrong' toast because the 502 is masked by Cloudflare (see backend minor).", "affected_testIDs": ["birthday-email-to-<email>"]}
+    ],
+    "design_issues": [
+      {"screen": "cert-calendar", "issues": ["The 'Due' legend dot (dark amber) sits on the orange app background with low contrast. Consider putting the legend inside the white calendar card.", "Timeline meta '0 photos across 0 handovers (of 3)' repeats the 'No photos match' empty state."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter57_renewal_board_card_email_timeline_filters_calendar.py",
+    "/app/backend/tests/iter57_seed.py",
+    "/app/test_reports/pytest/pytest_iter57.xml"
+  ],
+  "action_items": [
+    "HIGH: Fix renewal_record/renewal_of so title-matched renewals map each old cert to its immediate successor (earliest later-created matching cert), not the newest one. Add a unit test with 3 same-title uploads.",
+    "Change the birthday email provider-failure status from 502 to 503 so the message reaches the UI through Cloudflare. Also remove or skip the birthday_card_links doc when the send fails.",
+    "Use the Perth date of uploaded_at for the on-time comparison.",
+    "Optional UX: validation hint for invalid custom timeline dates, and 'Expired' wording for past calendar items."
+  ],
+  "critical_code_review_comments": [
+    "pytest.ini sets '-n --dist loadscope'. Module-scoped seeding fixtures then run once per xdist worker, which double-seeded data and raced on cleanup. Run seeded iteration files with '-n 0'.",
+    "Case-note streak rows add the renewal badge emoji (leaderboard.tsx:109). Checked in code only; the streak board had no rows to verify in the UI.",
+    "Frontend rangeDates() uses device-local dates while the backend filters by Perth local day. Fine for WA users; off by a day for other timezones."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter57_renewal_board_card_email_timeline_filters_calendar.py",
+    "/app/backend/tests/iter57_seed.py"
+  ],
+  "success_rate": {"backend": "100% (25/25 once the email provider 429 cleared; 1 skipped)", "frontend": "100% of requested flows; 2 low-priority UX issues"},
+  "seed_data_creation": "Temporary only, all removed by tracked ids. Created: 5 TEST57 certs for user_testemp001, 3 handover_photos for 'test birthday person', 1 TEST57 contact on par_960475e91169, birthday messages and card links. Verified after: 0 leftovers, contacts restored to [], user_testemp001 hidden=true. No cert_nudges or notifications were created. One real email was sent to test.family57@example.com.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run 'python /app/backend/tests/iter57_seed.py seed|cleanup' to seed or clean UI data. The pytest file seeds and cleans itself; run it with -n 0. The Emergent email provider sometimes returns 429; wait about a minute and retry. Server date is around 2026-11-06; the par_960475e91169 birthday wall is open until about 2026-11-10.",
+  "rca_of_issue": "Renewal streak under-count: renewal_of() sorts owner certs by created_at descending and returns the first title match with a later expiry and later created_at. That match is the newest cert, not the immediate successor, so an older cert's 'renewal' date is the latest upload and on-time renewals are marked late. Reproduce: renewal_record() on 3 'First Aid' certs uploaded yearly before each expiry returns on_time=1, streak=1 (expected 2, 2). Mitigation: when no explicit 'renews' link exists, pick the earliest-created later matching cert."
+}
