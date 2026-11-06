@@ -23,6 +23,8 @@ export default function Invoices() {
   const toast = useToast();
   const [filter, setFilter] = useState("");
   const q = useQuery<any[]>({ queryKey: ["invoices", filter], queryFn: () => api(`/invoices${filter ? `?status=${filter}` : ""}`) });
+  const od = useQuery<any>({ queryKey: ["invoices-overdue"], queryFn: () => api("/invoices/overdue") });
+  const [emailing, setEmailing] = useState<any>(null);
   const [range, setRange] = useState({ from: "", to: "" });
   const [preview, setPreview] = useState<any>(null);
   const [busy, setBusy] = useState(false);
@@ -62,6 +64,20 @@ export default function Invoices() {
       toast(status === "paid" ? "Marked as paid" : status === "void" ? "Invoice voided. Its shifts can be invoiced again." : "Marked as unpaid", "success");
       setVoiding(null);
       q.refetch();
+      od.refetch();
+    } catch (e: any) {
+      toast(e.message, "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const sendEmail = async () => {
+    setBusy(true);
+    try {
+      const r = await api<any>(`/invoices/${emailing.invoice_id}/email`, { method: "POST" });
+      toast(`Invoice emailed to ${r.emailed.to}`, "success");
+      setEmailing(null);
+      q.refetch();
     } catch (e: any) {
       toast(e.message, "error");
     } finally {
@@ -96,9 +112,21 @@ export default function Invoices() {
         data={q.data ?? []}
         keyExtractor={(i) => i.invoice_id}
         contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: insets.bottom + 24, flexGrow: 1 }}
-        refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={q.refetch} tintColor={colors.brandPrimary} />}
+        refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => { q.refetch(); od.refetch(); }} tintColor={colors.brandPrimary} />}
         ListHeaderComponent={
           <View style={{ gap: 10, marginBottom: 4 }}>
+            {od.data?.count > 0 && (
+              <View style={styles.overdue} testID="inv-overdue">
+                <Text style={styles.title}>{od.data.count} overdue · {$(od.data.total)}</Text>
+                {od.data.payers.map((g: any) => (
+                  <View key={g.payer} style={styles.row}>
+                    <Text style={[styles.meta, { flex: 1 }]} numberOfLines={1}>{g.payer} · {g.count} invoice{g.count === 1 ? "" : "s"}, oldest {Math.max(...g.invoices.map((x: any) => x.days_overdue))} days</Text>
+                    <Text style={[styles.body, { fontWeight: "700" }]}>{$(g.total)}</Text>
+                  </View>
+                ))}
+                <Text style={styles.meta}>Finance gets this list each morning at 8am until invoices are marked paid.</Text>
+              </View>
+            )}
             <Text style={styles.section}>Create invoices</Text>
             <Text style={styles.meta}>One GST-free invoice per funding payer, from completed shifts at their approved times. Shifts are only invoiced once.</Text>
             <View style={{ flexDirection: "row", gap: 8 }}>
@@ -120,7 +148,7 @@ export default function Invoices() {
           <View style={styles.card} testID={`invoice-${i.invoice_id}`}>
             <View style={styles.row}>
               <Text style={[styles.title, { flex: 1 }]}>{i.number} · {i.participant_name}</Text>
-              <Pill label={i.status === "paid" ? "Paid" : i.status === "void" ? "Void" : "Unpaid"} tone={i.status === "paid" ? "brand" : i.status === "void" ? "muted" : "accent"} />
+              <Pill label={i.status === "paid" ? "Paid" : i.status === "void" ? "Void" : i.overdue ? "Overdue" : "Unpaid"} tone={i.status === "paid" ? "brand" : i.overdue ? "accent" : "muted"} />
             </View>
             <Text style={styles.body}>{$(i.total)} · {i.shifts} shift{i.shifts === 1 ? "" : "s"} · {i.management_type}</Text>
             <Text style={styles.meta}>To {[i.payer?.company, i.payer?.name].filter(Boolean).join(" · ")} · {isoToDmy(i.period_from)} to {isoToDmy(i.period_to)} · due {isoToDmy(i.due_date)}</Text>
@@ -132,6 +160,11 @@ export default function Invoices() {
                   disabled={busy} onPress={() => setStatus(i, i.status === "paid" ? "unpaid" : "paid")} testID={`inv-paid-${i.invoice_id}`} />
               )}
             </View>
+            {!!i.emailed && <Text style={styles.meta} testID={`inv-emailed-${i.invoice_id}`}>Emailed to {i.emailed.to} · {isoToDmy(i.emailed.date ?? i.emailed.at.slice(0, 10))}</Text>}
+            {i.status !== "void" && !!i.payer?.email && (
+              <Button label={i.emailed ? "Email again" : "Email to payer"} icon="mail-outline" variant="secondary" disabled={busy}
+                onPress={() => setEmailing(i)} testID={`inv-email-${i.invoice_id}`} />
+            )}
             {i.status === "unpaid" && (
               <Pressable onPress={() => setVoiding(i)} style={styles.link} testID={`inv-void-${i.invoice_id}`}>
                 <Ionicons name="close-circle-outline" size={16} color={colors.errorText} />
@@ -172,6 +205,12 @@ export default function Invoices() {
         )}
       </Sheet>
 
+      <Sheet visible={!!emailing} onClose={() => !busy && setEmailing(null)} title={`Email ${emailing?.number ?? ""}?`}
+        sub={emailing ? `Sends a private link to the PDF (valid 60 days) to ${emailing.payer?.email || "the invoice payer"}.` : ""} testID="inv-email-sheet">
+        <Button label="Send email" icon="send-outline" loading={busy} disabled={busy} onPress={sendEmail} testID="inv-email-send" />
+        <Button label="Cancel" variant="ghost" onPress={() => setEmailing(null)} testID="inv-email-cancel" />
+      </Sheet>
+
       <ConfirmSheet visible={!!voiding} title={`Void ${voiding?.number ?? ""}?`} sub="The invoice stays on record as void and its shifts can be invoiced again."
         confirmLabel="Void invoice" busy={busy} onConfirm={() => setStatus(voiding, "void")} onClose={() => setVoiding(null)} />
     </>
@@ -181,6 +220,7 @@ export default function Invoices() {
 const useStyles = makeStyles((c) => ({
   root: { flex: 1, backgroundColor: c.background },
   card: { backgroundColor: c.surface, borderRadius: 14, padding: 14, gap: 6 },
+  overdue: { backgroundColor: c.warningSoft, borderRadius: 14, padding: 14, gap: 6 },
   row: { flexDirection: "row", alignItems: "center", gap: 8 },
   chips: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
   section: { fontSize: 13, fontWeight: "700", color: c.muted, textTransform: "uppercase" },

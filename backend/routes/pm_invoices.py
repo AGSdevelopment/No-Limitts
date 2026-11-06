@@ -1,9 +1,11 @@
 """Participant invoices (Finance): one invoice per funding line (its invoice payer) for completed shifts in a period.
 Amounts are the approved shift costs. GST-free. Finance downloads the PDF; nothing is emailed automatically.
 Voiding an invoice releases its shifts so they can be invoiced again."""
+import asyncio
 import io
+import os
 import secrets
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from html import escape
 from typing import Optional
 
@@ -13,7 +15,8 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 from pymongo import ReturnDocument
 
-from core import P, db, dmy, now_iso
+from core import P, db, dmy, logger, notify, now_iso
+from email_service import send_email
 from pdf_brand import FIRST_TOP, add_logo
 from routes.pm_common import finance_user, is_finance, money, now_perth, parse_dmy, token_user
 from routes.pm_timesheets import approved
@@ -119,7 +122,8 @@ async def generate(body: GenerateIn, user=Depends(finance_user)):
 
 
 def summary(inv: dict) -> dict:
-    return {k: v for k, v in inv.items() if k not in ("lines", "seller")} | {"shifts": len(inv["lines"])}
+    overdue = inv["status"] == "unpaid" and inv["due_date"] < now_perth().date().isoformat()
+    return {k: v for k, v in inv.items() if k not in ("lines", "seller", "email_history")} | {"shifts": len(inv["lines"]), "overdue": overdue}
 
 
 @router.get("/invoices")
@@ -217,3 +221,112 @@ async def uninvoiced(date_from: str, date_to: str, user=Depends(finance_user)):
         funds.add(s["funding_id"])
     pending = await db.shifts.count_documents({"date": {"$gte": lo, "$lte": hi}, "status": "awaiting_approval"})
     return {"shifts": n, "total": money(total), "invoices": len(funds), "pending": pending}
+
+
+# ---- Email to payer (private PDF link) ----
+
+LINK_DAYS = 60
+
+
+@router.post("/invoices/{invoice_id}/email")
+async def email_invoice(invoice_id: str, user=Depends(finance_user)):
+    inv = await db.invoices.find_one({"invoice_id": invoice_id}, P)
+    if not inv:
+        raise HTTPException(404, "Invoice not found")
+    if inv["status"] == "void":
+        raise HTTPException(400, "This invoice was voided")
+    to = (inv["payer"].get("email") or "").strip()
+    if "@" not in to:
+        raise HTTPException(400, "This funding line has no invoice payer email. Update it in Funding first.")
+    token = secrets.token_urlsafe(24)
+    s = inv["seller"]
+    base = (os.environ.get("PUBLIC_BACKEND_URL") or "").rstrip("/")
+    who = inv["payer"].get("name") or inv["payer"].get("company") or "there"
+    bank = " · ".join(v for v in (s["account_name"], f"BSB {s['bsb']}" if s["bsb"] else "",
+                                  f"Account {s['account_number']}" if s["account_number"] else "") if v)
+    html = (f"<p>Hi {escape(who)},</p><p>Please find invoice <b>{escape(inv['number'])}</b> from {escape(s['business_name'])} for supports provided to "
+            f"<b>{escape(inv['participant_name'])}</b> from {dmy(inv['period_from'])} to {dmy(inv['period_to'])}.</p>"
+            f"<p style='font-size:18px'><b>${inv['total']:,.2f}</b> (GST-free) due {dmy(inv['due_date'])}</p>"
+            f'<p><a href="{base}/api/invoices/shared/{token}" style="background:#f7a51d;color:#fff;padding:12px 20px;'
+            f'border-radius:10px;text-decoration:none;font-weight:bold">Open the invoice (PDF)</a></p>'
+            + (f"<p style='font-size:14px'>Pay by bank transfer: {escape(bank)}. Reference: {escape(inv['number'])}.</p>" if bank else "")
+            + f"<p style='font-size:13px;color:#555'>The link stays open for {LINK_DAYS} days. Questions? Reply to this email"
+            + (f" or call {escape(s['phone'])}" if s["phone"] else "") + ".</p>")
+    if not await send_email(to=to, subject=f"Invoice {inv['number']} from {s['business_name']}", html=html):
+        raise HTTPException(422, f"The email to {to} couldn't be sent. Check the payer's email address in Funding, then try again.")
+    await db.invoice_links.insert_one({"token": token, "invoice_id": invoice_id, "created_at": now_iso(),
+                                       "expires_at": (datetime.now(timezone.utc) + timedelta(days=LINK_DAYS)).isoformat()})
+    sent = {"to": to, "at": now_iso(), "date": now_perth().date().isoformat(), "by": user.get("name") or ""}
+    await db.invoices.update_one({"invoice_id": invoice_id}, {"$set": {"emailed": sent}, "$push": {"email_history": sent}})
+    return {"emailed": sent}
+
+
+@router.get("/invoices/shared/{token}")
+async def shared_invoice(token: str):
+    link = await db.invoice_links.find_one({"token": token}, P)
+    inv = await db.invoices.find_one({"invoice_id": link["invoice_id"]}, P) if link else None
+    if not inv or link["expires_at"] < datetime.now(timezone.utc).isoformat():
+        raise HTTPException(404, "This invoice link has expired. Please contact us for a copy.")
+    pdf = await run_in_threadpool(invoice_pdf, inv)
+    return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="Invoice_{inv["number"]}.pdf"'})
+
+
+# ---- Overdue invoices (daily list for Finance, 8am Perth) ----
+
+def payer_label(p: dict) -> str:
+    return p.get("company") or p.get("name") or p.get("email") or "Unknown payer"
+
+
+async def overdue_summary() -> dict:
+    today = now_perth().date()
+    invs = await db.invoices.find({"status": "unpaid", "due_date": {"$lt": today.isoformat()}}, P).sort("due_date", 1).to_list(5000)
+    payers: dict = {}
+    for i in invs:
+        key = payer_label(i["payer"])
+        g = payers.setdefault(key, {"payer": key, "email": i["payer"].get("email", ""), "total": 0.0, "count": 0, "invoices": []})
+        g["total"] = money(g["total"] + i["total"])
+        g["count"] += 1
+        g["invoices"].append({"invoice_id": i["invoice_id"], "number": i["number"], "participant_name": i["participant_name"],
+                              "total": i["total"], "due_date": i["due_date"], "days_overdue": (today - date.fromisoformat(i["due_date"])).days})
+    groups = sorted(payers.values(), key=lambda g: -g["total"])
+    return {"total": money(sum(g["total"] for g in groups)), "count": len(invs), "payers": groups}
+
+
+@router.get("/invoices/overdue")
+async def overdue(user=Depends(finance_user)):
+    return await overdue_summary()
+
+
+async def send_overdue_digest():
+    o = await overdue_summary()
+    if not o["count"]:
+        return
+    users = [u async for u in db.users.find({"$or": [{"permissions": "finance"}, {"role": "admin"}], "hidden": {"$ne": True}}, P)]
+    top = ", ".join(f"{g['payer']} ${g['total']:,.2f}" for g in o["payers"][:3])
+    await notify([u["user_id"] for u in users], "invoice", f"{o['count']} overdue invoice{'s' if o['count'] != 1 else ''}: ${o['total']:,.2f}",
+                 f"Biggest: {top}.", "/pm/invoices")
+    rows = "".join(
+        f"<tr><td style='padding:6px;border-bottom:1px solid #eee'><b>{escape(g['payer'])}</b><br/><span style='color:#555;font-size:12px'>"
+        + escape(", ".join(f"{x['number']} ({x['participant_name']}, {x['days_overdue']} days)" for x in g["invoices"]))
+        + f"</span></td><td style='padding:6px;border-bottom:1px solid #eee;text-align:right'><b>${g['total']:,.2f}</b></td></tr>" for g in o["payers"])
+    html = (f"<p>Good morning,</p><p><b>{o['count']} unpaid invoice{'s are' if o['count'] != 1 else ' is'} past due</b>, totalling "
+            f"<b>${o['total']:,.2f}</b>.</p><table style='width:100%;border-collapse:collapse;font-size:14px'>{rows}</table>"
+            f"<p style='font-size:13px;color:#555'>Mark invoices as paid in Participant Management, Invoices to clear them from this list.</p>")
+    n = len(o["payers"])
+    for u in users:
+        if u.get("email"):
+            await send_email(to=u["email"], subject=f"Overdue invoices: ${o['total']:,.2f} across {n} payer{'s' if n != 1 else ''}", html=html)
+
+
+async def overdue_loop():
+    await asyncio.sleep(150)
+    while True:
+        try:
+            local = now_perth()
+            key = f"overdue_invoices_{local.date().isoformat()}"
+            if local.hour >= 8 and not await db.meta.find_one({"key": key}):
+                await db.meta.insert_one({"key": key, "created_at": now_iso()})
+                await send_overdue_digest()
+        except Exception as e:
+            logger.error(f"Overdue invoice loop failed: {type(e).__name__}: {e}")
+        await asyncio.sleep(1800)

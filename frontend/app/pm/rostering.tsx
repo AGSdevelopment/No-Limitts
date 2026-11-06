@@ -9,7 +9,7 @@ import { Text } from "@/src/components/text";
 import { useAuth } from "@/src/auth";
 import { useToast } from "@/src/components/toast";
 import { Button, Chip, EmptyState, Field, Ionicons, Loading, Pill, dmyToIso } from "@/src/components/ui";
-import { ApproveSheet, CaseNoteGate, DeclineSheet, NewShiftSheet, ReasonSheet, STATUS, ShiftDetailSheet, when } from "@/src/components/shift-sheets";
+import { ApproveSheet, CaseNoteGate, DeclineSheet, DirectionsLink, NewShiftSheet, ReasonSheet, STATUS, ShiftDetailSheet, when } from "@/src/components/shift-sheets";
 import { CaseFormsSheet } from "@/src/components/participant-sheets";
 import { WeekRoster } from "@/src/components/week-roster";
 import { OfferLink, OffersPanel, SwapSheet, SwapStatus } from "@/src/components/shift-market";
@@ -183,6 +183,7 @@ export default function Rostering() {
               {!!s.funding_type && !mine && <Pill label={s.funding_type} tone="accent" />}
             </View>
             <Text style={styles.body}>{when(s)}</Text>
+            {mine && ["pending_acceptance", "accepted", "in_progress"].includes(s.status) && <DirectionsLink address={s.address} testID={`shift-directions-${s.shift_id}`} />}
             <Text style={[styles.meta, s.status === "pending_acceptance" && { color: colors.warningText, fontWeight: "700" }]}>
               {s.status === "pending_acceptance" && !mine ? "Waiting for the worker to accept" : STATUS[s.status] ?? s.status}{s.auto_accepted ? " (auto)" : ""}
               {s.clock_in ? ` · in ${s.clock_in.time}` : ""}{s.clock_out ? ` · out ${s.clock_out.time}` : ""}

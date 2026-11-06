@@ -11,6 +11,7 @@ from routes import (auth, users, notifications, certificates, chat, updates, pol
 from routes.caseload_extras import caseload_extras_loop
 from routes.roster_extras import budget_alert_loop
 from routes.shift_market import shift_market_loop
+from routes.pm_invoices import overdue_loop
 from routes.celebrations import celebration_reminder_loop
 from routes.caseload import case_note_reminder_loop, handover_alert_loop
 from routes.compliance import starter_reminder_loop
@@ -314,6 +315,7 @@ async def startup():
     asyncio.create_task(caseload_extras_loop())
     asyncio.create_task(budget_alert_loop())
     asyncio.create_task(shift_market_loop())
+    asyncio.create_task(overdue_loop())
 
 
 @app.on_event("shutdown")

@@ -242,7 +242,9 @@ async def list_shifts(date_from: Optional[str] = None, date_to: Optional[str] = 
     if status == "awaiting_approval":
         q.pop("date")
     shifts = await db.shifts.find(q, P).sort([("date", 1), ("start", 1)]).to_list(2000)
-    return [shift_view(s, user) for s in shifts]
+    addr = {p["participant_id"]: p.get("address") or "" async for p in db.participants.find(
+        {"participant_id": {"$in": list({x["participant_id"] for x in shifts})}}, {"_id": 0, "participant_id": 1, "address": 1})}
+    return [{**shift_view(s, user), "address": addr.get(s["participant_id"], "")} for s in shifts]
 
 
 async def get_shift_for(shift_id: str, user: dict) -> dict:
@@ -256,7 +258,7 @@ async def get_shift_for(shift_id: str, user: dict) -> dict:
 async def shift_detail(shift_id: str, user=Depends(current_user)):
     s = await get_shift_for(shift_id, user)
     p = await db.participants.find_one({"participant_id": s["participant_id"]}, P) or {}
-    return shift_view(s, user, p.get("profile") or {})
+    return {**shift_view(s, user, p.get("profile") or {}), "address": p.get("address") or ""}
 
 
 @router.post("/shifts/{shift_id}/accept")

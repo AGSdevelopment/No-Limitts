@@ -1,0 +1,42 @@
+{
+  "summary": "Iter63 tested shift address/Get directions, overdue invoice alerts (API, digest function, UI banner and pills) and Email to payer (API, shared PDF link, UI sheet and toast). Backend: 18/18 pytest pass once the payer email is delivered@resend.dev. The Emergent email service blocks @example.com recipients (422 undeliverable_recipient), so the app returns 502. The public ingress replaces that 502 JSON body with an HTML page, so the UI only shows 'Something went wrong'. Frontend: all requested flows work at 390x844. Directions open https://www.google.com/maps/dir/?api=1&destination=1%20Hay%20Street%2C%20Perth%20WA%206000, and tapping the button does not also open the card's detail sheet. Deprecated packages detected: none in the files reviewed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/invoices/{id}/email", "issue": "If the email fails, the route raises HTTPException(502). Through the public ingress, a 502 response body is replaced with an HTML page (<!DOCTYPE html>), so the JSON detail 'The email couldn't be sent...' never reaches the app. The frontend api() falls back to 'Something went wrong'. Verified: localhost:8001 returns the JSON detail, but the public URL returns HTML."},
+      {"endpoint": "POST /api/invoices/{id}/email", "issue": "Every email failure is reported as 'Try again in a minute', even a permanent one. The service returns 422 'Undeliverable recipient' for bad addresses and 429 rate_limited (seen in logs). Retrying will never fix a bad address; that case should say the payer email looks invalid."},
+      {"endpoint": "POST /api/invoices/{id}/email", "issue": "The invoice_links token is inserted before send_email. Each failed attempt leaves an orphan link that still opens the PDF for 60 days. Insert the link only after a successful send, or delete it on failure."},
+      {"endpoint": "overdue_loop", "issue": "The meta key for the day is inserted before send_overdue_digest runs. If the digest throws halfway, for example during the email loop, no retry happens that day. Low risk."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Invoice email error toast", "issue": "When the email service fails, the toast shows the generic 'Something went wrong' (caused by the ingress 502 replacement above).", "testID": "inv-email-send", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/pm/invoices", "issues": ["The Overdue pill uses the same 'accent' tone as Unpaid, so overdue invoices only differ by label. Use an error/warning tone.", "'Email to payer' still shows when the payer has no email (TEST63-008). Tapping it returns a 400 with a helpful message, but disabling or hiding it with a hint would be clearer.", "The 'Emailed to ... · DD-MM-YYYY' date comes from UTC emailed.at.slice(0,10), so it can show the previous day for emails sent before 8am Perth."]},
+      {"screen": "/pm/rostering My shifts", "issues": ["'Get directions' still shows on awaiting_approval shifts that the worker has already clocked out of (shf_ui63c). Consider also hiding it for awaiting_approval."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter63_directions_overdue_invoice_email.py", "/app/backend/tests/ui_seed_iter63.py", "/app/test_reports/pytest/pytest_iter63.xml"],
+  "action_items": [
+    "Change the email-failure status in POST /api/invoices/{id}/email from 502 to one the ingress passes through (e.g. 503 if verified, or 424/422/400), so the UI shows the real message.",
+    "Map the email service's 422 undeliverable_recipient to a clear 'payer email looks invalid' message. Keep 'try again' for 429 and 5xx. This needs send_email to return the reason or status.",
+    "Create the invoice_links token only after a successful send, or delete it on failure.",
+    "Optional UX: a distinct tone for the Overdue pill; disable 'Email to payer' when the payer has no email; hide directions for awaiting_approval shifts; show the emailed date in Perth time."
+  ],
+  "critical_code_review_comments": [
+    "send_overdue_digest only emails and notifies non-hidden admin/finance users. In this environment that means the four real executives (andrewt@, pronathin@, rond@, justined@nolimitts.com.au). Any TEST invoices in the DB after 8am Perth would be emailed to them. The tests guard this by pre-inserting the day's meta key and by monkeypatching send_email and notify.",
+    "Hidden test admins (user_testadmin01/02) never get the digest, so the real notification path can't be checked end to end with the test accounts.",
+    "Exact clock-in lat/lng is correctly stripped for non-office users in both /shifts and /shifts/{id}."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter63_directions_overdue_invoice_email.py (new)", "/app/backend/tests/ui_seed_iter63.py (new)"],
+  "success_rate": {"backend": "100% (18/18; the email send passes only with delivered@resend.dev, @example.com is rejected by the email service with 502)", "frontend": "~95% (all flows work; the error toast message is degraded)"},
+  "seed_data_creation": "ui_seed_iter63.py seeds par_ui63 (with address) and par_ui63b (no address), fund_ui63/fund_ui63b, shf_ui63a-d and 8 invoices inv_ui63_* (overdue, paid, void, future, due today, no email). It also adds a guard meta key, overdue_invoices_<today> with test_guard=iter63. 'clean' removes all of it by id, including invoice_links. Already cleaned. invoice_seq and invoice_settings were not touched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Use delivered@resend.dev as the payer email for successful sends; @example.com gets 422 from the Emergent email service. Run pytest with -n 0. The test uses a module-level event loop for direct motor access. Perth 'today' in this environment is 2026-11-06. Seed before the tests and clean after: python tests/ui_seed_iter63.py seed|clean.",
+  "rca_of_issue": "Generic 'Something went wrong' on email failure: send_email returned False (422 undeliverable for example.com), so the route raised HTTPException(502). The k8s ingress swaps upstream 502 bodies for its own HTML page. api.ts JSON-parses the body, finds no detail and falls back to the generic text. Repro: POST <public>/api/invoices/{id}/email for a payer @example.com returns 502 with an HTML body, while the same call on localhost:8001 returns 502 {\"detail\":\"The email couldn't be sent...\"}. Fix: return a non-502 status."
+}

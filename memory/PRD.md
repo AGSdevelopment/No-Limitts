@@ -285,3 +285,9 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Participant invoices (Finance): /pm/invoices — one GST-free invoice per funding payer from completed shifts, NL-###### numbering, PDF download, paid/unpaid/void (void releases shifts), editable business/bank details (defaults No Limitts Pty Ltd, ABN 92 606 960 730), max 93-day range, preview warns about shifts awaiting approval (`routes/pm_invoices.py`).
 - Clock-in location check: participant addresses at /pm/addresses (geocoded via OSM); clock-in sends phone location (pre-permission sheet, Open Settings when blocked, skip allowed); >300 m or not shared = flagged → Rosters approval; never blocks. Exact coords hidden from non-office users. Report has Location check column.
 - Refactor: participant_mgmt.py split into pm_common.py (perms, Perth time), pm_funding.py (funding), participant_mgmt.py (rostering).
+
+## Iteration 63 (Jun 2026)
+- Shift directions: shifts (list + detail) include participant `address`; workers see address + "Get directions" (Google Maps) on My shifts and shift detail.
+- Overdue invoice alerts: GET /api/invoices/overdue (per payer totals); daily 8am Perth in-app notification + email to Finance/admins (`overdue_loop` in pm_invoices.py, meta key overdue_invoices_YYYY-MM-DD); invoices list shows Overdue pill and summary banner.
+- Email to payer: POST /api/invoices/{id}/email sends a private 60-day PDF link (/api/invoices/shared/{token}) via Emergent email to the funding payer email; records `emailed` + history.
+

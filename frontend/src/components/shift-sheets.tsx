@@ -1,13 +1,13 @@
 // Shift sheets shared by Rostering: shift detail (plan goals), clock reason, approve clock times, new shift.
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, View } from "react-native";
+import { Linking, Pressable, ScrollView, View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 
 import { api } from "@/src/api";
 import { Text, TextInput } from "@/src/components/text";
 import { useToast } from "@/src/components/toast";
 import { Sheet } from "@/src/components/participant-sheets";
-import { Button, Chip, Field, Loading, isoToDmy } from "@/src/components/ui";
+import { Button, Chip, Field, Ionicons, Loading, isoToDmy } from "@/src/components/ui";
 import { makeStyles, useTheme } from "@/src/theme";
 
 export const REASONS = ["Started late so finished late", "Held up in traffic", "Prior shift ran over", "Unavoidable delay"];
@@ -19,6 +19,23 @@ export const STATUS: Record<string, string> = {
 };
 const PLAN = [["goals", "Goals"], ["support_needs", "Needs"], ["communication", "Preferences & communication"], ["health_alerts", "Health alerts"]];
 
+export function DirectionsLink({ address, testID }: { address?: string; testID?: string }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  if (!address) return null;
+  const open = () => Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`);
+  return (
+    <View style={styles.dirRow}>
+      <Ionicons name="location-outline" size={16} color={colors.muted} />
+      <Text style={[styles.meta, { flex: 1 }]} numberOfLines={2}>{address}</Text>
+      <Pressable onPress={open} style={styles.dirBtn} accessibilityRole="link" accessibilityLabel={`Get directions to ${address}`} testID={testID}>
+        <Ionicons name="navigate-outline" size={16} color={colors.brandPrimary} />
+        <Text style={styles.dirText}>Get directions</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 export function ShiftDetailSheet({ shiftId, onClose }: { shiftId: string | null; onClose: () => void }) {
   const styles = useStyles();
   const q = useQuery<any>({ queryKey: ["shift", shiftId], queryFn: () => api(`/shifts/${shiftId}`), enabled: !!shiftId });
@@ -29,6 +46,7 @@ export function ShiftDetailSheet({ shiftId, onClose }: { shiftId: string | null;
         <ScrollView style={{ maxHeight: 460 }} contentContainerStyle={{ gap: 8 }}>
           {!!s.funding_type && <Text style={styles.meta}>Funding: {s.funding_type}{s.est_cost != null ? ` · est. ${$(s.est_cost)}` : ""}</Text>}
           {!!s.notes && <Text style={styles.body}>{s.notes}</Text>}
+          <DirectionsLink address={s.address} testID="shift-detail-directions" />
           <Text style={styles.label}>Support Plan summary</Text>
           {PLAN.map(([k, label]) => (
             <View key={k} style={{ gap: 2 }}>
@@ -248,6 +266,9 @@ const useStyles = makeStyles((c) => ({
   body: { fontSize: 14, color: c.onSurface, lineHeight: 20 },
   meta: { fontSize: 13, color: c.muted, lineHeight: 18 },
   warn: { fontSize: 13, color: c.warningText, fontWeight: "700", lineHeight: 18 },
+  dirRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  dirBtn: { flexDirection: "row", alignItems: "center", gap: 4, minHeight: 44, paddingHorizontal: 10, borderRadius: 22, backgroundColor: c.brandTertiary },
+  dirText: { fontSize: 13, fontWeight: "700", color: c.brandPrimary },
   small: { fontSize: 12, fontWeight: "700", color: c.brandPrimary },
   label: { fontSize: 12, fontWeight: "700", color: c.muted, textTransform: "uppercase", marginTop: 4 },
   chips: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
