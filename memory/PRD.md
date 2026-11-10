@@ -302,6 +302,11 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Web CSS injected from app/_layout.tsx (web.output "single" ignores +html.tsx): no horizontal page scroll; ≥900px centres #root in 1040px column and modals ([aria-modal]) in 720px with backdrop. Web fallbacks: clock-location blocked state explains browser permission (no Open Settings on web); camera button "Take or choose a photo". All 25 routes verified with no overflow at 1366 and 390 widths; file pickers work on web.
 - Emergent cannot publish the Expo web build as a separate live site (support_agent confirmed); web runs in preview only. Option: a separate Full Stack web project pointing at the same backend.
 
+## Iteration 66 – Microsoft sign-in fixes
+- Prod: /api/auth/microsoft/start rejected redirect from staffhub-live.emergent.host (400 "Invalid return address"; safe_return only allowed PUBLIC_BACKEND_URL host). Now allows LIVE_WEB_HOSTS {staffhub-live, staffhub-236}.emergent.host + optional env ALLOWED_RETURN_HOSTS. Needs redeploy.
+- Preview (embedded iframe): Microsoft refuses framing → web sign-in inside a frame opens a pop-up; pop-up posts the one-time code back to the opener (postMessage, same origin) and closes.
+
+
 
 - Email to payer: POST /api/invoices/{id}/email sends a private 60-day PDF link (/api/invoices/shared/{token}) via Emergent email to the funding payer email; records `emailed` + history.
 

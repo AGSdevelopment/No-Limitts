@@ -101,6 +101,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       let sid: string | null = null;
       if (Platform.OS === "web") {
         sid = extractSessionId(window.location.href);
+        // Opened as a pop-up from an embedded preview: hand the one-time code back to the app window and close.
+        if (sid && window.opener && !window.opener.closed) {
+          try {
+            window.opener.postMessage({ nlSession: sid }, window.location.origin);
+            window.close();
+            return;
+          } catch {}
+        }
         const err = urlParam(window.location.href, "auth_error");
         if (err) {
           setError(err);
@@ -143,6 +151,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const redirectUrl = Platform.OS === "web" ? window.location.origin + "/" : Linking.createURL("");
     const authUrl = `${API_URL}/auth/microsoft/start?redirect=${encodeURIComponent(redirectUrl)}`;
     if (Platform.OS === "web") {
+      // Microsoft refuses to load inside a frame (e.g. the Emergent preview panel), so sign in through a pop-up there
+      if (window.self !== window.top) {
+        const onMsg = (e: MessageEvent) => {
+          if (e.origin !== window.location.origin || !e.data?.nlSession) return;
+          window.removeEventListener("message", onMsg);
+          exchange(e.data.nlSession);
+        };
+        window.addEventListener("message", onMsg);
+        if (!window.open(authUrl, "nl-microsoft-login", "width=520,height=720")) {
+          window.removeEventListener("message", onMsg);
+          setError("Allow pop-ups for this page to sign in with Microsoft, or open the app in its own browser tab.");
+        }
+        return;
+      }
       window.location.href = authUrl;
       return;
     }

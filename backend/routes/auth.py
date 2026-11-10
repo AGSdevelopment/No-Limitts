@@ -60,13 +60,17 @@ def ms_redirect_uri() -> str:
     return (os.environ.get("PUBLIC_BACKEND_URL") or "").rstrip("/") + "/api/auth/microsoft/callback"
 
 
+LIVE_WEB_HOSTS = {"staffhub-live.emergent.host", "staffhub-236.emergent.host"}  # published app addresses
+
+
 def safe_return(url: str) -> bool:
-    """Only send the login result back to this app (web origin or app deep link)."""
+    """Only send the login result back to this app (its own web addresses or the app deep link)."""
     p = urlparse(url or "")
     if p.scheme in APP_SCHEMES:
         return True
     own = urlparse(os.environ.get("PUBLIC_BACKEND_URL") or "").hostname
-    return p.scheme in ("http", "https") and (p.hostname == own or p.hostname == "localhost")
+    extra = {h.strip().lower() for h in (os.environ.get("ALLOWED_RETURN_HOSTS") or "").split(",") if h.strip()}
+    return p.scheme in ("http", "https") and (p.hostname in {own, "localhost"} | LIVE_WEB_HOSTS | extra)
 
 
 def back_to_app(ret: str, **params) -> RedirectResponse:
