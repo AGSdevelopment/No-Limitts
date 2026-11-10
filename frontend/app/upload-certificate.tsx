@@ -236,7 +236,7 @@ export default function UploadCertificate() {
         <Pressable testID="upload-take-photo" onPress={takePhoto} style={({ pressed }) => [styles.camera, pressed && { opacity: 0.85 }]}>
           <Ionicons name="camera" size={26} color={colors.onBrandPrimary} />
           <View style={{ flex: 1 }}>
-            <Text style={styles.cameraText}>Take a photo</Text>
+            <Text style={styles.cameraText}>{Platform.OS === "web" ? "Take or choose a photo" : "Take a photo"}</Text>
             <Text style={styles.cameraSub}>We&apos;ll fill in the details for you</Text>
           </View>
           <Ionicons name="sparkles" size={18} color={colors.onBrandPrimary} />

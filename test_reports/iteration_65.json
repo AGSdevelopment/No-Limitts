@@ -1,0 +1,33 @@
+{
+  "summary": "Web/responsive round (frontend only). Swept all 25 requested logged-in routes + /login (logged out) at 1366x768 and 390x844 as Admin (test_session_admin), plus 8 key routes as Support Worker (emp.test password login works). Result: NO page-level horizontal overflow anywhere (documentElement.scrollWidth == innerWidth on every route; no element escapes the viewport outside an intentional inner scroller), no crashes/red screens/pageerrors, content renders on all routes. File pickers on web PASS: /upload-certificate 'Choose file' (PDF), 'From photos' (PNG) and 'Take or choose a photo' all open a browser file chooser and the picked file shows in upload-selected-file; /reports 'Upload a report' opens a chooser and shows the Upload report sheet with title prefilled. Phone viewport sheets are full-width bottom sheets (reports sheet x=0,w=390, bottom-anchored). Rostering Roster/Week/Approvals/Report/Swaps tabs (admin) and My shifts (worker) render with no overflow. CRITICAL FAIL: the desktop column layout and centred dialogs do NOT work at all — app/+html.tsx is never used because app.json has web.output='single' (served HTML is Expo's default template; none of the custom <style> is in the page). At 1366px the app root is 1366 wide, and New shift / Invoice details / New participant group sheets are full 1366px width with no backdrop shadow. Additionally the selector 'body > div:first-child' would not match even if injected, because body's first child is <noscript>. Verified fix by injecting the corrected CSS (using #root): root becomes 1040px centred (left 163), New shift sheet becomes 720px centred (left 323) with dim backdrop, Cancel closes it, bottom tab bar navigation works inside the column.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "app/+html.tsx (desktop column + centred modals + html/body overflow-x)", "issue": "No effect on web: app.json web.output is 'single', so Expo Router ignores +html.tsx (only used for static/server output). Served index.html contains only Expo's default 'expo-reset' style. Desktop: #root width = viewport (1366), modals [aria-modal=true] width 1366, box-shadow none.", "testID": "new-shift-sheet, inv-settings-sheet, groups-pick", "priority": "HIGH"},
+      {"component": "app/+html.tsx:27,33 selector", "issue": "'body > div:first-child' never matches: body children are <noscript>, <div id=root>, scripts, ... Use '#root' instead.", "testID": "n/a", "priority": "HIGH"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Desktop sheets (after fix)", "issues": ["With the corrected CSS the RN scrim inside the 720px modal is darker than the 100vmax box-shadow outside it, giving a visible vertical band at the modal edges. Cosmetic; could set the outside shadow alpha to match the scrim or make the [aria-modal] element transparent-backdrop full width and only constrain the sheet child."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_65.json"],
+  "action_items": [
+    "HIGH: Make the web CSS actually load. app.json is protected (web.output='single'), so inject the styles at runtime in app/_layout.tsx: if (Platform.OS === 'web' && typeof document !== 'undefined') { const s = document.createElement('style'); s.id = 'nl-web'; s.textContent = CSS; document.head.appendChild(s); } (guard against duplicates). Alternatively add public/index.html (Expo's single-output template) containing the styles. Keep +html.tsx only if moving to static output.",
+    "HIGH: Replace 'body > div:first-child' with '#root' in the CSS. Verified working CSS: '#root{position:fixed!important;top:0;left:0;right:0;bottom:0} html,body{overflow-x:hidden;background:#F3EEE6} @media (min-width:900px){#root{max-width:1040px;margin:0 auto;box-shadow:0 0 40px rgba(0,0,0,0.08)} [aria-modal=\"true\"]{max-width:720px;margin:0 auto!important;box-shadow:0 0 0 100vmax rgba(0,0,0,0.35)}}' (the position:fixed line is optional; app already fills height via expo-reset).",
+    "After fixing, re-check desktop sheets at 1366x768 (Funding row detail, New shift, Invoice details, New participant group) and confirm phone (<900px) is unchanged."
+  ],
+  "critical_code_review_comments": [
+    "clock-location.tsx web branch is correct: 'Open Settings' hidden on web, browser-specific guidance shown (could not trigger in UI: no rostered shifts for test worker).",
+    "upload-certificate.tsx: takePhoto on web goes straight to launchCameraAsync (opens file/camera chooser) — verified chooser opens.",
+    "No deprecated packages (expo-av / expo-barcode-scanner / expo-background-fetch) in package.json."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (not tested)", "frontend": "~90% (overflow sweep 52/52 route-viewport checks pass, file pickers 4/4 pass, phone sheets pass; desktop column/modal centring 0% - not applied)"},
+  "seed_data_creation": "None. No data created (report upload sheet opened but not submitted; certificate not submitted).",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Login bypass: localStorage auth_token = JSON.stringify('test_session_admin'). Worker password login: emp.test@example.com / TestWorker#2026 (testIDs login-email, login-password, login-password-button). RN-web Modal portals render as body-level divs with aria-modal=true (outside #root). Funding has no rows in preview so Funding row detail sheet could not be opened; admin has no 'My shifts' tab (no worker shifts). Overflow check JS: compare document.documentElement.scrollWidth to innerWidth and scan #root descendants whose rect exceeds the viewport and aren't clipped by an overflow!=visible ancestor.",
+  "rca_of_issue": "Desktop centring missing: Expo Router only uses app/+html.tsx for web.output 'static'/'server'. app.json sets 'single', so the dev server and export serve Expo's default index.html (confirmed via curl: only <style id='expo-reset'>). Secondary: CSS selector 'body > div:first-child' targets nothing because <noscript> is the first body child. Reproduce: open / at 1366x768 -> #root.getBoundingClientRect().width === 1366; open /pm/rostering > New shift -> [aria-modal] width 1366. Mitigation verified via page.add_style_tag with '#root' selector."
+}

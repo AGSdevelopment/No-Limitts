@@ -32,7 +32,11 @@
     "web": {
       "bundler": "metro",
       "output": "single",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/favicon.png",
+      "name": "No Limitts",
+      "shortName": "No Limitts",
+      "themeColor": "#f7a51d",
+      "backgroundColor": "#FFFFFF"
     },
     "plugins": [
       "expo-router",

@@ -62,10 +62,12 @@ export function useClockLocation() {
     <Sheet visible={!!ask} onClose={() => finish(null)} testID="clock-location-sheet"
       title={ask === "blocked" ? "Location is turned off for No Limitts" : "Share your location to clock in?"}
       sub={ask === "blocked"
-        ? "Turn location on in Settings so your clock-ins are confirmed automatically. You can still clock in without it, but Rosters will review the times."
+        ? Platform.OS === "web"
+          ? "Your browser is blocking location for this site. Allow it from the lock icon next to the web address, then try again. You can still clock in without it, but Rosters will review the times."
+          : "Turn location on in Settings so your clock-ins are confirmed automatically. You can still clock in without it, but Rosters will review the times."
         : "We check you're at the participant's address when you clock in. Your location is only read at that moment, never tracked."}>
       {ask === "blocked" ? (
-        <Button label="Open Settings" icon="settings-outline" onPress={() => { Linking.openSettings(); finish(null); }} testID="clock-location-settings" />
+        Platform.OS === "web" ? null : <Button label="Open Settings" icon="settings-outline" onPress={() => { Linking.openSettings(); finish(null); }} testID="clock-location-settings" />
       ) : (
         <Button label="Share location" icon="location-outline" onPress={share} testID="clock-location-share" />
       )}

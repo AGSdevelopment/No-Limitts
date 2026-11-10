@@ -298,5 +298,10 @@ Build a mobile app for employees to chat, monitor and upload training certificat
 - Participant Groups (routes/participant_groups.py, /participant-groups): one per participant, members = Support Team (assigned_ids) + coordinator extra_ids − excluded_ids; group chat conversation type "group" (Chat → Groups tab); announcements; group tasks (kind action|acknowledge) create per-member tasks (participant_group_id); tracker /participant-groups/compliance (linked from Compliance + Reports). Sync loop every 10 min.
 - Reports (routes/reports.py, /reports, Company Drive → Reports button): admin/hr/support_coordinator/finance; built-in report links + private uploaded report files (object storage, categories).
 
+## Iteration 65 (Jun 2026) – Web / dual platform
+- Web CSS injected from app/_layout.tsx (web.output "single" ignores +html.tsx): no horizontal page scroll; ≥900px centres #root in 1040px column and modals ([aria-modal]) in 720px with backdrop. Web fallbacks: clock-location blocked state explains browser permission (no Open Settings on web); camera button "Take or choose a photo". All 25 routes verified with no overflow at 1366 and 390 widths; file pickers work on web.
+- Emergent cannot publish the Expo web build as a separate live site (support_agent confirmed); web runs in preview only. Option: a separate Full Stack web project pointing at the same backend.
+
+
 - Email to payer: POST /api/invoices/{id}/email sends a private 60-day PDF link (/api/invoices/shared/{token}) via Emergent email to the funding payer email; records `emailed` + history.
 

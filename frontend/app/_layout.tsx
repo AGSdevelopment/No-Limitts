@@ -2,7 +2,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { useFonts } from "expo-font";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { Image, LogBox, StyleSheet, View, ActivityIndicator } from "react-native";
+import { Image, LogBox, Platform, StyleSheet, View, ActivityIndicator } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 
@@ -16,6 +16,20 @@ import { useTheme } from "@/src/theme";
 // Disable logbox errors etc so that users can see the app
 // and agent works as expected.
 LogBox.ignoreAllLogs(true);
+
+// Web (desktop, Chromebook, phone browsers): no sideways page scroll; on wide screens centre the app and its dialogs in a readable column.
+if (Platform.OS === "web" && typeof document !== "undefined" && !document.getElementById("nl-web-layout")) {
+  const css = document.createElement("style");
+  css.id = "nl-web-layout";
+  css.textContent = `
+    html, body { overflow-x: hidden; background: #F3EEE6; }
+    @media (min-width: 900px) {
+      #root { max-width: 1040px; margin: 0 auto; box-shadow: 0 0 40px rgba(0,0,0,0.08); }
+      [aria-modal="true"] { max-width: 720px; margin: 0 auto !important; box-shadow: 0 0 0 100vmax rgba(0,0,0,0.3); }
+    }`;
+  document.head.appendChild(css);
+  document.title = "No Limitts";
+}
 
 function RootStack() {
   const { user, loading } = useAuth();
